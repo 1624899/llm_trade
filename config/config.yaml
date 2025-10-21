@@ -1,0 +1,53 @@
+# 系统配置文件
+
+# LLM API配置
+llm:
+  provider: "deepseek"  
+  api_key: "sk-b62bc08f8fe6475b871c60bc22e979d1"
+  base_url: "https://api.deepseek.com/v1"
+  model: "deepseek-chat"
+  max_tokens: 8000
+  temperature: 0.7
+
+# 数据获取配置
+data:
+  update_interval: 180  # 数据更新间隔（秒）
+  cache_duration: 3600  # 缓存持续时间（秒）
+  retry_times: 3        # 重试次数
+  timeout: 30           # 请求超时时间（秒）
+
+# 技术指标参数
+indicators:
+  ema:
+    short: 12
+    long: 20
+    signal: 9
+  macd:
+    fast: 12
+    slow: 26
+    signal: 9
+  rsi:
+    period_7: 7
+    period_14: 14
+  kdj:
+    period: 9
+    k_period: 3
+    d_period: 3
+  boll:
+    period: 20
+    std_dev: 2
+  wr:
+    period: 14
+
+# 日志配置
+logging:
+  level: "INFO"
+  file: "logs/etf_trading.log"
+  max_size: "10MB"
+  backup_count: 5
+
+# 交易配置
+trading:
+  leverage: 1  # 杠杆倍数
+  risk_percent: 2  # 风险比例（%）
+  max_positions: 5  # 最大持仓数量

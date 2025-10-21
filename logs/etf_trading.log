@@ -1,0 +1,471 @@
+2025-10-20 16:34:09 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-20 16:34:09 | INFO | src.utils:create_directories:220 | 目录创建成功: data/market_data
+2025-10-20 16:34:09 | INFO | src.utils:create_directories:220 | 目录创建成功: logs
+2025-10-20 16:34:09 | INFO | src.utils:create_directories:220 | 目录创建成功: outputs
+2025-10-20 16:34:09 | INFO | src.data_fetcher:__init__:36 | ETF数据获取器初始化完成
+2025-10-20 16:34:09 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-20 16:34:09 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-20 16:34:09 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-20 16:34:09 | INFO | src.prompt_generator:__init__:27 | 语料生成器初始化完成
+2025-10-20 16:34:09 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: openai
+2025-10-20 16:34:09 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-20 16:34:30 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 518880 实时数据获取成功
+2025-10-20 16:34:30 | INFO | src.llm_client:generate_trading_advice:257 | 调用LLM API生成交易建议，尝试次数: 1
+2025-10-20 16:34:30 | ERROR | src.llm_client:generate_trading_advice:285 | LLM API请求失败 (尝试 1): 401 Client Error: Unauthorized for url: https://api.openai.com/v1/chat/completions
+2025-10-20 16:34:30 | ERROR | src.llm_client:test_connection:389 | LLM API连接测试失败
+2025-10-20 16:34:59 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-20 16:34:59 | INFO | src.utils:create_directories:220 | 目录创建成功: data/market_data
+2025-10-20 16:34:59 | INFO | src.utils:create_directories:220 | 目录创建成功: logs
+2025-10-20 16:34:59 | INFO | src.utils:create_directories:220 | 目录创建成功: outputs
+2025-10-20 16:34:59 | INFO | src.data_fetcher:__init__:36 | ETF数据获取器初始化完成
+2025-10-20 16:34:59 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-20 16:34:59 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-20 16:34:59 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-20 16:34:59 | INFO | src.prompt_generator:__init__:27 | 语料生成器初始化完成
+2025-10-20 16:34:59 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: openai
+2025-10-20 16:39:27 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-20 16:39:27 | INFO | src.utils:create_directories:220 | 目录创建成功: data/market_data
+2025-10-20 16:39:27 | INFO | src.utils:create_directories:220 | 目录创建成功: logs
+2025-10-20 16:39:27 | INFO | src.utils:create_directories:220 | 目录创建成功: outputs
+2025-10-20 16:39:27 | INFO | src.data_fetcher:__init__:36 | ETF数据获取器初始化完成
+2025-10-20 16:39:27 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-20 16:39:27 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-20 16:39:27 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-20 16:39:27 | INFO | src.prompt_generator:__init__:27 | 语料生成器初始化完成
+2025-10-20 16:39:27 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: openai
+2025-10-20 16:39:27 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-20 16:39:45 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 518880 实时数据获取成功
+2025-10-20 16:39:45 | INFO | src.llm_client:generate_trading_advice:257 | 调用LLM API生成交易建议，尝试次数: 1
+2025-10-20 16:39:46 | ERROR | src.llm_client:generate_trading_advice:285 | LLM API请求失败 (尝试 1): 400 Client Error: Bad Request for url: https://api.deepseek.com/v1/chat/completions
+2025-10-20 16:39:46 | ERROR | src.llm_client:test_connection:389 | LLM API连接测试失败
+2025-10-20 16:43:55 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-20 16:43:55 | INFO | src.utils:create_directories:220 | 目录创建成功: data/market_data
+2025-10-20 16:43:55 | INFO | src.utils:create_directories:220 | 目录创建成功: logs
+2025-10-20 16:43:55 | INFO | src.utils:create_directories:220 | 目录创建成功: outputs
+2025-10-20 16:43:55 | INFO | src.data_fetcher:__init__:36 | ETF数据获取器初始化完成
+2025-10-20 16:43:55 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-20 16:43:55 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-20 16:43:55 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-20 16:43:55 | INFO | src.prompt_generator:__init__:27 | 语料生成器初始化完成
+2025-10-20 16:43:55 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: openai
+2025-10-20 16:43:55 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-20 16:44:14 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 518880 实时数据获取成功
+2025-10-20 16:44:14 | INFO | src.llm_client:generate_trading_advice:257 | 调用LLM API生成交易建议，尝试次数: 1
+2025-10-20 16:44:16 | INFO | src.llm_client:generate_trading_advice:279 | 交易建议生成成功
+2025-10-20 16:44:16 | INFO | src.llm_client:test_connection:386 | LLM API连接测试成功
+2025-10-20 16:44:35 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-20 16:44:35 | INFO | src.utils:create_directories:220 | 目录创建成功: data/market_data
+2025-10-20 16:44:35 | INFO | src.utils:create_directories:220 | 目录创建成功: logs
+2025-10-20 16:44:35 | INFO | src.utils:create_directories:220 | 目录创建成功: outputs
+2025-10-20 16:44:35 | INFO | src.data_fetcher:__init__:36 | ETF数据获取器初始化完成
+2025-10-20 16:44:35 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-20 16:44:35 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-20 16:44:35 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-20 16:44:35 | INFO | src.prompt_generator:__init__:27 | 语料生成器初始化完成
+2025-10-20 16:44:35 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: openai
+2025-10-20 16:44:35 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-20 16:44:53 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 518880 实时数据获取成功
+2025-10-20 16:44:53 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 1
+2025-10-20 16:44:54 | ERROR | src.data_fetcher:get_historical_data:165 | 获取ETF 518880 历史数据失败 (尝试 1): '1d'
+2025-10-20 16:44:55 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 2
+2025-10-20 16:44:55 | ERROR | src.data_fetcher:get_historical_data:165 | 获取ETF 518880 历史数据失败 (尝试 2): '1d'
+2025-10-20 16:44:57 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 3
+2025-10-20 16:44:57 | ERROR | src.data_fetcher:get_historical_data:165 | 获取ETF 518880 历史数据失败 (尝试 3): '1d'
+2025-10-20 16:44:57 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 512760, 尝试次数: 1
+2025-10-20 16:45:07 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 512760 实时数据获取成功
+2025-10-20 16:45:07 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 512760, 周期: 1d, 尝试次数: 1
+2025-10-20 16:45:07 | ERROR | src.data_fetcher:get_historical_data:165 | 获取ETF 512760 历史数据失败 (尝试 1): '1d'
+2025-10-20 16:45:08 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 512760, 周期: 1d, 尝试次数: 2
+2025-10-20 16:45:08 | ERROR | src.data_fetcher:get_historical_data:165 | 获取ETF 512760 历史数据失败 (尝试 2): '1d'
+2025-10-20 16:45:10 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 512760, 周期: 1d, 尝试次数: 3
+2025-10-20 16:45:10 | ERROR | src.data_fetcher:get_historical_data:165 | 获取ETF 512760 历史数据失败 (尝试 3): '1d'
+2025-10-20 16:45:10 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 515700, 尝试次数: 1
+2025-10-20 16:45:19 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 515700 实时数据获取成功
+2025-10-20 16:45:19 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 515700, 周期: 1d, 尝试次数: 1
+2025-10-20 16:45:19 | ERROR | src.data_fetcher:get_historical_data:165 | 获取ETF 515700 历史数据失败 (尝试 1): '1d'
+2025-10-20 16:45:20 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 515700, 周期: 1d, 尝试次数: 2
+2025-10-20 16:45:20 | ERROR | src.data_fetcher:get_historical_data:165 | 获取ETF 515700 历史数据失败 (尝试 2): '1d'
+2025-10-20 16:45:22 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 515700, 周期: 1d, 尝试次数: 3
+2025-10-20 16:45:22 | ERROR | src.data_fetcher:get_historical_data:165 | 获取ETF 515700 历史数据失败 (尝试 3): '1d'
+2025-10-20 16:45:22 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 512120, 尝试次数: 1
+2025-10-20 16:46:08 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-20 16:46:08 | INFO | src.utils:create_directories:220 | 目录创建成功: data/market_data
+2025-10-20 16:46:08 | INFO | src.utils:create_directories:220 | 目录创建成功: logs
+2025-10-20 16:46:08 | INFO | src.utils:create_directories:220 | 目录创建成功: outputs
+2025-10-20 16:46:08 | INFO | src.data_fetcher:__init__:36 | ETF数据获取器初始化完成
+2025-10-20 16:46:08 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-20 16:46:08 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-20 16:46:08 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-20 16:46:08 | INFO | src.prompt_generator:__init__:27 | 语料生成器初始化完成
+2025-10-20 16:46:08 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: openai
+2025-10-20 16:46:08 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-20 16:46:26 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 518880 实时数据获取成功
+2025-10-20 16:46:26 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 1
+2025-10-20 16:46:28 | INFO | src.data_fetcher:get_historical_data:161 | ETF 518880 历史数据获取成功，数据条数: 100
+2025-10-20 16:46:28 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-20 16:46:28 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 518880, 周期: 1m, 尝试次数: 1
+2025-10-20 16:46:28 | ERROR | src.data_fetcher:get_historical_data:165 | 获取ETF 518880 历史数据失败 (尝试 1): '1m'
+2025-10-20 16:46:29 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 518880, 周期: 1m, 尝试次数: 2
+2025-10-20 16:46:29 | ERROR | src.data_fetcher:get_historical_data:165 | 获取ETF 518880 历史数据失败 (尝试 2): '1m'
+2025-10-20 16:46:31 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 518880, 周期: 1m, 尝试次数: 3
+2025-10-20 16:46:31 | ERROR | src.data_fetcher:get_historical_data:165 | 获取ETF 518880 历史数据失败 (尝试 3): '1m'
+2025-10-20 16:46:31 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 512760, 尝试次数: 1
+2025-10-20 16:46:40 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 512760 实时数据获取成功
+2025-10-20 16:46:40 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 512760, 周期: 1d, 尝试次数: 1
+2025-10-20 16:46:40 | INFO | src.data_fetcher:get_historical_data:161 | ETF 512760 历史数据获取成功，数据条数: 100
+2025-10-20 16:46:40 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-20 16:46:40 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 512760, 周期: 1m, 尝试次数: 1
+2025-10-20 16:46:40 | ERROR | src.data_fetcher:get_historical_data:165 | 获取ETF 512760 历史数据失败 (尝试 1): '1m'
+2025-10-20 16:46:41 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 512760, 周期: 1m, 尝试次数: 2
+2025-10-20 16:46:41 | ERROR | src.data_fetcher:get_historical_data:165 | 获取ETF 512760 历史数据失败 (尝试 2): '1m'
+2025-10-20 16:47:27 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-20 16:47:27 | INFO | src.utils:create_directories:220 | 目录创建成功: data/market_data
+2025-10-20 16:47:27 | INFO | src.utils:create_directories:220 | 目录创建成功: logs
+2025-10-20 16:47:27 | INFO | src.utils:create_directories:220 | 目录创建成功: outputs
+2025-10-20 16:47:27 | INFO | src.data_fetcher:__init__:36 | ETF数据获取器初始化完成
+2025-10-20 16:47:27 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-20 16:47:27 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-20 16:47:27 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-20 16:47:27 | INFO | src.prompt_generator:__init__:27 | 语料生成器初始化完成
+2025-10-20 16:47:27 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: openai
+2025-10-20 16:47:27 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-20 16:47:45 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 518880 实时数据获取成功
+2025-10-20 16:47:45 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 1
+2025-10-20 16:47:46 | INFO | src.data_fetcher:get_historical_data:170 | ETF 518880 历史数据获取成功，数据条数: 100
+2025-10-20 16:47:46 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-20 16:47:46 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 518880, 周期: 1m, 尝试次数: 1
+2025-10-20 16:47:46 | WARNING | src.data_fetcher:get_historical_data:140 | 分钟级数据获取失败，使用日级数据替代: 518880
+2025-10-20 16:47:46 | INFO | src.data_fetcher:get_historical_data:170 | ETF 518880 历史数据获取成功，数据条数: 240
+2025-10-20 16:47:46 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 512760, 尝试次数: 1
+2025-10-20 16:47:56 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 512760 实时数据获取成功
+2025-10-20 16:47:56 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 512760, 周期: 1d, 尝试次数: 1
+2025-10-20 16:47:56 | INFO | src.data_fetcher:get_historical_data:170 | ETF 512760 历史数据获取成功，数据条数: 100
+2025-10-20 16:47:56 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-20 16:47:56 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 512760, 周期: 1m, 尝试次数: 1
+2025-10-20 16:47:56 | WARNING | src.data_fetcher:get_historical_data:140 | 分钟级数据获取失败，使用日级数据替代: 512760
+2025-10-20 16:47:56 | INFO | src.data_fetcher:get_historical_data:170 | ETF 512760 历史数据获取成功，数据条数: 240
+2025-10-20 16:47:56 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 515700, 尝试次数: 1
+2025-10-20 16:48:05 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 515700 实时数据获取成功
+2025-10-20 16:48:05 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 515700, 周期: 1d, 尝试次数: 1
+2025-10-20 16:48:05 | INFO | src.data_fetcher:get_historical_data:170 | ETF 515700 历史数据获取成功，数据条数: 100
+2025-10-20 16:48:05 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-20 16:48:05 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 515700, 周期: 1m, 尝试次数: 1
+2025-10-20 16:48:05 | WARNING | src.data_fetcher:get_historical_data:140 | 分钟级数据获取失败，使用日级数据替代: 515700
+2025-10-20 16:48:05 | INFO | src.data_fetcher:get_historical_data:170 | ETF 515700 历史数据获取成功，数据条数: 240
+2025-10-20 16:48:05 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 512120, 尝试次数: 1
+2025-10-20 16:48:23 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 512120 实时数据获取成功
+2025-10-20 16:48:23 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 512120, 周期: 1d, 尝试次数: 1
+2025-10-20 16:48:23 | INFO | src.data_fetcher:get_historical_data:170 | ETF 512120 历史数据获取成功，数据条数: 100
+2025-10-20 16:48:23 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-20 16:48:23 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 512120, 周期: 1m, 尝试次数: 1
+2025-10-20 16:48:23 | WARNING | src.data_fetcher:get_historical_data:140 | 分钟级数据获取失败，使用日级数据替代: 512120
+2025-10-20 16:48:23 | INFO | src.data_fetcher:get_historical_data:170 | ETF 512120 历史数据获取成功，数据条数: 240
+2025-10-20 16:48:24 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 510630, 尝试次数: 1
+2025-10-20 16:48:42 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 510630 实时数据获取成功
+2025-10-20 16:48:42 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 510630, 周期: 1d, 尝试次数: 1
+2025-10-20 16:48:42 | INFO | src.data_fetcher:get_historical_data:170 | ETF 510630 历史数据获取成功，数据条数: 100
+2025-10-20 16:48:42 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-20 16:48:42 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 510630, 周期: 1m, 尝试次数: 1
+2025-10-20 16:48:42 | WARNING | src.data_fetcher:get_historical_data:140 | 分钟级数据获取失败，使用日级数据替代: 510630
+2025-10-20 16:48:42 | INFO | src.data_fetcher:get_historical_data:170 | ETF 510630 历史数据获取成功，数据条数: 240
+2025-10-20 16:48:42 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 515000, 尝试次数: 1
+2025-10-20 16:48:52 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 515000 实时数据获取成功
+2025-10-20 16:48:52 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 515000, 周期: 1d, 尝试次数: 1
+2025-10-20 16:48:52 | INFO | src.data_fetcher:get_historical_data:170 | ETF 515000 历史数据获取成功，数据条数: 100
+2025-10-20 16:48:52 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-20 16:48:52 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 515000, 周期: 1m, 尝试次数: 1
+2025-10-20 16:48:52 | WARNING | src.data_fetcher:get_historical_data:140 | 分钟级数据获取失败，使用日级数据替代: 515000
+2025-10-20 16:48:53 | INFO | src.data_fetcher:get_historical_data:170 | ETF 515000 历史数据获取成功，数据条数: 240
+2025-10-20 16:48:53 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 510300, 尝试次数: 1
+2025-10-20 17:09:46 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-20 17:09:46 | INFO | src.utils:create_directories:220 | 目录创建成功: data/market_data
+2025-10-20 17:09:46 | INFO | src.utils:create_directories:220 | 目录创建成功: logs
+2025-10-20 17:09:46 | INFO | src.utils:create_directories:220 | 目录创建成功: outputs
+2025-10-20 17:09:46 | INFO | src.data_fetcher:__init__:36 | ETF数据获取器初始化完成
+2025-10-20 17:09:46 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-20 17:09:46 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-20 17:09:46 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-20 17:09:46 | INFO | src.prompt_generator:__init__:27 | 语料生成器初始化完成
+2025-10-20 17:09:46 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: deepseek
+2025-10-20 17:09:46 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-20 17:10:05 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 518880 实时数据获取成功
+2025-10-20 17:10:05 | INFO | src.llm_client:generate_trading_advice:257 | 调用LLM API生成交易建议，尝试次数: 1
+2025-10-20 17:10:05 | ERROR | src.llm_client:generate_trading_advice:285 | LLM API请求失败 (尝试 1): 400 Client Error: Bad Request for url: https://api.deepseek.com/v1/chat/completions
+2025-10-20 17:10:05 | ERROR | src.llm_client:test_connection:389 | LLM API连接测试失败
+2025-10-20 17:44:26 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-20 17:44:26 | INFO | src.utils:create_directories:220 | 目录创建成功: data/market_data
+2025-10-20 17:44:26 | INFO | src.utils:create_directories:220 | 目录创建成功: logs
+2025-10-20 17:44:26 | INFO | src.utils:create_directories:220 | 目录创建成功: outputs
+2025-10-20 17:44:26 | INFO | src.data_fetcher:__init__:36 | ETF数据获取器初始化完成
+2025-10-20 17:44:26 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-20 17:44:26 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-20 17:44:26 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-20 17:44:26 | INFO | src.prompt_generator:__init__:27 | 语料生成器初始化完成
+2025-10-20 17:44:26 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: deepseek
+2025-10-20 17:44:26 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-20 17:44:42 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-20 17:44:42 | INFO | src.utils:create_directories:220 | 目录创建成功: data/market_data
+2025-10-20 17:44:42 | INFO | src.utils:create_directories:220 | 目录创建成功: logs
+2025-10-20 17:44:42 | INFO | src.utils:create_directories:220 | 目录创建成功: outputs
+2025-10-20 17:44:42 | INFO | src.data_fetcher:__init__:36 | ETF数据获取器初始化完成
+2025-10-20 17:44:42 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-20 17:44:42 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-20 17:44:42 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-20 17:44:42 | INFO | src.prompt_generator:__init__:27 | 语料生成器初始化完成
+2025-10-20 17:44:42 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: deepseek
+2025-10-20 17:44:42 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-20 17:44:44 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 518880 实时数据获取成功
+2025-10-20 17:44:44 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 1
+2025-10-20 17:44:46 | INFO | src.data_fetcher:get_historical_data:170 | ETF 518880 历史数据获取成功，数据条数: 100
+2025-10-20 17:44:46 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-20 17:44:46 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 518880, 周期: 1m, 尝试次数: 1
+2025-10-20 17:44:46 | WARNING | src.data_fetcher:get_historical_data:140 | 分钟级数据获取失败，使用日级数据替代: 518880
+2025-10-20 17:44:46 | INFO | src.data_fetcher:get_historical_data:170 | ETF 518880 历史数据获取成功，数据条数: 240
+2025-10-20 17:44:46 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 512760, 尝试次数: 1
+2025-10-20 17:44:56 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 512760 实时数据获取成功
+2025-10-20 17:44:56 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 512760, 周期: 1d, 尝试次数: 1
+2025-10-20 17:44:56 | INFO | src.data_fetcher:get_historical_data:170 | ETF 512760 历史数据获取成功，数据条数: 100
+2025-10-20 17:44:56 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-20 17:44:56 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 512760, 周期: 1m, 尝试次数: 1
+2025-10-20 17:44:56 | WARNING | src.data_fetcher:get_historical_data:140 | 分钟级数据获取失败，使用日级数据替代: 512760
+2025-10-20 17:44:56 | INFO | src.data_fetcher:get_historical_data:170 | ETF 512760 历史数据获取成功，数据条数: 240
+2025-10-20 17:44:56 | INFO | src.account:update_position_price:146 | ETF持仓 518880 价格更新: 9.35 -> 9.268
+2025-10-20 17:44:56 | INFO | src.account:_update_account_summary:239 | ETF账户摘要更新: 总资产=14958.70, 总盈亏=-41.00, 当日盈亏=-41.20
+2025-10-20 17:44:56 | INFO | src.utils:save_account_data:89 | 账户数据保存成功: data/account_data.json
+2025-10-20 17:44:56 | INFO | src.prompt_generator:generate_trading_prompt:57 | 交易提示词生成成功
+2025-10-20 17:44:56 | INFO | src.llm_client:generate_trading_advice:257 | 调用LLM API生成交易建议，尝试次数: 1
+2025-10-20 17:45:00 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 518880 实时数据获取成功
+2025-10-20 17:45:00 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 1
+2025-10-20 17:45:01 | INFO | src.data_fetcher:get_historical_data:170 | ETF 518880 历史数据获取成功，数据条数: 100
+2025-10-20 17:45:01 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-20 17:45:01 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 518880, 周期: 1m, 尝试次数: 1
+2025-10-20 17:45:01 | WARNING | src.data_fetcher:get_historical_data:140 | 分钟级数据获取失败，使用日级数据替代: 518880
+2025-10-20 17:45:01 | INFO | src.data_fetcher:get_historical_data:170 | ETF 518880 历史数据获取成功，数据条数: 240
+2025-10-20 17:45:02 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 512760, 尝试次数: 1
+2025-10-20 17:45:08 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-20 17:45:08 | INFO | src.utils:create_directories:220 | 目录创建成功: data/market_data
+2025-10-20 17:45:08 | INFO | src.utils:create_directories:220 | 目录创建成功: logs
+2025-10-20 17:45:08 | INFO | src.utils:create_directories:220 | 目录创建成功: outputs
+2025-10-20 17:45:08 | INFO | src.data_fetcher:__init__:36 | ETF数据获取器初始化完成
+2025-10-20 17:45:08 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-20 17:45:08 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-20 17:45:08 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-20 17:45:08 | INFO | src.prompt_generator:__init__:27 | 语料生成器初始化完成
+2025-10-20 17:45:08 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: deepseek
+2025-10-20 17:45:08 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-20 17:45:11 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 512760 实时数据获取成功
+2025-10-20 17:45:11 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 512760, 周期: 1d, 尝试次数: 1
+2025-10-20 17:45:11 | INFO | src.data_fetcher:get_historical_data:170 | ETF 512760 历史数据获取成功，数据条数: 100
+2025-10-20 17:45:11 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-20 17:45:11 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 512760, 周期: 1m, 尝试次数: 1
+2025-10-20 17:45:11 | WARNING | src.data_fetcher:get_historical_data:140 | 分钟级数据获取失败，使用日级数据替代: 512760
+2025-10-20 17:45:11 | INFO | src.data_fetcher:get_historical_data:170 | ETF 512760 历史数据获取成功，数据条数: 240
+2025-10-20 17:45:11 | INFO | src.account:update_position_price:146 | ETF持仓 518880 价格更新: 9.35 -> 9.268
+2025-10-20 17:45:11 | INFO | src.account:_update_account_summary:239 | ETF账户摘要更新: 总资产=14958.70, 总盈亏=-41.00, 当日盈亏=-41.20
+2025-10-20 17:45:11 | INFO | src.utils:save_account_data:89 | 账户数据保存成功: data/account_data.json
+2025-10-20 17:45:11 | INFO | src.prompt_generator:generate_trading_prompt:57 | 交易提示词生成成功
+2025-10-20 17:45:11 | INFO | src.llm_client:generate_trading_advice:257 | 调用LLM API生成交易建议，尝试次数: 1
+2025-10-20 17:45:15 | INFO | src.llm_client:generate_trading_advice:279 | 交易建议生成成功
+2025-10-20 17:45:15 | INFO | src.prompt_generator:save_prompt_to_file:422 | 提示词已保存到: outputs\trading_prompt_20251020_174515.md
+2025-10-20 17:45:15 | INFO | src.llm_client:save_advice_to_file:443 | 交易建议已保存到: outputs\trading_advice_20251020_174515.md
+2025-10-20 17:45:15 | INFO | src.utils:save_account_data:89 | 账户数据保存成功: data/account_data.json
+2025-10-20 17:45:27 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 518880 实时数据获取成功
+2025-10-20 17:45:27 | INFO | src.llm_client:generate_trading_advice:257 | 调用LLM API生成交易建议，尝试次数: 1
+2025-10-20 17:45:32 | INFO | src.llm_client:generate_trading_advice:279 | 交易建议生成成功
+2025-10-20 17:45:32 | INFO | src.prompt_generator:save_prompt_to_file:422 | 提示词已保存到: outputs\trading_prompt_20251020_174532.md
+2025-10-20 17:45:32 | INFO | src.llm_client:save_advice_to_file:443 | 交易建议已保存到: outputs\trading_advice_20251020_174532.md
+2025-10-20 17:45:32 | INFO | src.utils:save_account_data:89 | 账户数据保存成功: data/account_data.json
+2025-10-20 17:59:20 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-20 17:59:20 | INFO | src.utils:create_directories:220 | 目录创建成功: data/market_data
+2025-10-20 17:59:20 | INFO | src.utils:create_directories:220 | 目录创建成功: logs
+2025-10-20 17:59:20 | INFO | src.utils:create_directories:220 | 目录创建成功: outputs
+2025-10-20 17:59:20 | INFO | src.data_fetcher:__init__:36 | ETF数据获取器初始化完成
+2025-10-20 17:59:20 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-20 17:59:20 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-20 17:59:20 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-20 17:59:20 | INFO | src.prompt_generator:__init__:27 | 语料生成器初始化完成
+2025-10-20 17:59:20 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: deepseek
+2025-10-20 17:59:20 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-20 17:59:39 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 518880 实时数据获取成功
+2025-10-20 17:59:39 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 1
+2025-10-20 17:59:39 | ERROR | src.data_fetcher:get_historical_data:202 | 获取ETF 518880 历史数据失败 (尝试 1): HTTPSConnectionPool(host='88.push2.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/clist/get?pn=2&pz=100&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&wbp2u=%7C0%7C0%7C0%7Cweb&fid=f3&fs=b%3AMK0021%2Cb%3AMK0022%2Cb%3AMK0023%2Cb%3AMK0024&fields=f3%2Cf12%2Cf13 (Caused by ProxyError('Unable to connect to proxy', RemoteDisconnected('Remote end closed connection without response')))
+2025-10-20 17:59:40 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 2
+2025-10-20 17:59:40 | ERROR | src.data_fetcher:get_historical_data:202 | 获取ETF 518880 历史数据失败 (尝试 2): HTTPSConnectionPool(host='88.push2.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/clist/get?pn=1&pz=100&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&wbp2u=%7C0%7C0%7C0%7Cweb&fid=f3&fs=b%3AMK0021%2Cb%3AMK0022%2Cb%3AMK0023%2Cb%3AMK0024&fields=f3%2Cf12%2Cf13 (Caused by ProxyError('Unable to connect to proxy', RemoteDisconnected('Remote end closed connection without response')))
+2025-10-20 17:59:42 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 3
+2025-10-20 17:59:43 | ERROR | src.data_fetcher:get_historical_data:202 | 获取ETF 518880 历史数据失败 (尝试 3): HTTPSConnectionPool(host='88.push2.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/clist/get?pn=3&pz=100&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&wbp2u=%7C0%7C0%7C0%7Cweb&fid=f3&fs=b%3AMK0021%2Cb%3AMK0022%2Cb%3AMK0023%2Cb%3AMK0024&fields=f3%2Cf12%2Cf13 (Caused by ProxyError('Unable to connect to proxy', RemoteDisconnected('Remote end closed connection without response')))
+2025-10-20 17:59:43 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 512760, 尝试次数: 1
+2025-10-20 17:59:52 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 512760 实时数据获取成功
+2025-10-20 17:59:52 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 512760, 周期: 1d, 尝试次数: 1
+2025-10-20 17:59:52 | ERROR | src.data_fetcher:get_historical_data:202 | 获取ETF 512760 历史数据失败 (尝试 1): HTTPSConnectionPool(host='88.push2.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/clist/get?pn=1&pz=100&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&wbp2u=%7C0%7C0%7C0%7Cweb&fid=f3&fs=b%3AMK0021%2Cb%3AMK0022%2Cb%3AMK0023%2Cb%3AMK0024&fields=f3%2Cf12%2Cf13 (Caused by ProxyError('Unable to connect to proxy', RemoteDisconnected('Remote end closed connection without response')))
+2025-10-20 17:59:53 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 512760, 周期: 1d, 尝试次数: 2
+2025-10-20 17:59:53 | ERROR | src.data_fetcher:get_historical_data:202 | 获取ETF 512760 历史数据失败 (尝试 2): HTTPSConnectionPool(host='88.push2.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/clist/get?pn=1&pz=100&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&wbp2u=%7C0%7C0%7C0%7Cweb&fid=f3&fs=b%3AMK0021%2Cb%3AMK0022%2Cb%3AMK0023%2Cb%3AMK0024&fields=f3%2Cf12%2Cf13 (Caused by ProxyError('Unable to connect to proxy', RemoteDisconnected('Remote end closed connection without response')))
+2025-10-20 17:59:55 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 512760, 周期: 1d, 尝试次数: 3
+2025-10-20 17:59:56 | ERROR | src.data_fetcher:get_historical_data:202 | 获取ETF 512760 历史数据失败 (尝试 3): HTTPSConnectionPool(host='88.push2.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/clist/get?pn=2&pz=100&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&wbp2u=%7C0%7C0%7C0%7Cweb&fid=f3&fs=b%3AMK0021%2Cb%3AMK0022%2Cb%3AMK0023%2Cb%3AMK0024&fields=f3%2Cf12%2Cf13 (Caused by ProxyError('Unable to connect to proxy', RemoteDisconnected('Remote end closed connection without response')))
+2025-10-20 18:02:01 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-20 18:02:01 | INFO | src.utils:create_directories:220 | 目录创建成功: data/market_data
+2025-10-20 18:02:01 | INFO | src.utils:create_directories:220 | 目录创建成功: logs
+2025-10-20 18:02:01 | INFO | src.utils:create_directories:220 | 目录创建成功: outputs
+2025-10-20 18:02:01 | INFO | src.data_fetcher:__init__:36 | ETF数据获取器初始化完成
+2025-10-20 18:02:01 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-20 18:02:01 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-20 18:02:01 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-20 18:02:01 | INFO | src.prompt_generator:__init__:27 | 语料生成器初始化完成
+2025-10-20 18:02:01 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: deepseek
+2025-10-20 18:02:01 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-20 18:02:19 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 518880 实时数据获取成功
+2025-10-20 18:02:19 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 1
+2025-10-20 18:02:19 | ERROR | src.data_fetcher:get_historical_data:229 | 获取ETF 518880 历史数据失败 (尝试 1): HTTPSConnectionPool(host='88.push2.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/clist/get?pn=1&pz=100&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&wbp2u=%7C0%7C0%7C0%7Cweb&fid=f3&fs=b%3AMK0021%2Cb%3AMK0022%2Cb%3AMK0023%2Cb%3AMK0024&fields=f3%2Cf12%2Cf13 (Caused by ProxyError('Unable to connect to proxy', RemoteDisconnected('Remote end closed connection without response')))
+2025-10-20 18:02:20 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 2
+2025-10-20 18:02:21 | ERROR | src.data_fetcher:get_historical_data:229 | 获取ETF 518880 历史数据失败 (尝试 2): HTTPSConnectionPool(host='88.push2.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/clist/get?pn=9&pz=100&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&wbp2u=%7C0%7C0%7C0%7Cweb&fid=f3&fs=b%3AMK0021%2Cb%3AMK0022%2Cb%3AMK0023%2Cb%3AMK0024&fields=f3%2Cf12%2Cf13 (Caused by ProxyError('Unable to connect to proxy', RemoteDisconnected('Remote end closed connection without response')))
+2025-10-20 18:02:23 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 3
+2025-10-20 18:02:25 | INFO | src.data_fetcher:get_historical_data:225 | ETF 518880 历史数据获取成功，数据条数: 100
+2025-10-20 18:02:25 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-20 18:02:25 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 518880, 周期: 1m, 尝试次数: 1
+2025-10-20 18:02:26 | INFO | src.data_fetcher:get_historical_data:166 | 使用ETF分钟级接口获取数据成功: 518880
+2025-10-20 18:02:26 | INFO | src.data_fetcher:get_historical_data:225 | ETF 518880 历史数据获取成功，数据条数: 240
+2025-10-20 18:02:26 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 512760, 尝试次数: 1
+2025-10-20 18:43:57 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-20 18:43:57 | INFO | src.utils:create_directories:220 | 目录创建成功: data/market_data
+2025-10-20 18:43:57 | INFO | src.utils:create_directories:220 | 目录创建成功: logs
+2025-10-20 18:43:57 | INFO | src.utils:create_directories:220 | 目录创建成功: outputs
+2025-10-20 18:43:57 | INFO | src.data_fetcher:__init__:49 | ETF数据获取器初始化完成
+2025-10-20 18:43:57 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-20 18:43:57 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-20 18:43:57 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-20 18:43:57 | INFO | src.prompt_generator:__init__:27 | 语料生成器初始化完成
+2025-10-20 18:43:57 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: deepseek
+2025-10-20 18:43:57 | INFO | src.data_fetcher:get_real_time_data:73 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-20 18:47:08 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-20 18:47:08 | INFO | src.utils:create_directories:220 | 目录创建成功: data/market_data
+2025-10-20 18:47:08 | INFO | src.utils:create_directories:220 | 目录创建成功: logs
+2025-10-20 18:47:08 | INFO | src.utils:create_directories:220 | 目录创建成功: outputs
+2025-10-20 18:47:08 | INFO | src.data_fetcher:__init__:49 | ETF数据获取器初始化完成
+2025-10-20 18:47:08 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-20 18:47:08 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-20 18:47:08 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-20 18:47:08 | INFO | src.prompt_generator:__init__:27 | 语料生成器初始化完成
+2025-10-20 18:47:08 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: deepseek
+2025-10-20 18:47:08 | INFO | src.data_fetcher:get_real_time_data:73 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-20 18:47:27 | INFO | src.data_fetcher:get_real_time_data:110 | ETF 518880 实时数据获取成功
+2025-10-20 18:47:27 | INFO | src.data_fetcher:get_historical_data:146 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 1
+2025-10-20 18:47:27 | ERROR | src.data_fetcher:get_historical_data:263 | 获取ETF 518880 历史数据失败 (尝试 1): ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-10-20 18:47:29 | INFO | src.data_fetcher:get_historical_data:146 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 2
+2025-10-20 18:47:29 | ERROR | src.data_fetcher:get_historical_data:263 | 获取ETF 518880 历史数据失败 (尝试 2): ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-10-20 18:47:33 | INFO | src.data_fetcher:get_historical_data:146 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 3
+2025-10-20 18:47:33 | ERROR | src.data_fetcher:get_historical_data:263 | 获取ETF 518880 历史数据失败 (尝试 3): ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-10-20 18:47:33 | INFO | src.data_fetcher:get_real_time_data:73 | 获取ETF实时数据: 512760, 尝试次数: 1
+2025-10-20 18:47:43 | INFO | src.data_fetcher:get_real_time_data:110 | ETF 512760 实时数据获取成功
+2025-10-20 18:47:43 | INFO | src.data_fetcher:get_historical_data:146 | 获取ETF历史数据: 512760, 周期: 1d, 尝试次数: 1
+2025-10-20 18:47:43 | ERROR | src.data_fetcher:get_historical_data:263 | 获取ETF 512760 历史数据失败 (尝试 1): ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-10-20 18:47:45 | INFO | src.data_fetcher:get_historical_data:146 | 获取ETF历史数据: 512760, 周期: 1d, 尝试次数: 2
+2025-10-20 18:47:45 | ERROR | src.data_fetcher:get_historical_data:263 | 获取ETF 512760 历史数据失败 (尝试 2): ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-10-20 18:47:49 | INFO | src.data_fetcher:get_historical_data:146 | 获取ETF历史数据: 512760, 周期: 1d, 尝试次数: 3
+2025-10-20 18:47:49 | ERROR | src.data_fetcher:get_historical_data:263 | 获取ETF 512760 历史数据失败 (尝试 3): ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-10-20 18:51:35 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-20 18:51:35 | INFO | src.utils:create_directories:220 | 目录创建成功: data/market_data
+2025-10-20 18:51:35 | INFO | src.utils:create_directories:220 | 目录创建成功: logs
+2025-10-20 18:51:35 | INFO | src.utils:create_directories:220 | 目录创建成功: outputs
+2025-10-20 18:51:35 | INFO | src.data_fetcher:__init__:36 | ETF数据获取器初始化完成
+2025-10-20 18:51:35 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-20 18:51:35 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-20 18:51:35 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-20 18:51:35 | INFO | src.prompt_generator:__init__:27 | 语料生成器初始化完成
+2025-10-20 18:51:35 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: deepseek
+2025-10-20 18:51:35 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-20 18:51:53 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 518880 实时数据获取成功
+2025-10-20 18:51:53 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 1
+2025-10-20 18:51:53 | ERROR | src.data_fetcher:get_historical_data:174 | 获取ETF 518880 历史数据失败 (尝试 1): ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-10-20 18:51:54 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 2
+2025-10-20 18:51:54 | ERROR | src.data_fetcher:get_historical_data:174 | 获取ETF 518880 历史数据失败 (尝试 2): ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-10-20 18:51:56 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 3
+2025-10-20 18:51:56 | ERROR | src.data_fetcher:get_historical_data:174 | 获取ETF 518880 历史数据失败 (尝试 3): ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-10-20 18:51:56 | INFO | src.data_fetcher:get_real_time_data:60 | 获取ETF实时数据: 512760, 尝试次数: 1
+2025-10-20 18:52:05 | INFO | src.data_fetcher:get_real_time_data:96 | ETF 512760 实时数据获取成功
+2025-10-20 18:52:05 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 512760, 周期: 1d, 尝试次数: 1
+2025-10-20 18:52:06 | ERROR | src.data_fetcher:get_historical_data:174 | 获取ETF 512760 历史数据失败 (尝试 1): ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-10-20 18:52:07 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 512760, 周期: 1d, 尝试次数: 2
+2025-10-20 18:52:07 | ERROR | src.data_fetcher:get_historical_data:174 | 获取ETF 512760 历史数据失败 (尝试 2): ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-10-20 18:52:09 | INFO | src.data_fetcher:get_historical_data:131 | 获取ETF历史数据: 512760, 周期: 1d, 尝试次数: 3
+2025-10-20 18:52:09 | ERROR | src.data_fetcher:get_historical_data:174 | 获取ETF 512760 历史数据失败 (尝试 3): ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-10-20 19:03:20 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-20 19:03:20 | INFO | src.utils:create_directories:220 | 目录创建成功: data/market_data
+2025-10-20 19:03:20 | INFO | src.utils:create_directories:220 | 目录创建成功: logs
+2025-10-20 19:03:20 | INFO | src.utils:create_directories:220 | 目录创建成功: outputs
+2025-10-20 19:03:20 | INFO | src.data_fetcher:__init__:37 | ETF数据获取器初始化完成
+2025-10-20 19:03:20 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-20 19:03:20 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-20 19:03:20 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-20 19:03:20 | INFO | src.prompt_generator:__init__:27 | 语料生成器初始化完成
+2025-10-20 19:03:20 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: deepseek
+2025-10-20 19:03:20 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-20 19:03:38 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 518880 实时数据获取成功
+2025-10-20 19:03:38 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 1
+2025-10-20 19:03:38 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 518880 日级数据...
+2025-10-20 19:03:38 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 518880 日级数据成功，数据条数: 2972
+2025-10-20 19:03:38 | INFO | src.data_fetcher:get_historical_data:231 | ETF 518880 历史数据获取成功，数据条数: 100
+2025-10-20 19:03:38 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-20 19:03:38 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 518880, 周期: 1m, 尝试次数: 1
+2025-10-20 19:03:38 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 518880 分钟级数据...
+2025-10-20 19:03:38 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 518880 分钟级数据成功，数据条数: 240
+2025-10-20 19:03:38 | INFO | src.data_fetcher:get_historical_data:231 | ETF 518880 历史数据获取成功，数据条数: 240
+2025-10-20 19:03:38 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 512760, 尝试次数: 1
+2025-10-20 19:03:48 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 512760 实时数据获取成功
+2025-10-20 19:03:48 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512760, 周期: 1d, 尝试次数: 1
+2025-10-20 19:03:48 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 512760 日级数据...
+2025-10-20 19:03:48 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 512760 日级数据成功，数据条数: 1541
+2025-10-20 19:03:48 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512760 历史数据获取成功，数据条数: 100
+2025-10-20 19:03:48 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-20 19:03:48 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512760, 周期: 1m, 尝试次数: 1
+2025-10-20 19:03:48 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 512760 分钟级数据...
+2025-10-20 19:03:48 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 512760 分钟级数据成功，数据条数: 240
+2025-10-20 19:03:48 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512760 历史数据获取成功，数据条数: 240
+2025-10-20 19:03:48 | INFO | src.account:update_position_price:146 | ETF持仓 518880 价格更新: 9.268 -> 9.268
+2025-10-20 19:03:48 | INFO | src.account:_update_account_summary:239 | ETF账户摘要更新: 总资产=14958.70, 总盈亏=-41.00, 当日盈亏=-41.20
+2025-10-20 19:03:48 | INFO | src.utils:save_account_data:89 | 账户数据保存成功: data/account_data.json
+2025-10-20 19:03:48 | INFO | src.prompt_generator:generate_trading_prompt:57 | 交易提示词生成成功
+2025-10-20 19:03:48 | INFO | src.llm_client:generate_trading_advice:257 | 调用LLM API生成交易建议，尝试次数: 1
+2025-10-20 19:04:07 | INFO | src.llm_client:generate_trading_advice:279 | 交易建议生成成功
+2025-10-20 19:04:07 | INFO | src.prompt_generator:save_prompt_to_file:422 | 提示词已保存到: outputs\trading_prompt_20251020_190407.md
+2025-10-20 19:04:07 | INFO | src.llm_client:save_advice_to_file:443 | 交易建议已保存到: outputs\trading_advice_20251020_190407.md
+2025-10-20 19:04:07 | INFO | src.utils:save_account_data:89 | 账户数据保存成功: data/account_data.json
+2025-10-21 09:26:55 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-21 09:26:55 | INFO | src.utils:create_directories:220 | 目录创建成功: data/market_data
+2025-10-21 09:26:55 | INFO | src.utils:create_directories:220 | 目录创建成功: logs
+2025-10-21 09:26:55 | INFO | src.utils:create_directories:220 | 目录创建成功: outputs
+2025-10-21 09:26:55 | INFO | src.data_fetcher:__init__:37 | ETF数据获取器初始化完成
+2025-10-21 09:26:55 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-21 09:26:55 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-21 09:26:55 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-21 09:26:55 | INFO | src.prompt_generator:__init__:27 | 语料生成器初始化完成
+2025-10-21 09:26:55 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: deepseek
+2025-10-21 09:26:55 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-21 09:27:14 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 518880 实时数据获取成功
+2025-10-21 09:27:14 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 1
+2025-10-21 09:27:14 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 518880 日级数据...
+2025-10-21 09:27:15 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 518880 日级数据成功，数据条数: 2973
+2025-10-21 09:27:15 | INFO | src.data_fetcher:get_historical_data:231 | ETF 518880 历史数据获取成功，数据条数: 100
+2025-10-21 09:27:15 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 09:27:15 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 518880, 周期: 1m, 尝试次数: 1
+2025-10-21 09:27:15 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 518880 分钟级数据...
+2025-10-21 09:27:15 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 518880 分钟级数据成功，数据条数: 1
+2025-10-21 09:27:15 | INFO | src.data_fetcher:get_historical_data:231 | ETF 518880 历史数据获取成功，数据条数: 1
+2025-10-21 09:27:15 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 512760, 尝试次数: 1
+2025-10-21 09:27:24 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 512760 实时数据获取成功
+2025-10-21 09:27:24 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512760, 周期: 1d, 尝试次数: 1
+2025-10-21 09:27:24 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 512760 日级数据...
+2025-10-21 09:27:24 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 512760 日级数据成功，数据条数: 1542
+2025-10-21 09:27:24 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512760 历史数据获取成功，数据条数: 100
+2025-10-21 09:27:24 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 09:27:24 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512760, 周期: 1m, 尝试次数: 1
+2025-10-21 09:27:24 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 512760 分钟级数据...
+2025-10-21 09:27:24 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 512760 分钟级数据成功，数据条数: 1
+2025-10-21 09:27:24 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512760 历史数据获取成功，数据条数: 1
+2025-10-21 09:27:24 | INFO | src.account:update_position_price:146 | ETF持仓 518880 价格更新: 9.268 -> 9.526
+2025-10-21 09:27:24 | INFO | src.account:_update_account_summary:239 | ETF账户摘要更新: 总资产=15087.70, 总盈亏=88.00, 当日盈亏=-41.20
+2025-10-21 09:27:24 | INFO | src.utils:save_account_data:89 | 账户数据保存成功: data/account_data.json
+2025-10-21 09:27:24 | INFO | src.prompt_generator:generate_trading_prompt:57 | 交易提示词生成成功
+2025-10-21 09:27:24 | INFO | src.llm_client:generate_trading_advice:257 | 调用LLM API生成交易建议，尝试次数: 1
+2025-10-21 09:27:43 | INFO | src.llm_client:generate_trading_advice:279 | 交易建议生成成功
+2025-10-21 09:27:43 | INFO | src.prompt_generator:save_prompt_to_file:422 | 提示词已保存到: outputs\trading_prompt_20251021_092743.md
+2025-10-21 09:27:43 | INFO | src.llm_client:save_advice_to_file:443 | 交易建议已保存到: outputs\trading_advice_20251021_092743.md
+2025-10-21 09:27:43 | INFO | src.utils:save_account_data:89 | 账户数据保存成功: data/account_data.json

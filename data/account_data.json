@@ -1,0 +1,23 @@
+{
+  "account_info": {
+    "total_assets": 15087.7,
+    "total_pnl": 88.00000000000009,
+    "daily_pnl": -41.2,
+    "available_cash": 10324.7,
+    "start_time": "2025-10-20 09:51:16",
+    "call_count": 3
+  },
+  "positions": [
+    {
+      "symbol": "518880",
+      "name": "黄金ETF",
+      "quantity": 500,
+      "position_ratio": 31.0,
+      "avg_price": 9.35,
+      "daily_pnl": -41.2,
+      "total_pnl": 88.00000000000009,
+      "market_value": 4763.0,
+      "current_price": 9.526
+    }
+  ]
+}
