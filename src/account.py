@@ -1,13 +1,12 @@
 """
 账户数据管理模块
-管理账户信息、持仓数据和交易记录
+只负责从data/account_data.json获取信息
 """
 
 import json
-from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from loguru import logger
-from .utils import load_account_data, save_account_data, calculate_return_pct
+from .utils import load_account_data
 
 
 class AccountManager:
@@ -36,27 +35,11 @@ class AccountManager:
             return load_account_data(self.account_data_path)
         except Exception as e:
             logger.error(f"加载账户数据失败: {e}")
-            # 返回默认账户数据
-            return self._get_default_account_data()
-    
-    def _get_default_account_data(self) -> Dict[str, Any]:
-        """
-        获取默认账户数据
-        
-        Returns:
-            默认账户数据字典
-        """
-        return {
-            "account_info": {
-                "total_assets": 10000.0,
-                "total_pnl": 0.0,
-                "daily_pnl": 0.0,
-                "available_cash": 10000.0,
-                "start_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "call_count": 0
-            },
-            "positions": []
-        }
+            # 返回空的默认账户数据
+            return {
+                "account_info": {},
+                "positions": []
+            }
     
     def get_account_info(self) -> Dict[str, Any]:
         """
@@ -75,178 +58,6 @@ class AccountManager:
             持仓列表
         """
         return self.account_data.get('positions', [])
-    
-    def add_position(self, position: Dict[str, Any]) -> bool:
-        """
-        添加ETF持仓
-        
-        Args:
-            position: 持仓信息，包含: symbol(代码), name(名称), quantity(持仓),
-                     position_ratio(仓位), avg_price(买入均价), daily_pnl(当日盈亏)
-            
-        Returns:
-            是否添加成功
-        """
-        try:
-            # 验证必要字段
-            required_fields = ['symbol', 'name', 'quantity', 'position_ratio', 'avg_price']
-            for field in required_fields:
-                if field not in position:
-                    logger.error(f"持仓信息缺少必要字段: {field}")
-                    return False
-            
-            # 设置默认值
-            position.setdefault('daily_pnl', 0.0)
-            position.setdefault('total_pnl', 0.0)
-            
-            # 计算持仓市值
-            position['market_value'] = position['quantity'] * position['avg_price']
-            
-            # 检查是否已存在相同持仓
-            existing_positions = self.get_positions()
-            for existing_pos in existing_positions:
-                if existing_pos['symbol'] == position['symbol']:
-                    logger.warning(f"持仓 {position['symbol']} 已存在")
-                    return False
-            
-            # 添加持仓
-            self.account_data['positions'].append(position)
-            self._update_account_summary()
-            self._save_account_data()
-            
-            logger.info(f"ETF持仓添加成功: {position['symbol']}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"添加ETF持仓失败: {e}")
-            return False
-    
-    def update_position_price(self, symbol: str, current_price: float) -> bool:
-        """
-        更新ETF持仓价格
-        
-        Args:
-            symbol: ETF代码
-            current_price: 当前价格
-            
-        Returns:
-            是否更新成功
-        """
-        try:
-            positions = self.get_positions()
-            for position in positions:
-                if position['symbol'] == symbol:
-                    old_price = position.get('current_price', position.get('avg_price', 0))
-                    position['current_price'] = current_price
-                    
-                    # 重新计算市值和总盈亏
-                    position['market_value'] = current_price * position['quantity']
-                    position['total_pnl'] = (current_price - position['avg_price']) * position['quantity']
-                    
-                    logger.info(f"ETF持仓 {symbol} 价格更新: {old_price} -> {current_price}")
-                    break
-            else:
-                logger.warning(f"未找到ETF持仓: {symbol}")
-                return False
-            
-            self._update_account_summary()
-            self._save_account_data()
-            return True
-            
-        except Exception as e:
-            logger.error(f"更新ETF持仓价格失败: {e}")
-            return False
-    
-    def remove_position(self, symbol: str) -> bool:
-        """
-        移除持仓
-        
-        Args:
-            symbol: ETF代码
-            
-        Returns:
-            是否移除成功
-        """
-        try:
-            positions = self.get_positions()
-            original_count = len(positions)
-            
-            # 过滤掉指定持仓
-            self.account_data['positions'] = [
-                pos for pos in positions if pos['symbol'] != symbol
-            ]
-            
-            if len(self.account_data['positions']) < original_count:
-                self._update_account_summary()
-                self._save_account_data()
-                logger.info(f"持仓移除成功: {symbol}")
-                return True
-            else:
-                logger.warning(f"未找到持仓: {symbol}")
-                return False
-                
-        except Exception as e:
-            logger.error(f"移除持仓失败: {e}")
-            return False
-    
-    def update_account_info(self, updates: Dict[str, Any]) -> bool:
-        """
-        更新账户信息
-        
-        Args:
-            updates: 更新的字段
-            
-        Returns:
-            是否更新成功
-        """
-        try:
-            account_info = self.account_data.get('account_info', {})
-            account_info.update(updates)
-            self.account_data['account_info'] = account_info
-            
-            self._save_account_data()
-            logger.info("账户信息更新成功")
-            return True
-            
-        except Exception as e:
-            logger.error(f"更新账户信息失败: {e}")
-            return False
-    
-    def _update_account_summary(self) -> None:
-        """更新ETF账户摘要信息"""
-        try:
-            positions = self.get_positions()
-            account_info = self.account_data.get('account_info', {})
-            
-            # 计算持仓总市值
-            positions_value = sum(
-                pos.get('market_value', pos.get('quantity', 0) * pos.get('avg_price', 0))
-                for pos in positions
-            )
-            
-            # 计算总盈亏和当日盈亏
-            total_pnl = sum(pos.get('total_pnl', 0.0) for pos in positions)
-            daily_pnl = sum(pos.get('daily_pnl', 0.0) for pos in positions)
-            
-            # 更新账户信息
-            available_cash = account_info.get('available_cash', 0.0)
-            total_assets = available_cash + positions_value
-            
-            account_info['total_assets'] = total_assets
-            account_info['total_pnl'] = total_pnl
-            account_info['daily_pnl'] = daily_pnl
-            
-            logger.info(f"ETF账户摘要更新: 总资产={total_assets:.2f}, 总盈亏={total_pnl:.2f}, 当日盈亏={daily_pnl:.2f}")
-            
-        except Exception as e:
-            logger.error(f"更新ETF账户摘要失败: {e}")
-    
-    def _save_account_data(self) -> None:
-        """保存账户数据"""
-        try:
-            save_account_data(self.account_data, self.account_data_path)
-        except Exception as e:
-            logger.error(f"保存账户数据失败: {e}")
     
     def get_position_by_symbol(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
@@ -346,17 +157,6 @@ class AccountManager:
             logger.error(f"计算ETF持仓指标失败: {e}")
             return {}
     
-    def update_call_count(self) -> None:
-        """更新调用次数"""
-        try:
-            account_info = self.account_data.get('account_info', {})
-            current_count = account_info.get('call_count', 0)
-            account_info['call_count'] = current_count + 1
-            self._save_account_data()
-            
-        except Exception as e:
-            logger.error(f"更新调用次数失败: {e}")
-    
     def export_account_summary(self) -> str:
         """
         导出ETF账户摘要
@@ -379,7 +179,7 @@ ETF账户摘要
 调用次数: {account_info.get('call_count', 0)}
 
 ETF持仓概览
-===========
+==========
 总持仓数: {metrics.get('total_positions', 0)}
 持仓总价值: {metrics.get('total_value', 0):.2f}
 总盈亏: {metrics.get('total_pnl', 0):.2f}
@@ -394,3 +194,25 @@ ETF持仓概览
         except Exception as e:
             logger.error(f"导出ETF账户摘要失败: {e}")
             return "ETF账户摘要导出失败"
+    
+    def update_position_price(self, symbol: str, current_price: float) -> bool:
+        """
+        更新ETF持仓价格（已移除功能）
+        根据用户要求，此功能已移除，用户需手动维护data/account_data.json文件
+        
+        Args:
+            symbol: ETF代码
+            current_price: 当前价格
+            
+        Returns:
+            总是返回False，表示未执行更新操作
+        """
+        logger.warning(f"更新持仓价格功能已移除，请手动更新data/account_data.json文件中的{symbol}持仓价格")
+        return False
+    
+    def update_call_count(self) -> None:
+        """
+        更新调用次数（已移除功能）
+        根据用户要求，此功能已移除，用户需手动维护data/account_data.json文件
+        """
+        logger.warning("更新调用次数功能已移除，请手动更新data/account_data.json文件中的调用次数")

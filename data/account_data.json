@@ -1,23 +1,34 @@
 {
   "account_info": {
-    "total_assets": 15087.7,
-    "total_pnl": 88.00000000000009,
-    "daily_pnl": -41.2,
-    "available_cash": 10324.7,
+    "total_assets": 15058.85,
+    "total_pnl": 58.85,
+    "daily_pnl": 100.05,
+    "available_cash": 11184.25,
     "start_time": "2025-10-20 09:51:16",
-    "call_count": 3
+    "call_count": 8
   },
   "positions": [
     {
+      "symbol": "512710",
+      "name": "军工龙头",
+      "quantity": 1500,
+      "position_ratio": 6.85,
+      "avg_price": 0.688,
+      "daily_pnl": -0.05,
+      "total_pnl": -0.05,
+      "market_value": 1032.00,
+      "current_price": 0.688
+    },
+    {
       "symbol": "518880",
       "name": "黄金ETF",
-      "quantity": 500,
-      "position_ratio": 31.0,
-      "avg_price": 9.35,
-      "daily_pnl": -41.2,
-      "total_pnl": 88.00000000000009,
-      "market_value": 4763.0,
-      "current_price": 9.526
+      "quantity": 300,
+      "position_ratio": 18.88,
+      "avg_price": 9.279,
+      "daily_pnl": 58.90,
+      "total_pnl": 58.80,
+      "market_value": 2842.50,
+      "current_price": 9.475
     }
   ]
 }

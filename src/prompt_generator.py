@@ -21,7 +21,8 @@ class PromptGenerator:
             config: 配置字典
         """
         self.config = config
-        self.trading_minutes = get_trading_minutes()
+        self.account_data = None
+        self.trading_minutes = 0
         self.current_time = get_current_time_str()
         
         logger.info("语料生成器初始化完成")
@@ -39,6 +40,12 @@ class PromptGenerator:
             标准化交易提示词
         """
         try:
+            # 更新账户数据和交易分钟数
+            self.account_data = account_data
+            account_info = account_data.get('account_info', {})
+            start_time_str = account_info.get('start_time')
+            self.trading_minutes = get_trading_minutes(start_time_str)
+            
             # 生成头部信息
             header = self._generate_header(account_data)
             
@@ -76,9 +83,7 @@ class PromptGenerator:
         
         header = f"""自您开始交易以来已经过去了 {self.trading_minutes} 分钟。当前时间是 {self.current_time}，您已被调用 {call_count} 次。下面，我们为您提供各种状态数据、价格数据和预测信号，以便您发现阿尔法。下面是您的当前账户信息、价值、表现、头寸等。
 
-以下所有价格或信号数据均按顺序排列：最旧→最新
-
-时间范围说明：除非章节标题中另有说明，否则日内系列以 3 分钟的间隔提供。如果ETF使用不同的区间，则在该ETF的部分中明确说明。"""
+以下所有价格或信号数据均按顺序排列：最旧→最新"""
         
         return header
     

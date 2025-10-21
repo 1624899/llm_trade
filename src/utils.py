@@ -129,15 +129,33 @@ def setup_logging(config: Dict[str, Any]) -> None:
         raise
 
 
-def get_trading_minutes() -> int:
+def get_trading_minutes(start_time_str: str = None) -> int:
     """
     获取交易分钟数
     
+    Args:
+        start_time_str: 开始时间字符串，如果为None则从account_data.json读取
+        
     Returns:
         从开始交易到现在的分钟数
     """
-    # 假设交易开始时间为2024-01-01 09:30:00
-    start_time = datetime(2024, 1, 1, 9, 30, 0)
+    # 如果没有提供开始时间，则从账户数据中读取
+    if start_time_str is None:
+        try:
+            account_data = load_account_data()
+            account_info = account_data.get('account_info', {})
+            start_time_str = account_info.get('start_time')
+        except Exception as e:
+            logger.warning(f"无法从账户数据加载开始时间，使用默认时间: {e}")
+            start_time_str = "2024-01-01 09:30:00"
+    
+    # 解析开始时间
+    try:
+        start_time = datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        logger.warning(f"开始时间格式错误，使用默认时间: {start_time_str}")
+        start_time = datetime(2024, 1, 1, 9, 30, 0)
+    
     current_time = datetime.now()
     
     # 计算交易日的分钟数（简化计算，实际需要排除非交易日）

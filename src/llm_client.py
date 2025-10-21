@@ -1,6 +1,6 @@
 """
 LLM API调用模块
-支持多种大模型API调用，包括OpenAI、Claude、通义千问等
+仅支持DeepSeek API调用
 """
 
 import requests
@@ -23,10 +23,10 @@ class LLMClient:
         self.config = config
         self.llm_config = config.get('llm', {})
         
-        self.provider = self.llm_config.get('provider', 'openai')
+        self.provider = self.llm_config.get('provider', 'deepseek')
         self.api_key = self.llm_config.get('api_key', '')
-        self.base_url = self.llm_config.get('base_url', '')
-        self.model = self.llm_config.get('model', 'gpt-4')
+        self.base_url = self.llm_config.get('base_url', 'https://api.deepseek.com/v1')
+        self.model = self.llm_config.get('model', 'deepseek-chat')
         self.max_tokens = self.llm_config.get('max_tokens', 4000)
         self.temperature = self.llm_config.get('temperature', 0.7)
         
@@ -46,19 +46,14 @@ class LLMClient:
             'Content-Type': 'application/json'
         }
         
-        if self.provider == 'openai' or self.provider == 'deepseek':
-            headers['Authorization'] = f'Bearer {self.api_key}'
-        elif self.provider == 'claude':
-            headers['x-api-key'] = self.api_key
-            headers['anthropic-version'] = '2023-06-01'
-        elif self.provider == 'qwen':
-            headers['Authorization'] = f'Bearer {self.api_key}'
+        # DeepSeek 使用 Bearer token 认证
+        headers['Authorization'] = f'Bearer {self.api_key}'
         
         return headers
     
-    def _build_openai_request(self, prompt: str) -> Dict[str, Any]:
+    def _build_request(self, prompt: str) -> Dict[str, Any]:
         """
-        构建OpenAI请求
+        构建DeepSeek请求
         
         Args:
             prompt: 提示词
@@ -71,7 +66,7 @@ class LLMClient:
             'messages': [
                 {
                     'role': 'system',
-                    'content': '你是一个专业的ETF交易分析师，具有丰富的技术分析经验和市场洞察力。请基于提供的数据给出专业的交易建议。'
+                    'content': '你是一个专业的ETF交易分析师，具有丰富的技术分析经验和市场洞察力。请基于提供的数据给出专业且详细的交易建议。'
                 },
                 {
                     'role': 'user',
@@ -82,77 +77,6 @@ class LLMClient:
             'temperature': self.temperature
         }
     
-    def _build_claude_request(self, prompt: str) -> Dict[str, Any]:
-        """
-        构建Claude请求
-        
-        Args:
-            prompt: 提示词
-            
-        Returns:
-            请求数据字典
-        """
-        return {
-            'model': self.model,
-            'max_tokens': self.max_tokens,
-            'temperature': self.temperature,
-            'messages': [
-                {
-                    'role': 'user',
-                    'content': prompt
-                }
-            ]
-        }
-    
-    def _build_qwen_request(self, prompt: str) -> Dict[str, Any]:
-        """
-        构建通义千问请求
-        
-        Args:
-            prompt: 提示词
-            
-        Returns:
-            请求数据字典
-        """
-        return {
-            'model': self.model,
-            'input': {
-                'messages': [
-                    {
-                        'role': 'system',
-                        'content': '你是一个专业的ETF交易分析师，具有丰富的技术分析经验和市场洞察力。请基于提供的数据给出专业的交易建议。'
-                    },
-                    {
-                        'role': 'user',
-                        'content': prompt
-                    }
-                ]
-            },
-            'parameters': {
-                'max_tokens': self.max_tokens,
-                'temperature': self.temperature
-            }
-        }
-    
-    def _build_request(self, prompt: str) -> Dict[str, Any]:
-        """
-        构建请求
-        
-        Args:
-            prompt: 提示词
-            
-        Returns:
-            请求数据字典
-        """
-        if self.provider == 'openai' or self.provider == 'deepseek':
-            return self._build_openai_request(prompt)
-        elif self.provider == 'claude':
-            return self._build_claude_request(prompt)
-        elif self.provider == 'qwen':
-            return self._build_qwen_request(prompt)
-        else:
-            raise ValueError(f"不支持的LLM提供商: {self.provider}")
-    
     def _get_api_url(self) -> str:
         """
         获取API URL
@@ -160,18 +84,11 @@ class LLMClient:
         Returns:
             API URL字符串
         """
-        if self.provider == 'openai' or self.provider == 'deepseek':
-            return f"{self.base_url}/chat/completions"
-        elif self.provider == 'claude':
-            return f"{self.base_url}/v1/messages"
-        elif self.provider == 'qwen':
-            return f"{self.base_url}/v1/services/aigc/text-generation/generation"
-        else:
-            raise ValueError(f"不支持的LLM提供商: {self.provider}")
+        return f"{self.base_url}/chat/completions"
     
-    def _parse_openai_response(self, response_data: Dict[str, Any]) -> str:
+    def _parse_response(self, response_data: Dict[str, Any]) -> str:
         """
-        解析OpenAI响应
+        解析DeepSeek响应
         
         Args:
             response_data: 响应数据
@@ -182,59 +99,8 @@ class LLMClient:
         try:
             return response_data['choices'][0]['message']['content']
         except (KeyError, IndexError) as e:
-            logger.error(f"解析OpenAI响应失败: {e}")
+            logger.error(f"解析DeepSeek响应失败: {e}")
             return ""
-    
-    def _parse_claude_response(self, response_data: Dict[str, Any]) -> str:
-        """
-        解析Claude响应
-        
-        Args:
-            response_data: 响应数据
-            
-        Returns:
-            解析后的文本
-        """
-        try:
-            return response_data['content'][0]['text']
-        except (KeyError, IndexError) as e:
-            logger.error(f"解析Claude响应失败: {e}")
-            return ""
-    
-    def _parse_qwen_response(self, response_data: Dict[str, Any]) -> str:
-        """
-        解析通义千问响应
-        
-        Args:
-            response_data: 响应数据
-            
-        Returns:
-            解析后的文本
-        """
-        try:
-            return response_data['output']['text']
-        except (KeyError, IndexError) as e:
-            logger.error(f"解析通义千问响应失败: {e}")
-            return ""
-    
-    def _parse_response(self, response_data: Dict[str, Any]) -> str:
-        """
-        解析响应
-        
-        Args:
-            response_data: 响应数据
-            
-        Returns:
-            解析后的文本
-        """
-        if self.provider == 'openai' or self.provider == 'deepseek':
-            return self._parse_openai_response(response_data)
-        elif self.provider == 'claude':
-            return self._parse_claude_response(response_data)
-        elif self.provider == 'qwen':
-            return self._parse_qwen_response(response_data)
-        else:
-            raise ValueError(f"不支持的LLM提供商: {self.provider}")
     
     def generate_trading_advice(self, prompt: str, 
                               retry_times: int = 3) -> Optional[str]:
@@ -346,11 +212,10 @@ class LLMClient:
                             data = json.loads(data_str)
                             
                             # 解析流式数据
-                            if self.provider == 'openai':
-                                content = data['choices'][0]['delta'].get('content', '')
-                            elif self.provider == 'claude':
-                                # Claude的流式响应格式可能不同
-                                content = data.get('content', '')
+                            # DeepSeek流式响应格式
+                            if 'choices' in data and len(data['choices']) > 0:
+                                delta = data['choices'][0].get('delta', {})
+                                content = delta.get('content', '')
                             else:
                                 content = ''
                             
@@ -445,4 +310,4 @@ class LLMClient:
             
         except Exception as e:
             logger.error(f"保存交易建议失败: {e}")
-            return ""
+            return ""

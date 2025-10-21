@@ -270,6 +270,10 @@ class ETFTradingSystem:
             advice_file = self.llm_client.save_advice_to_file(advice)
             if advice_file:
                 print(f"📄 建议已保存: {advice_file}")
+            
+            # 保存市场数据缓存
+            self.data_fetcher.save_cache_to_file()
+            print("💾 市场数据已保存到 data/market_data 目录")
                 
         except Exception as e:
             print(f"⚠️  保存分析结果失败: {e}")

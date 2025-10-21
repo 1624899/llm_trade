@@ -5,93 +5,66 @@ gold_etfs:
   - code: "518880"
     name: "黄金ETF"
     category: "黄金"
-  - code: "159934"
-    name: "黄金ETF"
-    category: "黄金"
 
 # 芯片相关ETF
 chip_etfs:
-  - code: "512760"
-    name: "芯片ETF"
-    category: "芯片"
   - code: "159995"
-    name: "芯片ETF"
+    name: "芯片ETF基金"
     category: "芯片"
 
 # 新能源相关ETF
 new_energy_etfs:
-  - code: "515700"
-    name: "新能源ETF"
-    category: "新能源"
-  - code: "516160"
-    name: "新能源ETF"
+  - code: "159637"
+    name: "新能源车龙头ETF"
     category: "新能源"
 
 # 医药相关ETF
 medical_etfs:
-  - code: "512120"
-    name: "医药ETF"
-    category: "医药"
-  - code: "159929"
+  - code: "512010"
     name: "医药ETF"
     category: "医药"
 
 # 消费相关ETF
-consumer_etfs:
-  - code: "510630"
-    name: "消费ETF"
-    category: "消费"
-  - code: "159928"
-    name: "消费ETF"
-    category: "消费"
+consumer_etfs: []
 
 # 科技相关ETF
 tech_etfs:
-  - code: "515000"
-    name: "科技ETF"
-    category: "科技"
-  - code: "159939"
-    name: "科技ETF"
-    category: "科技"
+  - code: "159770"
+    name: "机器人ETF"
+    category: "科创"
+  - code: "515980"
+    name: "人工智能ETF"
+    category: "科创"
+
+# 军工相关ETF
+military_etfs:
+  - code: "512710"
+    name: "军工龙头ETF"
+    category: "军工"
 
 # 宽基指数ETF
-index_etfs:
-  - code: "510300"
-    name: "沪深300ETF"
-    category: "宽基指数"
-  - code: "510500"
-    name: "中证500ETF"
-    category: "宽基指数"
-  - code: "159919"
-    name: "沪深300ETF"
-    category: "宽基指数"
-  - code: "159915"
-    name: "创业板ETF"
-    category: "宽基指数"
+index_etfs: []
 
 # 监控所有ETF（合并列表）
 monitored_etfs:
   - code: "518880"
     name: "黄金ETF"
     category: "黄金"
-  - code: "512760"
-    name: "芯片ETF"
+  - code: "159995"
+    name: "芯片ETF基金"
     category: "芯片"
-  - code: "515700"
-    name: "新能源ETF"
+  - code: "159637"
+    name: "新能源车龙头ETF"
     category: "新能源"
-  - code: "512120"
+  - code: "512010"
     name: "医药ETF"
     category: "医药"
-  - code: "510630"
-    name: "消费ETF"
-    category: "消费"
-  - code: "515000"
-    name: "科技ETF"
-    category: "科技"
-  - code: "510300"
-    name: "沪深300ETF"
-    category: "宽基指数"
-  - code: "510500"
-    name: "中证500ETF"
-    category: "宽基指数"
+  - code: "159770"
+    name: "机器人ETF"
+    category: "科创"
+  - code: "512710"
+    name: "军工龙头ETF"
+    category: "军工"
+  - code: "515980"
+    name: "人工智能ETF"
+    category: "科创"

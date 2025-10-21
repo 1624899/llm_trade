@@ -387,15 +387,53 @@ class ETFDataFetcher:
         try:
             os.makedirs(cache_dir, exist_ok=True)
             
+            # 按缓存键的类型分组，以便找到最新的数据进行保存
+            cache_groups = {}
             for cache_key, cache_data in self.cache.items():
-                filename = f"{cache_key}_{int(cache_data['timestamp'])}.csv"
+                # 提取基础键（不包含时间戳的部分）
+                if cache_key.startswith('realtime_'):
+                    base_key = cache_key
+                elif cache_key.startswith('hist_'):
+                    # 对于历史数据，提取ETF代码、周期和数量作为基础键
+                    parts = cache_key.split('_')
+                    if len(parts) >= 4:  # hist_code_period_count
+                        base_key = '_'.join(parts[:4])  # 只取前4部分作为基础键
+                    else:
+                        base_key = cache_key
+                else:
+                    base_key = cache_key
+                
+                if base_key not in cache_groups:
+                    cache_groups[base_key] = []
+                cache_groups[base_key].append((cache_key, cache_data))
+            
+            # 对每个组，只保存时间戳最新的数据
+            for base_key, cache_list in cache_groups.items():
+                # 按时间戳排序，获取最新的数据
+                latest_cache = max(cache_list, key=lambda x: x[1]['timestamp'])
+                latest_cache_key, latest_cache_data = latest_cache
+                
+                # 生成文件名，使用最新的时间戳
+                filename = f"{latest_cache_key}_{int(latest_cache_data['timestamp'])}.csv"
                 filepath = os.path.join(cache_dir, filename)
                 
-                if isinstance(cache_data['data'], pd.DataFrame):
-                    cache_data['data'].to_csv(filepath)
-                elif isinstance(cache_data['data'], dict):
+                # 删除同类型的历史文件（避免积累过多文件）
+                for existing_file in os.listdir(cache_dir):
+                    if existing_file.startswith(f"{base_key}_") and existing_file.endswith('.csv'):
+                        existing_filepath = os.path.join(cache_dir, existing_file)
+                        if existing_filepath != filepath:  # 不删除当前要保存的文件
+                            try:
+                                os.remove(existing_filepath)
+                                logger.info(f"删除旧的缓存文件: {existing_filepath}")
+                            except Exception as e:
+                                logger.warning(f"删除旧缓存文件失败 {existing_filepath}: {e}")
+                
+                # 保存最新的数据
+                if isinstance(latest_cache_data['data'], pd.DataFrame):
+                    latest_cache_data['data'].to_csv(filepath)
+                elif isinstance(latest_cache_data['data'], dict):
                     # 将字典转换为DataFrame保存
-                    df = pd.DataFrame([cache_data['data']])
+                    df = pd.DataFrame([latest_cache_data['data']])
                     df.to_csv(filepath, index=False)
             
             logger.info(f"缓存数据已保存到: {cache_dir}")

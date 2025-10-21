@@ -1,0 +1,40 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+src\__pycache__
+
+# Logs
+logs/
+*.log
+
+# Configuration files
+config\config.yaml
+
+# Output files
+outputs/
+data\market_data
+
+# IDE-specific files
+.vscode/
+.idea/
+*.swp
+*.swo

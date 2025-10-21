@@ -469,3 +469,901 @@
 2025-10-21 09:27:43 | INFO | src.prompt_generator:save_prompt_to_file:422 | 提示词已保存到: outputs\trading_prompt_20251021_092743.md
 2025-10-21 09:27:43 | INFO | src.llm_client:save_advice_to_file:443 | 交易建议已保存到: outputs\trading_advice_20251021_092743.md
 2025-10-21 09:27:43 | INFO | src.utils:save_account_data:89 | 账户数据保存成功: data/account_data.json
+2025-10-21 10:33:40 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-21 10:33:40 | INFO | src.utils:create_directories:220 | 目录创建成功: data/market_data
+2025-10-21 10:33:40 | INFO | src.utils:create_directories:220 | 目录创建成功: logs
+2025-10-21 10:33:40 | INFO | src.utils:create_directories:220 | 目录创建成功: outputs
+2025-10-21 10:33:40 | INFO | src.data_fetcher:__init__:37 | ETF数据获取器初始化完成
+2025-10-21 10:33:40 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-21 10:33:40 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-21 10:33:40 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-21 10:33:40 | INFO | src.prompt_generator:__init__:27 | 语料生成器初始化完成
+2025-10-21 10:33:40 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: deepseek
+2025-10-21 10:33:40 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-21 10:33:57 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 518880 实时数据获取成功
+2025-10-21 10:33:57 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 1
+2025-10-21 10:33:57 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 518880 日级数据...
+2025-10-21 10:33:58 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 518880 日级数据成功，数据条数: 2973
+2025-10-21 10:33:58 | INFO | src.data_fetcher:get_historical_data:231 | ETF 518880 历史数据获取成功，数据条数: 100
+2025-10-21 10:33:58 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 10:33:58 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 518880, 周期: 1m, 尝试次数: 1
+2025-10-21 10:33:58 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 518880 分钟级数据...
+2025-10-21 10:33:58 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 518880 分钟级数据成功，数据条数: 64
+2025-10-21 10:33:58 | INFO | src.data_fetcher:get_historical_data:231 | ETF 518880 历史数据获取成功，数据条数: 64
+2025-10-21 10:33:58 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 512760, 尝试次数: 1
+2025-10-21 10:34:07 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 512760 实时数据获取成功
+2025-10-21 10:34:07 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512760, 周期: 1d, 尝试次数: 1
+2025-10-21 10:34:07 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 512760 日级数据...
+2025-10-21 10:34:07 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 512760 日级数据成功，数据条数: 1542
+2025-10-21 10:34:07 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512760 历史数据获取成功，数据条数: 100
+2025-10-21 10:34:07 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 10:34:07 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512760, 周期: 1m, 尝试次数: 1
+2025-10-21 10:34:07 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 512760 分钟级数据...
+2025-10-21 10:34:07 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 512760 分钟级数据成功，数据条数: 65
+2025-10-21 10:34:07 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512760 历史数据获取成功，数据条数: 65
+2025-10-21 10:34:07 | INFO | src.account:update_position_price:146 | ETF持仓 518880 价格更新: 9.492 -> 9.49
+2025-10-21 10:34:07 | INFO | src.account:_update_account_summary:239 | ETF账户摘要更新: 总资产=15069.70, 总盈亏=70.00, 当日盈亏=112.50
+2025-10-21 10:34:07 | INFO | src.utils:save_account_data:89 | 账户数据保存成功: data/account_data.json
+2025-10-21 10:34:07 | INFO | src.prompt_generator:generate_trading_prompt:57 | 交易提示词生成成功
+2025-10-21 10:34:07 | INFO | src.llm_client:generate_trading_advice:257 | 调用LLM API生成交易建议，尝试次数: 1
+2025-10-21 10:34:33 | INFO | src.llm_client:generate_trading_advice:279 | 交易建议生成成功
+2025-10-21 10:34:33 | INFO | src.prompt_generator:save_prompt_to_file:422 | 提示词已保存到: outputs\trading_prompt_20251021_103433.md
+2025-10-21 10:34:33 | INFO | src.llm_client:save_advice_to_file:443 | 交易建议已保存到: outputs\trading_advice_20251021_103433.md
+2025-10-21 10:34:33 | INFO | src.utils:save_account_data:89 | 账户数据保存成功: data/account_data.json
+2025-10-21 11:55:23 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-21 11:55:23 | INFO | src.utils:create_directories:238 | 目录创建成功: data/market_data
+2025-10-21 11:55:23 | INFO | src.utils:create_directories:238 | 目录创建成功: logs
+2025-10-21 11:55:23 | INFO | src.utils:create_directories:238 | 目录创建成功: outputs
+2025-10-21 11:55:23 | INFO | src.data_fetcher:__init__:37 | ETF数据获取器初始化完成
+2025-10-21 11:55:23 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-21 11:55:23 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-21 11:55:23 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-21 11:55:23 | INFO | src.prompt_generator:__init__:28 | 语料生成器初始化完成
+2025-10-21 11:55:23 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: deepseek
+2025-10-21 11:55:23 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-21 11:55:41 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 518880 实时数据获取成功
+2025-10-21 11:55:41 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 1
+2025-10-21 11:55:41 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 518880 日级数据...
+2025-10-21 11:55:41 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 518880 日级数据成功，数据条数: 2973
+2025-10-21 11:55:41 | INFO | src.data_fetcher:get_historical_data:231 | ETF 518880 历史数据获取成功，数据条数: 100
+2025-10-21 11:55:41 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 11:55:41 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 518880, 周期: 1m, 尝试次数: 1
+2025-10-21 11:55:41 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 518880 分钟级数据...
+2025-10-21 11:55:41 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 518880 分钟级数据成功，数据条数: 120
+2025-10-21 11:55:41 | INFO | src.data_fetcher:get_historical_data:231 | ETF 518880 历史数据获取成功，数据条数: 120
+2025-10-21 11:55:41 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159995, 尝试次数: 1
+2025-10-21 11:55:49 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159995 实时数据获取成功
+2025-10-21 11:55:49 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159995, 周期: 1d, 尝试次数: 1
+2025-10-21 11:55:49 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159995 日级数据...
+2025-10-21 11:55:49 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159995 日级数据成功，数据条数: 1383
+2025-10-21 11:55:49 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159995 历史数据获取成功，数据条数: 100
+2025-10-21 11:55:49 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 11:55:49 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159995, 周期: 1m, 尝试次数: 1
+2025-10-21 11:55:49 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159995 分钟级数据...
+2025-10-21 11:55:49 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159995 分钟级数据成功，数据条数: 120
+2025-10-21 11:55:49 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159995 历史数据获取成功，数据条数: 120
+2025-10-21 11:55:49 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159637, 尝试次数: 1
+2025-10-21 11:55:54 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159637 实时数据获取成功
+2025-10-21 11:55:54 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159637, 周期: 1d, 尝试次数: 1
+2025-10-21 11:55:54 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159637 日级数据...
+2025-10-21 11:55:54 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159637 日级数据成功，数据条数: 757
+2025-10-21 11:55:54 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159637 历史数据获取成功，数据条数: 100
+2025-10-21 11:55:54 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 11:55:54 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159637, 周期: 1m, 尝试次数: 1
+2025-10-21 11:55:54 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159637 分钟级数据...
+2025-10-21 11:55:54 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159637 分钟级数据成功，数据条数: 120
+2025-10-21 11:55:54 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159637 历史数据获取成功，数据条数: 120
+2025-10-21 11:55:54 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 512010, 尝试次数: 1
+2025-10-21 11:56:12 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 512010 实时数据获取成功
+2025-10-21 11:56:12 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512010, 周期: 1d, 尝试次数: 1
+2025-10-21 11:56:12 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 512010 日级数据...
+2025-10-21 11:56:12 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 512010 日级数据成功，数据条数: 2913
+2025-10-21 11:56:12 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512010 历史数据获取成功，数据条数: 100
+2025-10-21 11:56:12 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 11:56:12 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512010, 周期: 1m, 尝试次数: 1
+2025-10-21 11:56:12 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 512010 分钟级数据...
+2025-10-21 11:56:12 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 512010 分钟级数据成功，数据条数: 120
+2025-10-21 11:56:12 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512010 历史数据获取成功，数据条数: 120
+2025-10-21 11:56:12 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159770, 尝试次数: 1
+2025-10-21 11:56:18 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159770 实时数据获取成功
+2025-10-21 11:56:18 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159770, 周期: 1d, 尝试次数: 1
+2025-10-21 11:56:18 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159770 日级数据...
+2025-10-21 11:56:18 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159770 日级数据成功，数据条数: 958
+2025-10-21 11:56:18 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159770 历史数据获取成功，数据条数: 100
+2025-10-21 11:56:18 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 11:56:18 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159770, 周期: 1m, 尝试次数: 1
+2025-10-21 11:56:18 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159770 分钟级数据...
+2025-10-21 11:56:18 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159770 分钟级数据成功，数据条数: 120
+2025-10-21 11:56:18 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159770 历史数据获取成功，数据条数: 120
+2025-10-21 11:56:18 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 512710, 尝试次数: 1
+2025-10-21 11:56:26 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 512710 实时数据获取成功
+2025-10-21 11:56:26 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512710, 周期: 1d, 尝试次数: 1
+2025-10-21 11:56:26 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 512710 日级数据...
+2025-10-21 11:56:27 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 512710 日级数据成功，数据条数: 1489
+2025-10-21 11:56:27 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512710 历史数据获取成功，数据条数: 100
+2025-10-21 11:56:27 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 11:56:27 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512710, 周期: 1m, 尝试次数: 1
+2025-10-21 11:56:27 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 512710 分钟级数据...
+2025-10-21 11:56:27 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 512710 分钟级数据成功，数据条数: 120
+2025-10-21 11:56:27 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512710 历史数据获取成功，数据条数: 120
+2025-10-21 11:56:27 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 515980, 尝试次数: 1
+2025-10-21 11:56:35 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 515980 实时数据获取成功
+2025-10-21 11:56:35 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 515980, 周期: 1d, 尝试次数: 1
+2025-10-21 11:56:35 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 515980 日级数据...
+2025-10-21 11:56:35 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 515980 日级数据成功，数据条数: 1383
+2025-10-21 11:56:35 | INFO | src.data_fetcher:get_historical_data:231 | ETF 515980 历史数据获取成功，数据条数: 100
+2025-10-21 11:56:35 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 11:56:35 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 515980, 周期: 1m, 尝试次数: 1
+2025-10-21 11:56:35 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 515980 分钟级数据...
+2025-10-21 11:56:35 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 515980 分钟级数据成功，数据条数: 120
+2025-10-21 11:56:35 | INFO | src.data_fetcher:get_historical_data:231 | ETF 515980 历史数据获取成功，数据条数: 120
+2025-10-21 11:56:35 | INFO | src.account:update_position_price:146 | ETF持仓 518880 价格更新: 9.49 -> 9.497
+2025-10-21 11:56:35 | INFO | src.account:_update_account_summary:239 | ETF账户摘要更新: 总资产=15073.20, 总盈亏=73.50, 当日盈亏=112.50
+2025-10-21 11:56:35 | INFO | src.utils:save_account_data:89 | 账户数据保存成功: data/account_data.json
+2025-10-21 11:56:35 | INFO | src.prompt_generator:generate_trading_prompt:64 | 交易提示词生成成功
+2025-10-21 11:56:35 | INFO | src.llm_client:generate_trading_advice:257 | 调用LLM API生成交易建议，尝试次数: 1
+2025-10-21 11:56:51 | INFO | src.llm_client:generate_trading_advice:279 | 交易建议生成成功
+2025-10-21 11:56:51 | INFO | src.prompt_generator:save_prompt_to_file:427 | 提示词已保存到: outputs\trading_prompt_20251021_115651.md
+2025-10-21 11:56:51 | INFO | src.llm_client:save_advice_to_file:443 | 交易建议已保存到: outputs\trading_advice_20251021_115651.md
+2025-10-21 11:56:51 | INFO | src.utils:save_account_data:89 | 账户数据保存成功: data/account_data.json
+2025-10-21 14:02:50 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-21 14:02:50 | INFO | src.utils:create_directories:238 | 目录创建成功: data/market_data
+2025-10-21 14:02:50 | INFO | src.utils:create_directories:238 | 目录创建成功: logs
+2025-10-21 14:02:50 | INFO | src.utils:create_directories:238 | 目录创建成功: outputs
+2025-10-21 14:02:50 | INFO | src.data_fetcher:__init__:37 | ETF数据获取器初始化完成
+2025-10-21 14:02:50 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-21 14:02:50 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-21 14:02:50 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-21 14:02:50 | INFO | src.prompt_generator:__init__:28 | 语料生成器初始化完成
+2025-10-21 14:02:50 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: deepseek
+2025-10-21 14:02:50 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-21 14:03:09 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 518880 实时数据获取成功
+2025-10-21 14:03:09 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 1
+2025-10-21 14:03:09 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 518880 日级数据...
+2025-10-21 14:03:09 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 518880 日级数据成功，数据条数: 2973
+2025-10-21 14:03:09 | INFO | src.data_fetcher:get_historical_data:231 | ETF 518880 历史数据获取成功，数据条数: 100
+2025-10-21 14:03:09 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:03:09 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 518880, 周期: 1m, 尝试次数: 1
+2025-10-21 14:03:09 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 518880 分钟级数据...
+2025-10-21 14:03:09 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 518880 分钟级数据成功，数据条数: 184
+2025-10-21 14:03:09 | INFO | src.data_fetcher:get_historical_data:231 | ETF 518880 历史数据获取成功，数据条数: 184
+2025-10-21 14:03:09 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159995, 尝试次数: 1
+2025-10-21 14:03:18 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159995 实时数据获取成功
+2025-10-21 14:03:18 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159995, 周期: 1d, 尝试次数: 1
+2025-10-21 14:03:18 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159995 日级数据...
+2025-10-21 14:03:18 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159995 日级数据成功，数据条数: 1383
+2025-10-21 14:03:18 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159995 历史数据获取成功，数据条数: 100
+2025-10-21 14:03:18 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:03:18 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159995, 周期: 1m, 尝试次数: 1
+2025-10-21 14:03:18 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159995 分钟级数据...
+2025-10-21 14:03:18 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159995 分钟级数据成功，数据条数: 184
+2025-10-21 14:03:18 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159995 历史数据获取成功，数据条数: 184
+2025-10-21 14:03:18 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159637, 尝试次数: 1
+2025-10-21 14:03:23 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159637 实时数据获取成功
+2025-10-21 14:03:23 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159637, 周期: 1d, 尝试次数: 1
+2025-10-21 14:03:23 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159637 日级数据...
+2025-10-21 14:03:23 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159637 日级数据成功，数据条数: 757
+2025-10-21 14:03:23 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159637 历史数据获取成功，数据条数: 100
+2025-10-21 14:03:23 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:03:23 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159637, 周期: 1m, 尝试次数: 1
+2025-10-21 14:03:23 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159637 分钟级数据...
+2025-10-21 14:03:23 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159637 分钟级数据成功，数据条数: 184
+2025-10-21 14:03:23 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159637 历史数据获取成功，数据条数: 184
+2025-10-21 14:03:23 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 512010, 尝试次数: 1
+2025-10-21 14:03:41 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 512010 实时数据获取成功
+2025-10-21 14:03:41 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512010, 周期: 1d, 尝试次数: 1
+2025-10-21 14:03:41 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 512010 日级数据...
+2025-10-21 14:03:41 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 512010 日级数据成功，数据条数: 2913
+2025-10-21 14:03:41 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512010 历史数据获取成功，数据条数: 100
+2025-10-21 14:03:41 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:03:41 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512010, 周期: 1m, 尝试次数: 1
+2025-10-21 14:03:41 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 512010 分钟级数据...
+2025-10-21 14:03:41 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 512010 分钟级数据成功，数据条数: 184
+2025-10-21 14:03:41 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512010 历史数据获取成功，数据条数: 184
+2025-10-21 14:03:41 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159770, 尝试次数: 1
+2025-10-21 14:03:47 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159770 实时数据获取成功
+2025-10-21 14:03:47 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159770, 周期: 1d, 尝试次数: 1
+2025-10-21 14:03:47 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159770 日级数据...
+2025-10-21 14:03:47 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159770 日级数据成功，数据条数: 958
+2025-10-21 14:03:47 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159770 历史数据获取成功，数据条数: 100
+2025-10-21 14:03:47 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:03:47 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159770, 周期: 1m, 尝试次数: 1
+2025-10-21 14:03:47 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159770 分钟级数据...
+2025-10-21 14:03:47 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159770 分钟级数据成功，数据条数: 184
+2025-10-21 14:03:47 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159770 历史数据获取成功，数据条数: 184
+2025-10-21 14:03:47 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 512710, 尝试次数: 1
+2025-10-21 14:03:56 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 512710 实时数据获取成功
+2025-10-21 14:03:56 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512710, 周期: 1d, 尝试次数: 1
+2025-10-21 14:03:56 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 512710 日级数据...
+2025-10-21 14:03:56 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 512710 日级数据成功，数据条数: 1489
+2025-10-21 14:03:56 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512710 历史数据获取成功，数据条数: 100
+2025-10-21 14:03:56 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:03:56 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512710, 周期: 1m, 尝试次数: 1
+2025-10-21 14:03:56 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 512710 分钟级数据...
+2025-10-21 14:03:56 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 512710 分钟级数据成功，数据条数: 184
+2025-10-21 14:03:56 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512710 历史数据获取成功，数据条数: 184
+2025-10-21 14:03:56 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 515980, 尝试次数: 1
+2025-10-21 14:04:04 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 515980 实时数据获取成功
+2025-10-21 14:04:04 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 515980, 周期: 1d, 尝试次数: 1
+2025-10-21 14:04:04 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 515980 日级数据...
+2025-10-21 14:04:04 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 515980 日级数据成功，数据条数: 1383
+2025-10-21 14:04:04 | INFO | src.data_fetcher:get_historical_data:231 | ETF 515980 历史数据获取成功，数据条数: 100
+2025-10-21 14:04:04 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:04:04 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 515980, 周期: 1m, 尝试次数: 1
+2025-10-21 14:04:04 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 515980 分钟级数据...
+2025-10-21 14:04:04 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 515980 分钟级数据成功，数据条数: 185
+2025-10-21 14:04:04 | INFO | src.data_fetcher:get_historical_data:231 | ETF 515980 历史数据获取成功，数据条数: 185
+2025-10-21 14:04:04 | INFO | src.account:update_position_price:146 | ETF持仓 518880 价格更新: 9.497 -> 9.428
+2025-10-21 14:04:04 | INFO | src.account:_update_account_summary:239 | ETF账户摘要更新: 总资产=15038.70, 总盈亏=39.00, 当日盈亏=112.50
+2025-10-21 14:04:04 | INFO | src.utils:save_account_data:89 | 账户数据保存成功: data/account_data.json
+2025-10-21 14:04:04 | INFO | src.prompt_generator:generate_trading_prompt:64 | 交易提示词生成成功
+2025-10-21 14:04:04 | INFO | src.llm_client:generate_trading_advice:121 | 调用LLM API生成交易建议，尝试次数: 1
+2025-10-21 14:04:05 | ERROR | src.llm_client:generate_trading_advice:149 | LLM API请求失败 (尝试 1): 400 Client Error: Bad Request for url: https://api.deepseek.com/v1/chat/completions
+2025-10-21 14:04:06 | INFO | src.llm_client:generate_trading_advice:121 | 调用LLM API生成交易建议，尝试次数: 2
+2025-10-21 14:04:06 | ERROR | src.llm_client:generate_trading_advice:149 | LLM API请求失败 (尝试 2): 400 Client Error: Bad Request for url: https://api.deepseek.com/v1/chat/completions
+2025-10-21 14:04:08 | INFO | src.llm_client:generate_trading_advice:121 | 调用LLM API生成交易建议，尝试次数: 3
+2025-10-21 14:04:08 | ERROR | src.llm_client:generate_trading_advice:149 | LLM API请求失败 (尝试 3): 400 Client Error: Bad Request for url: https://api.deepseek.com/v1/chat/completions
+2025-10-21 14:08:16 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-21 14:08:16 | INFO | src.utils:create_directories:238 | 目录创建成功: data/market_data
+2025-10-21 14:08:16 | INFO | src.utils:create_directories:238 | 目录创建成功: logs
+2025-10-21 14:08:16 | INFO | src.utils:create_directories:238 | 目录创建成功: outputs
+2025-10-21 14:08:16 | INFO | src.data_fetcher:__init__:37 | ETF数据获取器初始化完成
+2025-10-21 14:08:16 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-21 14:08:16 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-21 14:08:16 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-21 14:08:16 | INFO | src.prompt_generator:__init__:28 | 语料生成器初始化完成
+2025-10-21 14:08:16 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: deepseek
+2025-10-21 14:08:16 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-21 14:08:34 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 518880 实时数据获取成功
+2025-10-21 14:08:34 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 1
+2025-10-21 14:08:34 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 518880 日级数据...
+2025-10-21 14:08:34 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 518880 日级数据成功，数据条数: 2973
+2025-10-21 14:08:34 | INFO | src.data_fetcher:get_historical_data:231 | ETF 518880 历史数据获取成功，数据条数: 100
+2025-10-21 14:08:34 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:08:34 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 518880, 周期: 1m, 尝试次数: 1
+2025-10-21 14:08:34 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 518880 分钟级数据...
+2025-10-21 14:08:34 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 518880 分钟级数据成功，数据条数: 189
+2025-10-21 14:08:34 | INFO | src.data_fetcher:get_historical_data:231 | ETF 518880 历史数据获取成功，数据条数: 189
+2025-10-21 14:08:34 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159995, 尝试次数: 1
+2025-10-21 14:08:42 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159995 实时数据获取成功
+2025-10-21 14:08:42 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159995, 周期: 1d, 尝试次数: 1
+2025-10-21 14:08:42 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159995 日级数据...
+2025-10-21 14:08:42 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159995 日级数据成功，数据条数: 1383
+2025-10-21 14:08:42 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159995 历史数据获取成功，数据条数: 100
+2025-10-21 14:08:42 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:08:42 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159995, 周期: 1m, 尝试次数: 1
+2025-10-21 14:08:42 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159995 分钟级数据...
+2025-10-21 14:08:42 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159995 分钟级数据成功，数据条数: 189
+2025-10-21 14:08:42 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159995 历史数据获取成功，数据条数: 189
+2025-10-21 14:08:42 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159637, 尝试次数: 1
+2025-10-21 14:08:47 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159637 实时数据获取成功
+2025-10-21 14:08:47 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159637, 周期: 1d, 尝试次数: 1
+2025-10-21 14:08:47 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159637 日级数据...
+2025-10-21 14:08:47 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159637 日级数据成功，数据条数: 757
+2025-10-21 14:08:47 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159637 历史数据获取成功，数据条数: 100
+2025-10-21 14:08:47 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:08:47 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159637, 周期: 1m, 尝试次数: 1
+2025-10-21 14:08:47 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159637 分钟级数据...
+2025-10-21 14:08:47 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159637 分钟级数据成功，数据条数: 189
+2025-10-21 14:08:47 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159637 历史数据获取成功，数据条数: 189
+2025-10-21 14:08:47 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 512010, 尝试次数: 1
+2025-10-21 14:09:04 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 512010 实时数据获取成功
+2025-10-21 14:09:04 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512010, 周期: 1d, 尝试次数: 1
+2025-10-21 14:09:04 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 512010 日级数据...
+2025-10-21 14:09:04 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 512010 日级数据成功，数据条数: 2913
+2025-10-21 14:09:04 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512010 历史数据获取成功，数据条数: 100
+2025-10-21 14:09:04 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:09:04 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512010, 周期: 1m, 尝试次数: 1
+2025-10-21 14:09:04 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 512010 分钟级数据...
+2025-10-21 14:09:04 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 512010 分钟级数据成功，数据条数: 190
+2025-10-21 14:09:04 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512010 历史数据获取成功，数据条数: 190
+2025-10-21 14:09:04 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159770, 尝试次数: 1
+2025-10-21 14:09:10 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159770 实时数据获取成功
+2025-10-21 14:09:10 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159770, 周期: 1d, 尝试次数: 1
+2025-10-21 14:09:10 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159770 日级数据...
+2025-10-21 14:09:10 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159770 日级数据成功，数据条数: 958
+2025-10-21 14:09:10 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159770 历史数据获取成功，数据条数: 100
+2025-10-21 14:09:10 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:09:10 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159770, 周期: 1m, 尝试次数: 1
+2025-10-21 14:09:10 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159770 分钟级数据...
+2025-10-21 14:09:10 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159770 分钟级数据成功，数据条数: 190
+2025-10-21 14:09:10 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159770 历史数据获取成功，数据条数: 190
+2025-10-21 14:09:10 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 512710, 尝试次数: 1
+2025-10-21 14:09:19 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 512710 实时数据获取成功
+2025-10-21 14:09:19 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512710, 周期: 1d, 尝试次数: 1
+2025-10-21 14:09:19 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 512710 日级数据...
+2025-10-21 14:09:19 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 512710 日级数据成功，数据条数: 1489
+2025-10-21 14:09:19 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512710 历史数据获取成功，数据条数: 100
+2025-10-21 14:09:19 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:09:19 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512710, 周期: 1m, 尝试次数: 1
+2025-10-21 14:09:19 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 512710 分钟级数据...
+2025-10-21 14:09:19 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 512710 分钟级数据成功，数据条数: 190
+2025-10-21 14:09:19 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512710 历史数据获取成功，数据条数: 190
+2025-10-21 14:09:19 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 515980, 尝试次数: 1
+2025-10-21 14:09:27 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 515980 实时数据获取成功
+2025-10-21 14:09:27 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 515980, 周期: 1d, 尝试次数: 1
+2025-10-21 14:09:27 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 515980 日级数据...
+2025-10-21 14:09:27 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 515980 日级数据成功，数据条数: 1383
+2025-10-21 14:09:27 | INFO | src.data_fetcher:get_historical_data:231 | ETF 515980 历史数据获取成功，数据条数: 100
+2025-10-21 14:09:27 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:09:27 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 515980, 周期: 1m, 尝试次数: 1
+2025-10-21 14:09:27 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 515980 分钟级数据...
+2025-10-21 14:09:27 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 515980 分钟级数据成功，数据条数: 190
+2025-10-21 14:09:27 | INFO | src.data_fetcher:get_historical_data:231 | ETF 515980 历史数据获取成功，数据条数: 190
+2025-10-21 14:09:27 | INFO | src.account:update_position_price:146 | ETF持仓 518880 价格更新: 9.439 -> 9.445
+2025-10-21 14:09:27 | INFO | src.account:_update_account_summary:239 | ETF账户摘要更新: 总资产=4060.50, 总盈亏=49.80, 当日盈亏=88.70
+2025-10-21 14:09:27 | INFO | src.utils:save_account_data:89 | 账户数据保存成功: data/account_data.json
+2025-10-21 14:09:27 | INFO | src.prompt_generator:generate_trading_prompt:64 | 交易提示词生成成功
+2025-10-21 14:09:27 | INFO | src.llm_client:generate_trading_advice:257 | 调用LLM API生成交易建议，尝试次数: 1
+2025-10-21 14:09:28 | ERROR | src.llm_client:generate_trading_advice:285 | LLM API请求失败 (尝试 1): 400 Client Error: Bad Request for url: https://api.deepseek.com/v1/chat/completions
+2025-10-21 14:09:29 | INFO | src.llm_client:generate_trading_advice:257 | 调用LLM API生成交易建议，尝试次数: 2
+2025-10-21 14:09:29 | ERROR | src.llm_client:generate_trading_advice:285 | LLM API请求失败 (尝试 2): 400 Client Error: Bad Request for url: https://api.deepseek.com/v1/chat/completions
+2025-10-21 14:09:31 | INFO | src.llm_client:generate_trading_advice:257 | 调用LLM API生成交易建议，尝试次数: 3
+2025-10-21 14:09:31 | ERROR | src.llm_client:generate_trading_advice:285 | LLM API请求失败 (尝试 3): 400 Client Error: Bad Request for url: https://api.deepseek.com/v1/chat/completions
+2025-10-21 14:14:02 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-21 14:14:02 | INFO | src.utils:create_directories:238 | 目录创建成功: data/market_data
+2025-10-21 14:14:02 | INFO | src.utils:create_directories:238 | 目录创建成功: logs
+2025-10-21 14:14:02 | INFO | src.utils:create_directories:238 | 目录创建成功: outputs
+2025-10-21 14:14:02 | INFO | src.data_fetcher:__init__:37 | ETF数据获取器初始化完成
+2025-10-21 14:14:02 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-21 14:14:02 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-21 14:14:02 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-21 14:14:02 | INFO | src.prompt_generator:__init__:28 | 语料生成器初始化完成
+2025-10-21 14:14:02 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: deepseek
+2025-10-21 14:14:02 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-21 14:14:20 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 518880 实时数据获取成功
+2025-10-21 14:14:20 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 1
+2025-10-21 14:14:20 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 518880 日级数据...
+2025-10-21 14:14:20 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 518880 日级数据成功，数据条数: 2973
+2025-10-21 14:14:20 | INFO | src.data_fetcher:get_historical_data:231 | ETF 518880 历史数据获取成功，数据条数: 100
+2025-10-21 14:14:20 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:14:20 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 518880, 周期: 1m, 尝试次数: 1
+2025-10-21 14:14:20 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 518880 分钟级数据...
+2025-10-21 14:14:20 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 518880 分钟级数据成功，数据条数: 195
+2025-10-21 14:14:20 | INFO | src.data_fetcher:get_historical_data:231 | ETF 518880 历史数据获取成功，数据条数: 195
+2025-10-21 14:14:20 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159995, 尝试次数: 1
+2025-10-21 14:14:30 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159995 实时数据获取成功
+2025-10-21 14:14:30 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159995, 周期: 1d, 尝试次数: 1
+2025-10-21 14:14:30 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159995 日级数据...
+2025-10-21 14:14:30 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159995 日级数据成功，数据条数: 1383
+2025-10-21 14:14:30 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159995 历史数据获取成功，数据条数: 100
+2025-10-21 14:14:30 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:14:30 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159995, 周期: 1m, 尝试次数: 1
+2025-10-21 14:14:30 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159995 分钟级数据...
+2025-10-21 14:14:30 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159995 分钟级数据成功，数据条数: 195
+2025-10-21 14:14:30 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159995 历史数据获取成功，数据条数: 195
+2025-10-21 14:14:30 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159637, 尝试次数: 1
+2025-10-21 14:14:35 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159637 实时数据获取成功
+2025-10-21 14:14:35 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159637, 周期: 1d, 尝试次数: 1
+2025-10-21 14:14:35 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159637 日级数据...
+2025-10-21 14:14:35 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159637 日级数据成功，数据条数: 757
+2025-10-21 14:14:35 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159637 历史数据获取成功，数据条数: 100
+2025-10-21 14:14:35 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:14:35 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159637, 周期: 1m, 尝试次数: 1
+2025-10-21 14:14:35 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159637 分钟级数据...
+2025-10-21 14:14:35 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159637 分钟级数据成功，数据条数: 195
+2025-10-21 14:14:35 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159637 历史数据获取成功，数据条数: 195
+2025-10-21 14:14:35 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 512010, 尝试次数: 1
+2025-10-21 14:14:52 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 512010 实时数据获取成功
+2025-10-21 14:14:52 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512010, 周期: 1d, 尝试次数: 1
+2025-10-21 14:14:52 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 512010 日级数据...
+2025-10-21 14:14:52 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 512010 日级数据成功，数据条数: 2913
+2025-10-21 14:14:52 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512010 历史数据获取成功，数据条数: 100
+2025-10-21 14:14:52 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:14:52 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512010, 周期: 1m, 尝试次数: 1
+2025-10-21 14:14:52 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 512010 分钟级数据...
+2025-10-21 14:14:52 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 512010 分钟级数据成功，数据条数: 195
+2025-10-21 14:14:52 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512010 历史数据获取成功，数据条数: 195
+2025-10-21 14:14:52 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159770, 尝试次数: 1
+2025-10-21 14:14:58 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159770 实时数据获取成功
+2025-10-21 14:14:58 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159770, 周期: 1d, 尝试次数: 1
+2025-10-21 14:14:58 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159770 日级数据...
+2025-10-21 14:14:58 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159770 日级数据成功，数据条数: 958
+2025-10-21 14:14:58 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159770 历史数据获取成功，数据条数: 100
+2025-10-21 14:14:58 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:14:58 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159770, 周期: 1m, 尝试次数: 1
+2025-10-21 14:14:58 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159770 分钟级数据...
+2025-10-21 14:14:58 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159770 分钟级数据成功，数据条数: 195
+2025-10-21 14:14:58 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159770 历史数据获取成功，数据条数: 195
+2025-10-21 14:14:58 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 512710, 尝试次数: 1
+2025-10-21 14:15:07 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 512710 实时数据获取成功
+2025-10-21 14:15:07 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512710, 周期: 1d, 尝试次数: 1
+2025-10-21 14:15:07 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 512710 日级数据...
+2025-10-21 14:15:07 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 512710 日级数据成功，数据条数: 1489
+2025-10-21 14:15:07 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512710 历史数据获取成功，数据条数: 100
+2025-10-21 14:15:07 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:15:07 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512710, 周期: 1m, 尝试次数: 1
+2025-10-21 14:15:07 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 512710 分钟级数据...
+2025-10-21 14:15:07 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 512710 分钟级数据成功，数据条数: 196
+2025-10-21 14:15:07 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512710 历史数据获取成功，数据条数: 196
+2025-10-21 14:15:07 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 515980, 尝试次数: 1
+2025-10-21 14:15:15 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 515980 实时数据获取成功
+2025-10-21 14:15:15 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 515980, 周期: 1d, 尝试次数: 1
+2025-10-21 14:15:15 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 515980 日级数据...
+2025-10-21 14:15:16 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 515980 日级数据成功，数据条数: 1383
+2025-10-21 14:15:16 | INFO | src.data_fetcher:get_historical_data:231 | ETF 515980 历史数据获取成功，数据条数: 100
+2025-10-21 14:15:16 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:15:16 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 515980, 周期: 1m, 尝试次数: 1
+2025-10-21 14:15:16 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 515980 分钟级数据...
+2025-10-21 14:15:16 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 515980 分钟级数据成功，数据条数: 196
+2025-10-21 14:15:16 | INFO | src.data_fetcher:get_historical_data:231 | ETF 515980 历史数据获取成功，数据条数: 196
+2025-10-21 14:15:16 | INFO | src.account:update_position_price:146 | ETF持仓 518880 价格更新: 9.445 -> 9.453
+2025-10-21 14:15:16 | INFO | src.account:_update_account_summary:239 | ETF账户摘要更新: 总资产=4062.90, 总盈亏=52.20, 当日盈亏=88.70
+2025-10-21 14:15:16 | INFO | src.utils:save_account_data:89 | 账户数据保存成功: data/account_data.json
+2025-10-21 14:15:16 | INFO | src.prompt_generator:generate_trading_prompt:64 | 交易提示词生成成功
+2025-10-21 14:15:16 | INFO | src.llm_client:generate_trading_advice:123 | 调用LLM API生成交易建议，尝试次数: 1
+2025-10-21 14:15:43 | INFO | src.llm_client:generate_trading_advice:145 | 交易建议生成成功
+2025-10-21 14:15:43 | INFO | src.prompt_generator:save_prompt_to_file:427 | 提示词已保存到: outputs\trading_prompt_20251021_141543.md
+2025-10-21 14:15:43 | INFO | src.llm_client:save_advice_to_file:308 | 交易建议已保存到: outputs\trading_advice_20251021_141543.md
+2025-10-21 14:15:43 | INFO | src.utils:save_account_data:89 | 账户数据保存成功: data/account_data.json
+2025-10-21 14:19:01 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-21 14:19:01 | INFO | src.utils:create_directories:238 | 目录创建成功: data/market_data
+2025-10-21 14:19:01 | INFO | src.utils:create_directories:238 | 目录创建成功: logs
+2025-10-21 14:19:01 | INFO | src.utils:create_directories:238 | 目录创建成功: outputs
+2025-10-21 14:19:01 | INFO | src.data_fetcher:__init__:37 | ETF数据获取器初始化完成
+2025-10-21 14:19:01 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-21 14:19:01 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-21 14:19:01 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-21 14:19:01 | INFO | src.prompt_generator:__init__:28 | 语料生成器初始化完成
+2025-10-21 14:19:01 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: deepseek
+2025-10-21 14:19:01 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-21 14:19:19 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 518880 实时数据获取成功
+2025-10-21 14:19:19 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 1
+2025-10-21 14:19:19 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 518880 日级数据...
+2025-10-21 14:19:19 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 518880 日级数据成功，数据条数: 2973
+2025-10-21 14:19:19 | INFO | src.data_fetcher:get_historical_data:231 | ETF 518880 历史数据获取成功，数据条数: 100
+2025-10-21 14:19:19 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:19:19 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 518880, 周期: 1m, 尝试次数: 1
+2025-10-21 14:19:19 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 518880 分钟级数据...
+2025-10-21 14:19:19 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 518880 分钟级数据成功，数据条数: 200
+2025-10-21 14:19:19 | INFO | src.data_fetcher:get_historical_data:231 | ETF 518880 历史数据获取成功，数据条数: 200
+2025-10-21 14:19:19 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159995, 尝试次数: 1
+2025-10-21 14:19:27 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159995 实时数据获取成功
+2025-10-21 14:19:27 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159995, 周期: 1d, 尝试次数: 1
+2025-10-21 14:19:27 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159995 日级数据...
+2025-10-21 14:19:27 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159995 日级数据成功，数据条数: 1383
+2025-10-21 14:19:27 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159995 历史数据获取成功，数据条数: 100
+2025-10-21 14:19:27 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:19:27 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159995, 周期: 1m, 尝试次数: 1
+2025-10-21 14:19:27 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159995 分钟级数据...
+2025-10-21 14:19:27 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159995 分钟级数据成功，数据条数: 200
+2025-10-21 14:19:27 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159995 历史数据获取成功，数据条数: 200
+2025-10-21 14:19:27 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159637, 尝试次数: 1
+2025-10-21 14:19:32 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159637 实时数据获取成功
+2025-10-21 14:19:32 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159637, 周期: 1d, 尝试次数: 1
+2025-10-21 14:19:32 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159637 日级数据...
+2025-10-21 14:19:32 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159637 日级数据成功，数据条数: 757
+2025-10-21 14:19:32 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159637 历史数据获取成功，数据条数: 100
+2025-10-21 14:19:32 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:19:32 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159637, 周期: 1m, 尝试次数: 1
+2025-10-21 14:19:32 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159637 分钟级数据...
+2025-10-21 14:19:32 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159637 分钟级数据成功，数据条数: 200
+2025-10-21 14:19:32 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159637 历史数据获取成功，数据条数: 200
+2025-10-21 14:19:32 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 512010, 尝试次数: 1
+2025-10-21 14:19:50 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 512010 实时数据获取成功
+2025-10-21 14:19:50 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512010, 周期: 1d, 尝试次数: 1
+2025-10-21 14:19:50 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 512010 日级数据...
+2025-10-21 14:19:50 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 512010 日级数据成功，数据条数: 2913
+2025-10-21 14:19:50 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512010 历史数据获取成功，数据条数: 100
+2025-10-21 14:19:50 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:19:50 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512010, 周期: 1m, 尝试次数: 1
+2025-10-21 14:19:50 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 512010 分钟级数据...
+2025-10-21 14:19:50 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 512010 分钟级数据成功，数据条数: 200
+2025-10-21 14:19:50 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512010 历史数据获取成功，数据条数: 200
+2025-10-21 14:19:50 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159770, 尝试次数: 1
+2025-10-21 14:19:56 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159770 实时数据获取成功
+2025-10-21 14:19:56 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159770, 周期: 1d, 尝试次数: 1
+2025-10-21 14:19:56 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159770 日级数据...
+2025-10-21 14:19:56 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159770 日级数据成功，数据条数: 958
+2025-10-21 14:19:56 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159770 历史数据获取成功，数据条数: 100
+2025-10-21 14:19:56 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:19:56 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159770, 周期: 1m, 尝试次数: 1
+2025-10-21 14:19:56 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159770 分钟级数据...
+2025-10-21 14:19:56 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159770 分钟级数据成功，数据条数: 200
+2025-10-21 14:19:56 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159770 历史数据获取成功，数据条数: 200
+2025-10-21 14:19:56 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 512710, 尝试次数: 1
+2025-10-21 14:20:06 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 512710 实时数据获取成功
+2025-10-21 14:20:06 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512710, 周期: 1d, 尝试次数: 1
+2025-10-21 14:20:06 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 512710 日级数据...
+2025-10-21 14:20:06 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 512710 日级数据成功，数据条数: 1489
+2025-10-21 14:20:06 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512710 历史数据获取成功，数据条数: 100
+2025-10-21 14:20:06 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:20:06 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512710, 周期: 1m, 尝试次数: 1
+2025-10-21 14:20:06 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 512710 分钟级数据...
+2025-10-21 14:20:06 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 512710 分钟级数据成功，数据条数: 201
+2025-10-21 14:20:06 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512710 历史数据获取成功，数据条数: 201
+2025-10-21 14:20:06 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 515980, 尝试次数: 1
+2025-10-21 14:20:14 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 515980 实时数据获取成功
+2025-10-21 14:20:14 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 515980, 周期: 1d, 尝试次数: 1
+2025-10-21 14:20:14 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 515980 日级数据...
+2025-10-21 14:20:14 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 515980 日级数据成功，数据条数: 1383
+2025-10-21 14:20:14 | INFO | src.data_fetcher:get_historical_data:231 | ETF 515980 历史数据获取成功，数据条数: 100
+2025-10-21 14:20:14 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:20:14 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 515980, 周期: 1m, 尝试次数: 1
+2025-10-21 14:20:14 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 515980 分钟级数据...
+2025-10-21 14:20:14 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 515980 分钟级数据成功，数据条数: 201
+2025-10-21 14:20:14 | INFO | src.data_fetcher:get_historical_data:231 | ETF 515980 历史数据获取成功，数据条数: 201
+2025-10-21 14:20:14 | INFO | src.account:update_position_price:146 | ETF持仓 518880 价格更新: 9.453 -> 9.449
+2025-10-21 14:20:14 | INFO | src.account:_update_account_summary:239 | ETF账户摘要更新: 总资产=4061.70, 总盈亏=51.00, 当日盈亏=88.70
+2025-10-21 14:20:14 | INFO | src.utils:save_account_data:89 | 账户数据保存成功: data/account_data.json
+2025-10-21 14:20:14 | INFO | src.prompt_generator:generate_trading_prompt:64 | 交易提示词生成成功
+2025-10-21 14:20:14 | INFO | src.llm_client:generate_trading_advice:123 | 调用LLM API生成交易建议，尝试次数: 1
+2025-10-21 14:20:40 | INFO | src.llm_client:generate_trading_advice:145 | 交易建议生成成功
+2025-10-21 14:20:40 | INFO | src.prompt_generator:save_prompt_to_file:427 | 提示词已保存到: outputs\trading_prompt_20251021_142040.md
+2025-10-21 14:20:40 | INFO | src.llm_client:save_advice_to_file:308 | 交易建议已保存到: outputs\trading_advice_20251021_142040.md
+2025-10-21 14:20:40 | INFO | src.utils:save_account_data:89 | 账户数据保存成功: data/account_data.json
+2025-10-21 14:22:21 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-21 14:22:21 | INFO | src.utils:create_directories:238 | 目录创建成功: data/market_data
+2025-10-21 14:22:21 | INFO | src.utils:create_directories:238 | 目录创建成功: logs
+2025-10-21 14:22:21 | INFO | src.utils:create_directories:238 | 目录创建成功: outputs
+2025-10-21 14:22:21 | INFO | src.data_fetcher:__init__:37 | ETF数据获取器初始化完成
+2025-10-21 14:22:21 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-21 14:22:21 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-21 14:22:21 | INFO | src.account:__init__:26 | 账户管理器初始化完成
+2025-10-21 14:22:21 | INFO | src.prompt_generator:__init__:28 | 语料生成器初始化完成
+2025-10-21 14:22:21 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: deepseek
+2025-10-21 14:22:21 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-21 14:22:38 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 518880 实时数据获取成功
+2025-10-21 14:22:38 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 1
+2025-10-21 14:22:38 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 518880 日级数据...
+2025-10-21 14:22:39 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 518880 日级数据成功，数据条数: 2973
+2025-10-21 14:22:39 | INFO | src.data_fetcher:get_historical_data:231 | ETF 518880 历史数据获取成功，数据条数: 100
+2025-10-21 14:22:39 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:22:39 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 518880, 周期: 1m, 尝试次数: 1
+2025-10-21 14:22:39 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 518880 分钟级数据...
+2025-10-21 14:22:39 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 518880 分钟级数据成功，数据条数: 203
+2025-10-21 14:22:39 | INFO | src.data_fetcher:get_historical_data:231 | ETF 518880 历史数据获取成功，数据条数: 203
+2025-10-21 14:22:39 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159995, 尝试次数: 1
+2025-10-21 14:22:47 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159995 实时数据获取成功
+2025-10-21 14:22:47 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159995, 周期: 1d, 尝试次数: 1
+2025-10-21 14:22:47 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159995 日级数据...
+2025-10-21 14:22:47 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159995 日级数据成功，数据条数: 1383
+2025-10-21 14:22:47 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159995 历史数据获取成功，数据条数: 100
+2025-10-21 14:22:47 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:22:47 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159995, 周期: 1m, 尝试次数: 1
+2025-10-21 14:22:47 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159995 分钟级数据...
+2025-10-21 14:22:47 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159995 分钟级数据成功，数据条数: 203
+2025-10-21 14:22:47 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159995 历史数据获取成功，数据条数: 203
+2025-10-21 14:22:47 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159637, 尝试次数: 1
+2025-10-21 14:22:52 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159637 实时数据获取成功
+2025-10-21 14:22:52 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159637, 周期: 1d, 尝试次数: 1
+2025-10-21 14:22:52 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159637 日级数据...
+2025-10-21 14:22:52 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159637 日级数据成功，数据条数: 757
+2025-10-21 14:22:52 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159637 历史数据获取成功，数据条数: 100
+2025-10-21 14:22:52 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:22:52 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159637, 周期: 1m, 尝试次数: 1
+2025-10-21 14:22:52 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159637 分钟级数据...
+2025-10-21 14:22:52 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159637 分钟级数据成功，数据条数: 203
+2025-10-21 14:22:52 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159637 历史数据获取成功，数据条数: 203
+2025-10-21 14:22:52 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 512010, 尝试次数: 1
+2025-10-21 14:23:10 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 512010 实时数据获取成功
+2025-10-21 14:23:10 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512010, 周期: 1d, 尝试次数: 1
+2025-10-21 14:23:10 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 512010 日级数据...
+2025-10-21 14:23:10 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 512010 日级数据成功，数据条数: 2913
+2025-10-21 14:23:10 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512010 历史数据获取成功，数据条数: 100
+2025-10-21 14:23:10 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:23:10 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512010, 周期: 1m, 尝试次数: 1
+2025-10-21 14:23:10 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 512010 分钟级数据...
+2025-10-21 14:23:10 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 512010 分钟级数据成功，数据条数: 204
+2025-10-21 14:23:10 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512010 历史数据获取成功，数据条数: 204
+2025-10-21 14:23:10 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159770, 尝试次数: 1
+2025-10-21 14:23:15 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159770 实时数据获取成功
+2025-10-21 14:23:15 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159770, 周期: 1d, 尝试次数: 1
+2025-10-21 14:23:15 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159770 日级数据...
+2025-10-21 14:23:16 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159770 日级数据成功，数据条数: 958
+2025-10-21 14:23:16 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159770 历史数据获取成功，数据条数: 100
+2025-10-21 14:23:16 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:23:16 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159770, 周期: 1m, 尝试次数: 1
+2025-10-21 14:23:16 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159770 分钟级数据...
+2025-10-21 14:23:16 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159770 分钟级数据成功，数据条数: 204
+2025-10-21 14:23:16 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159770 历史数据获取成功，数据条数: 204
+2025-10-21 14:23:16 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 512710, 尝试次数: 1
+2025-10-21 14:23:24 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 512710 实时数据获取成功
+2025-10-21 14:23:24 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512710, 周期: 1d, 尝试次数: 1
+2025-10-21 14:23:24 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 512710 日级数据...
+2025-10-21 14:23:24 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 512710 日级数据成功，数据条数: 1489
+2025-10-21 14:23:24 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512710 历史数据获取成功，数据条数: 100
+2025-10-21 14:23:24 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:23:24 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512710, 周期: 1m, 尝试次数: 1
+2025-10-21 14:23:24 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 512710 分钟级数据...
+2025-10-21 14:23:24 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 512710 分钟级数据成功，数据条数: 204
+2025-10-21 14:23:24 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512710 历史数据获取成功，数据条数: 204
+2025-10-21 14:23:24 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 515980, 尝试次数: 1
+2025-10-21 14:23:33 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 515980 实时数据获取成功
+2025-10-21 14:23:33 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 515980, 周期: 1d, 尝试次数: 1
+2025-10-21 14:23:33 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 515980 日级数据...
+2025-10-21 14:23:33 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 515980 日级数据成功，数据条数: 1383
+2025-10-21 14:23:33 | INFO | src.data_fetcher:get_historical_data:231 | ETF 515980 历史数据获取成功，数据条数: 100
+2025-10-21 14:23:33 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:23:33 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 515980, 周期: 1m, 尝试次数: 1
+2025-10-21 14:23:33 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 515980 分钟级数据...
+2025-10-21 14:23:33 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 515980 分钟级数据成功，数据条数: 204
+2025-10-21 14:23:33 | INFO | src.data_fetcher:get_historical_data:231 | ETF 515980 历史数据获取成功，数据条数: 204
+2025-10-21 14:23:33 | INFO | src.account:update_position_price:146 | ETF持仓 518880 价格更新: 9.449 -> 9.452
+2025-10-21 14:23:33 | INFO | src.account:_update_account_summary:239 | ETF账户摘要更新: 总资产=4062.60, 总盈亏=51.90, 当日盈亏=88.70
+2025-10-21 14:23:33 | INFO | src.utils:save_account_data:89 | 账户数据保存成功: data/account_data.json
+2025-10-21 14:23:33 | INFO | src.prompt_generator:generate_trading_prompt:64 | 交易提示词生成成功
+2025-10-21 14:23:33 | INFO | src.llm_client:generate_trading_advice:123 | 调用LLM API生成交易建议，尝试次数: 1
+2025-10-21 14:23:58 | INFO | src.llm_client:generate_trading_advice:145 | 交易建议生成成功
+2025-10-21 14:23:58 | INFO | src.prompt_generator:save_prompt_to_file:427 | 提示词已保存到: outputs\trading_prompt_20251021_142358.md
+2025-10-21 14:23:58 | INFO | src.llm_client:save_advice_to_file:308 | 交易建议已保存到: outputs\trading_advice_20251021_142358.md
+2025-10-21 14:23:59 | INFO | src.data_fetcher:save_cache_to_file:401 | 缓存数据已保存到: data/market_data
+2025-10-21 14:23:59 | INFO | src.utils:save_account_data:89 | 账户数据保存成功: data/account_data.json
+2025-10-21 14:46:51 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-21 14:46:51 | INFO | src.utils:create_directories:238 | 目录创建成功: data/market_data
+2025-10-21 14:46:51 | INFO | src.utils:create_directories:238 | 目录创建成功: logs
+2025-10-21 14:46:51 | INFO | src.utils:create_directories:238 | 目录创建成功: outputs
+2025-10-21 14:46:51 | INFO | src.data_fetcher:__init__:37 | ETF数据获取器初始化完成
+2025-10-21 14:46:51 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-21 14:46:51 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-21 14:46:51 | INFO | src.account:__init__:25 | 账户管理器初始化完成
+2025-10-21 14:46:51 | INFO | src.prompt_generator:__init__:28 | 语料生成器初始化完成
+2025-10-21 14:46:51 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: deepseek
+2025-10-21 14:46:51 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-21 14:47:09 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 518880 实时数据获取成功
+2025-10-21 14:47:09 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 1
+2025-10-21 14:47:09 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 518880 日级数据...
+2025-10-21 14:47:10 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 518880 日级数据成功，数据条数: 2973
+2025-10-21 14:47:10 | INFO | src.data_fetcher:get_historical_data:231 | ETF 518880 历史数据获取成功，数据条数: 100
+2025-10-21 14:47:10 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:47:10 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 518880, 周期: 1m, 尝试次数: 1
+2025-10-21 14:47:10 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 518880 分钟级数据...
+2025-10-21 14:47:10 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 518880 分钟级数据成功，数据条数: 228
+2025-10-21 14:47:10 | INFO | src.data_fetcher:get_historical_data:231 | ETF 518880 历史数据获取成功，数据条数: 228
+2025-10-21 14:47:10 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159995, 尝试次数: 1
+2025-10-21 14:47:18 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159995 实时数据获取成功
+2025-10-21 14:47:18 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159995, 周期: 1d, 尝试次数: 1
+2025-10-21 14:47:18 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159995 日级数据...
+2025-10-21 14:47:18 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159995 日级数据成功，数据条数: 1383
+2025-10-21 14:47:18 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159995 历史数据获取成功，数据条数: 100
+2025-10-21 14:47:18 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:47:18 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159995, 周期: 1m, 尝试次数: 1
+2025-10-21 14:47:18 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159995 分钟级数据...
+2025-10-21 14:47:18 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159995 分钟级数据成功，数据条数: 228
+2025-10-21 14:47:18 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159995 历史数据获取成功，数据条数: 228
+2025-10-21 14:47:18 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159637, 尝试次数: 1
+2025-10-21 14:47:23 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159637 实时数据获取成功
+2025-10-21 14:47:23 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159637, 周期: 1d, 尝试次数: 1
+2025-10-21 14:47:23 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159637 日级数据...
+2025-10-21 14:47:23 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159637 日级数据成功，数据条数: 757
+2025-10-21 14:47:23 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159637 历史数据获取成功，数据条数: 100
+2025-10-21 14:47:23 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:47:23 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159637, 周期: 1m, 尝试次数: 1
+2025-10-21 14:47:23 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159637 分钟级数据...
+2025-10-21 14:47:23 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159637 分钟级数据成功，数据条数: 228
+2025-10-21 14:47:23 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159637 历史数据获取成功，数据条数: 228
+2025-10-21 14:47:23 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 512010, 尝试次数: 1
+2025-10-21 14:47:40 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 512010 实时数据获取成功
+2025-10-21 14:47:40 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512010, 周期: 1d, 尝试次数: 1
+2025-10-21 14:47:40 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 512010 日级数据...
+2025-10-21 14:47:40 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 512010 日级数据成功，数据条数: 2913
+2025-10-21 14:47:40 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512010 历史数据获取成功，数据条数: 100
+2025-10-21 14:47:40 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:47:40 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512010, 周期: 1m, 尝试次数: 1
+2025-10-21 14:47:40 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 512010 分钟级数据...
+2025-10-21 14:47:40 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 512010 分钟级数据成功，数据条数: 228
+2025-10-21 14:47:40 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512010 历史数据获取成功，数据条数: 228
+2025-10-21 14:47:40 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159770, 尝试次数: 1
+2025-10-21 14:47:46 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159770 实时数据获取成功
+2025-10-21 14:47:46 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159770, 周期: 1d, 尝试次数: 1
+2025-10-21 14:47:46 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159770 日级数据...
+2025-10-21 14:47:46 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159770 日级数据成功，数据条数: 958
+2025-10-21 14:47:46 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159770 历史数据获取成功，数据条数: 100
+2025-10-21 14:47:46 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:47:46 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159770, 周期: 1m, 尝试次数: 1
+2025-10-21 14:47:46 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159770 分钟级数据...
+2025-10-21 14:47:46 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159770 分钟级数据成功，数据条数: 228
+2025-10-21 14:47:46 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159770 历史数据获取成功，数据条数: 228
+2025-10-21 14:47:46 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 512710, 尝试次数: 1
+2025-10-21 14:47:55 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 512710 实时数据获取成功
+2025-10-21 14:47:55 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512710, 周期: 1d, 尝试次数: 1
+2025-10-21 14:47:55 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 512710 日级数据...
+2025-10-21 14:47:55 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 512710 日级数据成功，数据条数: 1489
+2025-10-21 14:47:55 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512710 历史数据获取成功，数据条数: 100
+2025-10-21 14:47:55 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:47:55 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512710, 周期: 1m, 尝试次数: 1
+2025-10-21 14:47:55 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 512710 分钟级数据...
+2025-10-21 14:47:55 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 512710 分钟级数据成功，数据条数: 228
+2025-10-21 14:47:55 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512710 历史数据获取成功，数据条数: 228
+2025-10-21 14:47:55 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 515980, 尝试次数: 1
+2025-10-21 14:48:03 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 515980 实时数据获取成功
+2025-10-21 14:48:03 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 515980, 周期: 1d, 尝试次数: 1
+2025-10-21 14:48:03 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 515980 日级数据...
+2025-10-21 14:48:03 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 515980 日级数据成功，数据条数: 1383
+2025-10-21 14:48:03 | INFO | src.data_fetcher:get_historical_data:231 | ETF 515980 历史数据获取成功，数据条数: 100
+2025-10-21 14:48:03 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:48:03 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 515980, 周期: 1m, 尝试次数: 1
+2025-10-21 14:48:03 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 515980 分钟级数据...
+2025-10-21 14:48:03 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 515980 分钟级数据成功，数据条数: 229
+2025-10-21 14:48:03 | INFO | src.data_fetcher:get_historical_data:231 | ETF 515980 历史数据获取成功，数据条数: 229
+2025-10-21 14:49:02 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-21 14:49:02 | INFO | src.utils:create_directories:238 | 目录创建成功: data/market_data
+2025-10-21 14:49:02 | INFO | src.utils:create_directories:238 | 目录创建成功: logs
+2025-10-21 14:49:02 | INFO | src.utils:create_directories:238 | 目录创建成功: outputs
+2025-10-21 14:49:02 | INFO | src.data_fetcher:__init__:37 | ETF数据获取器初始化完成
+2025-10-21 14:49:02 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-21 14:49:02 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-21 14:49:02 | INFO | src.account:__init__:25 | 账户管理器初始化完成
+2025-10-21 14:49:02 | INFO | src.prompt_generator:__init__:28 | 语料生成器初始化完成
+2025-10-21 14:49:02 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: deepseek
+2025-10-21 14:49:02 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-21 14:49:20 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 518880 实时数据获取成功
+2025-10-21 14:49:20 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 1
+2025-10-21 14:49:20 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 518880 日级数据...
+2025-10-21 14:49:20 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 518880 日级数据成功，数据条数: 2973
+2025-10-21 14:49:20 | INFO | src.data_fetcher:get_historical_data:231 | ETF 518880 历史数据获取成功，数据条数: 100
+2025-10-21 14:49:20 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:49:20 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 518880, 周期: 1m, 尝试次数: 1
+2025-10-21 14:49:20 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 518880 分钟级数据...
+2025-10-21 14:49:20 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 518880 分钟级数据成功，数据条数: 230
+2025-10-21 14:49:20 | INFO | src.data_fetcher:get_historical_data:231 | ETF 518880 历史数据获取成功，数据条数: 230
+2025-10-21 14:49:20 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159995, 尝试次数: 1
+2025-10-21 14:49:28 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159995 实时数据获取成功
+2025-10-21 14:49:28 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159995, 周期: 1d, 尝试次数: 1
+2025-10-21 14:49:28 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159995 日级数据...
+2025-10-21 14:49:28 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159995 日级数据成功，数据条数: 1383
+2025-10-21 14:49:28 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159995 历史数据获取成功，数据条数: 100
+2025-10-21 14:49:28 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:49:28 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159995, 周期: 1m, 尝试次数: 1
+2025-10-21 14:49:28 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159995 分钟级数据...
+2025-10-21 14:49:29 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159995 分钟级数据成功，数据条数: 230
+2025-10-21 14:49:29 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159995 历史数据获取成功，数据条数: 230
+2025-10-21 14:49:29 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159637, 尝试次数: 1
+2025-10-21 14:49:33 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159637 实时数据获取成功
+2025-10-21 14:49:33 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159637, 周期: 1d, 尝试次数: 1
+2025-10-21 14:49:33 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159637 日级数据...
+2025-10-21 14:49:33 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159637 日级数据成功，数据条数: 757
+2025-10-21 14:49:33 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159637 历史数据获取成功，数据条数: 100
+2025-10-21 14:49:33 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:49:33 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159637, 周期: 1m, 尝试次数: 1
+2025-10-21 14:49:33 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159637 分钟级数据...
+2025-10-21 14:49:33 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159637 分钟级数据成功，数据条数: 230
+2025-10-21 14:49:33 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159637 历史数据获取成功，数据条数: 230
+2025-10-21 14:49:33 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 512010, 尝试次数: 1
+2025-10-21 14:49:51 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 512010 实时数据获取成功
+2025-10-21 14:49:51 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512010, 周期: 1d, 尝试次数: 1
+2025-10-21 14:49:51 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 512010 日级数据...
+2025-10-21 14:49:51 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 512010 日级数据成功，数据条数: 2913
+2025-10-21 14:49:51 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512010 历史数据获取成功，数据条数: 100
+2025-10-21 14:49:51 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:49:51 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512010, 周期: 1m, 尝试次数: 1
+2025-10-21 14:49:51 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 512010 分钟级数据...
+2025-10-21 14:49:51 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 512010 分钟级数据成功，数据条数: 230
+2025-10-21 14:49:52 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512010 历史数据获取成功，数据条数: 230
+2025-10-21 14:49:52 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159770, 尝试次数: 1
+2025-10-21 14:49:58 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159770 实时数据获取成功
+2025-10-21 14:49:58 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159770, 周期: 1d, 尝试次数: 1
+2025-10-21 14:49:58 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159770 日级数据...
+2025-10-21 14:49:58 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159770 日级数据成功，数据条数: 958
+2025-10-21 14:49:58 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159770 历史数据获取成功，数据条数: 100
+2025-10-21 14:49:58 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:49:58 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159770, 周期: 1m, 尝试次数: 1
+2025-10-21 14:49:58 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159770 分钟级数据...
+2025-10-21 14:49:58 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159770 分钟级数据成功，数据条数: 230
+2025-10-21 14:49:58 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159770 历史数据获取成功，数据条数: 230
+2025-10-21 14:49:58 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 512710, 尝试次数: 1
+2025-10-21 14:50:07 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 512710 实时数据获取成功
+2025-10-21 14:50:07 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512710, 周期: 1d, 尝试次数: 1
+2025-10-21 14:50:07 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 512710 日级数据...
+2025-10-21 14:50:07 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 512710 日级数据成功，数据条数: 1489
+2025-10-21 14:50:07 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512710 历史数据获取成功，数据条数: 100
+2025-10-21 14:50:07 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:50:07 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512710, 周期: 1m, 尝试次数: 1
+2025-10-21 14:50:07 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 512710 分钟级数据...
+2025-10-21 14:50:07 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 512710 分钟级数据成功，数据条数: 231
+2025-10-21 14:50:07 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512710 历史数据获取成功，数据条数: 231
+2025-10-21 14:50:07 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 515980, 尝试次数: 1
+2025-10-21 14:50:16 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 515980 实时数据获取成功
+2025-10-21 14:50:16 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 515980, 周期: 1d, 尝试次数: 1
+2025-10-21 14:50:16 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 515980 日级数据...
+2025-10-21 14:50:16 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 515980 日级数据成功，数据条数: 1383
+2025-10-21 14:50:16 | INFO | src.data_fetcher:get_historical_data:231 | ETF 515980 历史数据获取成功，数据条数: 100
+2025-10-21 14:50:16 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:50:16 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 515980, 周期: 1m, 尝试次数: 1
+2025-10-21 14:50:16 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 515980 分钟级数据...
+2025-10-21 14:50:16 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 515980 分钟级数据成功，数据条数: 231
+2025-10-21 14:50:16 | INFO | src.data_fetcher:get_historical_data:231 | ETF 515980 历史数据获取成功，数据条数: 231
+2025-10-21 14:50:16 | WARNING | src.account:update_position_price:210 | 更新持仓价格功能已移除，请手动更新data/account_data.json文件中的512710持仓价格
+2025-10-21 14:50:16 | WARNING | src.account:update_position_price:210 | 更新持仓价格功能已移除，请手动更新data/account_data.json文件中的518880持仓价格
+2025-10-21 14:50:16 | INFO | src.prompt_generator:generate_trading_prompt:64 | 交易提示词生成成功
+2025-10-21 14:50:16 | INFO | src.llm_client:generate_trading_advice:123 | 调用LLM API生成交易建议，尝试次数: 1
+2025-10-21 14:50:40 | INFO | src.llm_client:generate_trading_advice:145 | 交易建议生成成功
+2025-10-21 14:50:40 | INFO | src.prompt_generator:save_prompt_to_file:427 | 提示词已保存到: outputs\trading_prompt_20251021_145040.md
+2025-10-21 14:50:40 | INFO | src.llm_client:save_advice_to_file:308 | 交易建议已保存到: outputs\trading_advice_20251021_145040.md
+2025-10-21 14:50:40 | INFO | src.data_fetcher:save_cache_to_file:401 | 缓存数据已保存到: data/market_data
+2025-10-21 14:51:14 | INFO | src.utils:setup_logging:126 | 日志系统初始化成功
+2025-10-21 14:51:14 | INFO | src.utils:create_directories:238 | 目录创建成功: data/market_data
+2025-10-21 14:51:14 | INFO | src.utils:create_directories:238 | 目录创建成功: logs
+2025-10-21 14:51:14 | INFO | src.utils:create_directories:238 | 目录创建成功: outputs
+2025-10-21 14:51:14 | INFO | src.data_fetcher:__init__:37 | ETF数据获取器初始化完成
+2025-10-21 14:51:14 | INFO | src.indicators:__init__:25 | 技术指标计算器初始化完成
+2025-10-21 14:51:14 | INFO | src.utils:load_account_data:67 | 账户数据加载成功: data/account_data.json
+2025-10-21 14:51:14 | INFO | src.account:__init__:25 | 账户管理器初始化完成
+2025-10-21 14:51:14 | INFO | src.prompt_generator:__init__:28 | 语料生成器初始化完成
+2025-10-21 14:51:14 | INFO | src.llm_client:__init__:36 | LLM客户端初始化完成，提供商: deepseek
+2025-10-21 14:51:14 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 518880, 尝试次数: 1
+2025-10-21 14:51:31 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 518880 实时数据获取成功
+2025-10-21 14:51:31 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 518880, 周期: 1d, 尝试次数: 1
+2025-10-21 14:51:31 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 518880 日级数据...
+2025-10-21 14:51:31 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 518880 日级数据成功，数据条数: 2973
+2025-10-21 14:51:31 | INFO | src.data_fetcher:get_historical_data:231 | ETF 518880 历史数据获取成功，数据条数: 100
+2025-10-21 14:51:31 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:51:31 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 518880, 周期: 1m, 尝试次数: 1
+2025-10-21 14:51:31 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 518880 分钟级数据...
+2025-10-21 14:51:31 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 518880 分钟级数据成功，数据条数: 232
+2025-10-21 14:51:31 | INFO | src.data_fetcher:get_historical_data:231 | ETF 518880 历史数据获取成功，数据条数: 232
+2025-10-21 14:51:31 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159995, 尝试次数: 1
+2025-10-21 14:51:40 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159995 实时数据获取成功
+2025-10-21 14:51:40 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159995, 周期: 1d, 尝试次数: 1
+2025-10-21 14:51:40 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159995 日级数据...
+2025-10-21 14:51:40 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159995 日级数据成功，数据条数: 1383
+2025-10-21 14:51:40 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159995 历史数据获取成功，数据条数: 100
+2025-10-21 14:51:40 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:51:40 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159995, 周期: 1m, 尝试次数: 1
+2025-10-21 14:51:40 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159995 分钟级数据...
+2025-10-21 14:51:40 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159995 分钟级数据成功，数据条数: 232
+2025-10-21 14:51:40 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159995 历史数据获取成功，数据条数: 232
+2025-10-21 14:51:40 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159637, 尝试次数: 1
+2025-10-21 14:51:45 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159637 实时数据获取成功
+2025-10-21 14:51:45 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159637, 周期: 1d, 尝试次数: 1
+2025-10-21 14:51:45 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159637 日级数据...
+2025-10-21 14:51:45 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159637 日级数据成功，数据条数: 757
+2025-10-21 14:51:45 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159637 历史数据获取成功，数据条数: 100
+2025-10-21 14:51:45 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:51:45 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159637, 周期: 1m, 尝试次数: 1
+2025-10-21 14:51:45 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159637 分钟级数据...
+2025-10-21 14:51:45 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159637 分钟级数据成功，数据条数: 232
+2025-10-21 14:51:45 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159637 历史数据获取成功，数据条数: 232
+2025-10-21 14:51:45 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 512010, 尝试次数: 1
+2025-10-21 14:52:02 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 512010 实时数据获取成功
+2025-10-21 14:52:02 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512010, 周期: 1d, 尝试次数: 1
+2025-10-21 14:52:02 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 512010 日级数据...
+2025-10-21 14:52:02 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 512010 日级数据成功，数据条数: 2913
+2025-10-21 14:52:02 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512010 历史数据获取成功，数据条数: 100
+2025-10-21 14:52:02 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:52:02 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512010, 周期: 1m, 尝试次数: 1
+2025-10-21 14:52:02 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 512010 分钟级数据...
+2025-10-21 14:52:02 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 512010 分钟级数据成功，数据条数: 233
+2025-10-21 14:52:02 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512010 历史数据获取成功，数据条数: 233
+2025-10-21 14:52:02 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 159770, 尝试次数: 1
+2025-10-21 14:52:08 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 159770 实时数据获取成功
+2025-10-21 14:52:08 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159770, 周期: 1d, 尝试次数: 1
+2025-10-21 14:52:08 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 159770 日级数据...
+2025-10-21 14:52:08 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 159770 日级数据成功，数据条数: 958
+2025-10-21 14:52:08 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159770 历史数据获取成功，数据条数: 100
+2025-10-21 14:52:08 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:52:08 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 159770, 周期: 1m, 尝试次数: 1
+2025-10-21 14:52:08 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 159770 分钟级数据...
+2025-10-21 14:52:08 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 159770 分钟级数据成功，数据条数: 233
+2025-10-21 14:52:08 | INFO | src.data_fetcher:get_historical_data:231 | ETF 159770 历史数据获取成功，数据条数: 233
+2025-10-21 14:52:08 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 512710, 尝试次数: 1
+2025-10-21 14:52:17 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 512710 实时数据获取成功
+2025-10-21 14:52:17 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512710, 周期: 1d, 尝试次数: 1
+2025-10-21 14:52:17 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 512710 日级数据...
+2025-10-21 14:52:17 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 512710 日级数据成功，数据条数: 1489
+2025-10-21 14:52:17 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512710 历史数据获取成功，数据条数: 100
+2025-10-21 14:52:17 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:52:17 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 512710, 周期: 1m, 尝试次数: 1
+2025-10-21 14:52:17 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 512710 分钟级数据...
+2025-10-21 14:52:17 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 512710 分钟级数据成功，数据条数: 233
+2025-10-21 14:52:17 | INFO | src.data_fetcher:get_historical_data:231 | ETF 512710 历史数据获取成功，数据条数: 233
+2025-10-21 14:52:17 | INFO | src.data_fetcher:get_real_time_data:61 | 获取ETF实时数据: 515980, 尝试次数: 1
+2025-10-21 14:52:26 | INFO | src.data_fetcher:get_real_time_data:97 | ETF 515980 实时数据获取成功
+2025-10-21 14:52:26 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 515980, 周期: 1d, 尝试次数: 1
+2025-10-21 14:52:26 | INFO | src.data_fetcher:get_historical_data:194 | 尝试使用efinance获取ETF 515980 日级数据...
+2025-10-21 14:52:26 | INFO | src.data_fetcher:get_historical_data:207 | efinance获取ETF 515980 日级数据成功，数据条数: 1383
+2025-10-21 14:52:26 | INFO | src.data_fetcher:get_historical_data:231 | ETF 515980 历史数据获取成功，数据条数: 100
+2025-10-21 14:52:26 | INFO | src.indicators:calculate_all_indicators:326 | 所有技术指标计算完成
+2025-10-21 14:52:26 | INFO | src.data_fetcher:get_historical_data:132 | 获取ETF历史数据: 515980, 周期: 1m, 尝试次数: 1
+2025-10-21 14:52:26 | INFO | src.data_fetcher:get_historical_data:138 | 尝试使用efinance获取ETF 515980 分钟级数据...
+2025-10-21 14:52:26 | INFO | src.data_fetcher:get_historical_data:152 | efinance获取ETF 515980 分钟级数据成功，数据条数: 233
+2025-10-21 14:52:26 | INFO | src.data_fetcher:get_historical_data:231 | ETF 515980 历史数据获取成功，数据条数: 233
+2025-10-21 14:52:26 | WARNING | src.account:update_position_price:210 | 更新持仓价格功能已移除，请手动更新data/account_data.json文件中的512710持仓价格
+2025-10-21 14:52:26 | WARNING | src.account:update_position_price:210 | 更新持仓价格功能已移除，请手动更新data/account_data.json文件中的518880持仓价格
+2025-10-21 14:52:26 | INFO | src.prompt_generator:generate_trading_prompt:64 | 交易提示词生成成功
+2025-10-21 14:52:26 | INFO | src.llm_client:generate_trading_advice:123 | 调用LLM API生成交易建议，尝试次数: 1
+2025-10-21 14:52:51 | INFO | src.llm_client:generate_trading_advice:145 | 交易建议生成成功
+2025-10-21 14:52:51 | INFO | src.prompt_generator:save_prompt_to_file:427 | 提示词已保存到: outputs\trading_prompt_20251021_145251.md
+2025-10-21 14:52:51 | INFO | src.llm_client:save_advice_to_file:308 | 交易建议已保存到: outputs\trading_advice_20251021_145251.md
+2025-10-21 14:52:51 | INFO | src.data_fetcher:save_cache_to_file:401 | 缓存数据已保存到: data/market_data
+2025-10-21 14:52:51 | WARNING | src.account:update_call_count:218 | 更新调用次数功能已移除，请手动更新data/account_data.json文件中的调用次数
