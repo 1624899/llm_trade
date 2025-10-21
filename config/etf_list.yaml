@@ -8,7 +8,7 @@ gold_etfs:
 
 # 芯片相关ETF
 chip_etfs:
-  - code: "159995"
+  - code: "159599"
     name: "芯片ETF基金"
     category: "芯片"
 
@@ -50,7 +50,7 @@ monitored_etfs:
   - code: "518880"
     name: "黄金ETF"
     category: "黄金"
-  - code: "159995"
+  - code: "159599"
     name: "芯片ETF基金"
     category: "芯片"
   - code: "159637"

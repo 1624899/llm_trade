@@ -310,4 +310,186 @@ class LLMClient:
             
         except Exception as e:
             logger.error(f"保存交易建议失败: {e}")
-            return ""
+            return ""
+    
+    def extract_trading_signals(self, advice: str) -> Optional[Dict[str, Any]]:
+        """
+        从LLM返回的建议中提取交易信号
+        
+        Args:
+            advice: LLM返回的交易建议文本
+            
+        Returns:
+            提取的交易信号字典
+        """
+        try:
+            import re
+            
+            # 尝试提取JSON格式的交易建议
+            json_pattern = r'```json\s*(.*?)\s*```'
+            json_matches = re.findall(json_pattern, advice, re.DOTALL)
+            
+            if json_matches:
+                # 使用第一个找到的JSON块
+                json_str = json_matches[0].strip()
+                try:
+                    trading_data = json.loads(json_str)
+                    logger.info("成功提取JSON格式的交易建议")
+                    return trading_data
+                except json.JSONDecodeError as e:
+                    logger.warning(f"JSON解析失败，尝试其他方法: {e}")
+            
+            # 如果JSON解析失败，尝试正则表达式提取
+            return self._extract_with_regex(advice)
+            
+        except Exception as e:
+            logger.error(f"提取交易信号失败: {e}")
+            return None
+    
+    def _extract_with_regex(self, advice: str) -> Optional[Dict[str, Any]]:
+        """
+        使用正则表达式提取交易信息
+        
+        Args:
+            advice: LLM返回的交易建议文本
+            
+        Returns:
+            提取的交易信号字典
+        """
+        try:
+            import re
+            
+            # 初始化结果
+            trading_data = {
+                "analysis_summary": "",
+                "recommendations": []
+            }
+            
+            # 提取分析总结
+            summary_patterns = [
+                r'分析总结[：:]\s*(.*?)(?=\n|$)',
+                r'总结[：:]\s*(.*?)(?=\n|$)',
+                r'总体分析[：:]\s*(.*?)(?=\n|$)'
+            ]
+            
+            for pattern in summary_patterns:
+                match = re.search(pattern, advice, re.IGNORECASE)
+                if match:
+                    trading_data["analysis_summary"] = match.group(1).strip()
+                    break
+            
+            # 提取交易建议
+            # 匹配ETF代码和操作
+            etf_pattern = r'(\d{6})[：:]?\s*([买入卖出持有]+)\s*(\d+股?|\d+手?)?'
+            etf_matches = re.findall(etf_pattern, advice)
+            
+            # 匹配止损止盈
+            stop_loss_pattern = r'止损[：:]?\s*(\d+\.?\d*)'
+            take_profit_pattern = r'止盈[：:]?\s*(\d+\.?\d*)'
+            
+            stop_loss_matches = re.findall(stop_loss_pattern, advice)
+            take_profit_matches = re.findall(take_profit_pattern, advice)
+            
+            # 组合交易建议
+            for i, (symbol, action, quantity) in enumerate(etf_matches):
+                recommendation = {
+                    "symbol": symbol,
+                    "action": action,
+                    "quantity": quantity if quantity else "建议数量",
+                    "stop_loss": stop_loss_matches[i] if i < len(stop_loss_matches) else "",
+                    "take_profit": take_profit_matches[i] if i < len(take_profit_matches) else "",
+                    "reason": "基于技术分析"
+                }
+                trading_data["recommendations"].append(recommendation)
+            
+            if trading_data["recommendations"]:
+                logger.info("使用正则表达式成功提取交易建议")
+                return trading_data
+            else:
+                logger.warning("未能提取到有效的交易建议")
+                return None
+                
+        except Exception as e:
+            logger.error(f"正则表达式提取交易信号失败: {e}")
+            return None
+    
+    def save_trading_analysis(self, trading_data: Dict[str, Any],
+                            market_data: Dict[str, Any],
+                            account_data: Dict[str, Any]) -> str:
+        """
+        保存交易分析数据到JSON文件，使用固定名称并保留最近3次历史记录
+        
+        Args:
+            trading_data: 提取的交易数据
+            market_data: 市场数据
+            account_data: 账户数据
+            
+        Returns:
+            保存的文件路径
+        """
+        try:
+            import os
+            import glob
+            from datetime import datetime
+            
+            # 创建完整的分析记录
+            analysis_record = {
+                "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                "analysis_summary": trading_data.get("analysis_summary", ""),
+                "recommendations": trading_data.get("recommendations", []),
+                "market_snapshot": {},
+                "account_snapshot": account_data.get("account_info", {}),
+                "current_positions": account_data.get("positions", [])
+            }
+            
+            # 添加市场快照
+            for symbol, data in market_data.items():
+                current_data = data.get("current_data", {})
+                analysis_record["market_snapshot"][symbol] = {
+                    "name": data.get("name", ""),
+                    "current_price": current_data.get("current_price", 0),
+                    "current_ema_long": current_data.get("current_ema_long", 0),
+                    "current_macd": current_data.get("current_macd", 0),
+                    "current_rsi_7": current_data.get("current_rsi_7", 0)
+                }
+            
+            # 确保data目录存在
+            os.makedirs("data", exist_ok=True)
+            
+            # 读取现有历史记录
+            history_file = os.path.join("data", "trading_analysis_history.json")
+            history_data = []
+            
+            if os.path.exists(history_file):
+                try:
+                    with open(history_file, 'r', encoding='utf-8') as f:
+                        history_data = json.load(f)
+                    if not isinstance(history_data, list):
+                        history_data = []
+                except Exception as e:
+                    logger.warning(f"读取历史记录文件失败，创建新文件: {e}")
+                    history_data = []
+            
+            # 添加新的分析记录到历史记录开头
+            history_data.insert(0, analysis_record)
+            
+            # 保留最近3次记录
+            history_data = history_data[:3]
+            
+            # 保存历史记录文件
+            with open(history_file, 'w', encoding='utf-8') as f:
+                json.dump(history_data, f, ensure_ascii=False, indent=2)
+            
+            # 保存当前分析记录为固定名称文件
+            current_file = os.path.join("data", "trading_analysis.json")
+            with open(current_file, 'w', encoding='utf-8') as f:
+                json.dump(analysis_record, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"交易分析数据已保存到: {current_file}")
+            logger.info(f"历史记录已更新，保留最近3次记录: {history_file}")
+            
+            return current_file
+            
+        except Exception as e:
+            logger.error(f"保存交易分析数据失败: {e}")
+            return ""

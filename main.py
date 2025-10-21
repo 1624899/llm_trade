@@ -110,7 +110,7 @@ class ETFTradingSystem:
             print("✅ 交易建议生成成功")
             
             # 5. 保存结果
-            self._save_analysis_results(prompt, trading_advice)
+            self._save_analysis_results(prompt, trading_advice, market_data)
             
             # 6. 更新调用次数
             self.account_manager.update_call_count()
@@ -252,13 +252,14 @@ class ETFTradingSystem:
                     self.account_manager.update_position_price(symbol, current_price)
                     print(f"💰 更新持仓 {symbol} 价格: {current_price:.2f}")
     
-    def _save_analysis_results(self, prompt: str, advice: str) -> None:
+    def _save_analysis_results(self, prompt: str, advice: str, market_data: Dict[str, Any]) -> None:
         """
         保存分析结果
         
         Args:
             prompt: 分析语料
             advice: 交易建议
+            market_data: 市场数据
         """
         try:
             # 保存语料
@@ -270,6 +271,32 @@ class ETFTradingSystem:
             advice_file = self.llm_client.save_advice_to_file(advice)
             if advice_file:
                 print(f"📄 建议已保存: {advice_file}")
+            
+            # 提取交易信号并保存JSON数据
+            print("🔍 正在提取交易信号...")
+            trading_signals = self.llm_client.extract_trading_signals(advice)
+            
+            if trading_signals:
+                account_data = self.account_manager.account_data
+                json_file = self.llm_client.save_trading_analysis(trading_signals, market_data, account_data)
+                if json_file:
+                    print(f"📊 交易分析JSON已保存: {json_file}")
+                    
+                    # 显示提取的交易信号
+                    recommendations = trading_signals.get('recommendations', [])
+                    if recommendations:
+                        print("💡 提取的交易信号:")
+                        for i, rec in enumerate(recommendations, 1):
+                            symbol = rec.get('symbol', '')
+                            action = rec.get('action', '')
+                            quantity = rec.get('quantity', '')
+                            stop_loss = rec.get('stop_loss', '')
+                            take_profit = rec.get('take_profit', '')
+                            print(f"  {i}. {symbol}: {action} {quantity}股, 止损{stop_loss}, 止盈{take_profit}")
+                else:
+                    print("⚠️  交易分析JSON保存失败")
+            else:
+                print("⚠️  交易信号提取失败")
             
             # 保存市场数据缓存
             self.data_fetcher.save_cache_to_file()

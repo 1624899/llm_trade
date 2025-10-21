@@ -7,7 +7,10 @@ import json
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 from loguru import logger
-from .utils import get_trading_minutes, get_current_time_str, format_number
+try:
+    from .utils import get_trading_minutes, get_current_time_str, format_number
+except ImportError:
+    from utils import get_trading_minutes, get_current_time_str, format_number
 
 
 class PromptGenerator:
@@ -27,7 +30,7 @@ class PromptGenerator:
         
         logger.info("语料生成器初始化完成")
     
-    def generate_trading_prompt(self, market_data: Dict[str, Any], 
+    def generate_trading_prompt(self, market_data: Dict[str, Any],
                               account_data: Dict[str, Any]) -> str:
         """
         生成交易分析提示词
@@ -49,6 +52,9 @@ class PromptGenerator:
             # 生成头部信息
             header = self._generate_header(account_data)
             
+            # 生成历史分析数据部分
+            history_section = self._generate_history_section()
+            
             # 生成ETF数据部分
             etf_sections = self._generate_etf_sections(market_data)
             
@@ -58,8 +64,11 @@ class PromptGenerator:
             # 生成绩效指标部分
             performance_section = self._generate_performance_section(account_data)
             
+            # 生成分析请求
+            analysis_request = self.generate_analysis_request()
+            
             # 组合完整的提示词
-            prompt = f"{header}\n\n{etf_sections}\n\n{account_section}\n\n{performance_section}"
+            prompt = f"{header}\n\n{history_section}\n\n{etf_sections}\n\n{account_section}\n\n{performance_section}\n\n{analysis_request}"
             
             logger.info("交易提示词生成成功")
             return prompt
@@ -389,11 +398,30 @@ class PromptGenerator:
 
 1. **市场状况分析**：当前各ETF的技术指标显示什么信号？
 2. **持仓风险评估**：当前持仓的风险水平如何？
-3. **交易建议**：基于当前市场数据和持仓情况，提供具体的交易建议（买入、卖出、持有）
+3. **交易建议**：基于当前市场数据和持仓情况，提供具体的交易建议
+
+**重要：请严格按照以下JSON格式提供交易建议，便于系统自动提取：**
+
+```json
+{
+  "analysis_summary": "简要分析总结",
+  "recommendations": [
+    {
+      "symbol": "ETF代码",
+      "action": "买入/卖出/持有",
+      "quantity": "目标持仓数量",
+      "stop_loss": "止损价格",
+      "take_profit": "止盈价格",
+      "reason": "操作理由"
+    }
+  ]
+}
+```
+
 4. **风险管理**：建议的止损位和目标价位
 5. **资金管理**：是否需要调整仓位配置
 
-请提供详细的分析和具体的操作建议。"""
+请提供详细的分析，并务必按照上述JSON格式提供具体的操作建议。"""
         
         return request
     
@@ -430,3 +458,61 @@ class PromptGenerator:
         except Exception as e:
             logger.error(f"保存提示词失败: {e}")
             return ""
+    
+    def _generate_history_section(self) -> str:
+        """
+        生成历史分析数据部分
+        
+        Returns:
+            历史分析数据字符串
+        """
+        try:
+            import os
+            
+            # 读取历史记录文件
+            history_file = "data/trading_analysis_history.json"
+            
+            if not os.path.exists(history_file):
+                return "### 历史分析记录\n\n暂无历史分析记录。"
+            
+            try:
+                with open(history_file, 'r', encoding='utf-8') as f:
+                    history_data = json.load(f)
+                
+                if not isinstance(history_data, list) or not history_data:
+                    return "### 历史分析记录\n\n暂无历史分析记录。"
+                
+                history_section = "### 历史分析记录（最近3条）\n\n"
+                
+                for record in history_data:
+                    # 提取关键信息
+                    timestamp = record.get('timestamp', '')
+                    analysis_summary = record.get('analysis_summary', '')
+                    recommendations = record.get('recommendations', [])
+                    
+                    history_section += f"**分析时间**: {timestamp}\n"
+                    history_section += f"**分析总结**: {analysis_summary}\n"
+                    
+                    if recommendations:
+                        history_section += "**建议操作**:\n"
+                        for rec in recommendations:
+                            symbol = rec.get('symbol', '')
+                            action = rec.get('action', '')
+                            quantity = rec.get('quantity', '')
+                            stop_loss = rec.get('stop_loss', '')
+                            take_profit = rec.get('take_profit', '')
+                            reason = rec.get('reason', '')
+                            
+                            history_section += f"- {symbol}: {action} {quantity}股, 止损{stop_loss}, 止盈{take_profit}, 理由: {reason}\n"
+                    
+                    history_section += "\n---\n\n"
+                
+                return history_section
+                
+            except Exception as e:
+                logger.error(f"读取历史分析文件失败: {e}")
+                return "### 历史分析记录\n\n历史分析数据读取失败。"
+            
+        except Exception as e:
+            logger.error(f"生成历史分析数据部分失败: {e}")
+            return "### 历史分析记录\n\n历史分析数据获取失败。"
