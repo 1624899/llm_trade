@@ -415,6 +415,8 @@ class PromptGenerator:
       "quantity": "目标持仓数量",
       "buy_quantity": "建议买入数量",
       "sell_quantity": "建议卖出数量",
+      "buy_price": "建议买入价格",
+      "sell_price": "建议卖出价格",
       "stop_loss": "止损价格",
       "take_profit": "止盈价格",
       "reason": "操作理由"

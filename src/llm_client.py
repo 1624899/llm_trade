@@ -383,12 +383,16 @@ class LLMClient:
             etf_pattern = r'(\d{6})[：:]?\s*([买入卖出持有]+)\s*(\d+股?|\d+手?)?'
             etf_matches = re.findall(etf_pattern, advice)
             
-            # 匹配止损止盈
+            # 匹配止损止盈和买卖价格
             stop_loss_pattern = r'止损[：:]?\s*(\d+\.?\d*)'
             take_profit_pattern = r'止盈[：:]?\s*(\d+\.?\d*)'
+            buy_price_pattern = r'买入价格[：:]?\s*(\d+\.?\d*)|买入点位[：:]?\s*(\d+\.?\d*)|建议买入价[：:]?\s*(\d+\.?\d*)'
+            sell_price_pattern = r'卖出价格[：:]?\s*(\d+\.?\d*)|卖出点位[：:]?\s*(\d+\.?\d*)|建议卖出价[：:]?\s*(\d+\.?\d*)'
             
             stop_loss_matches = re.findall(stop_loss_pattern, advice)
             take_profit_matches = re.findall(take_profit_pattern, advice)
+            buy_price_matches = re.findall(buy_price_pattern, advice)
+            sell_price_matches = re.findall(sell_price_pattern, advice)
             
             # 组合交易建议
             for i, (symbol, action, quantity) in enumerate(etf_matches):
@@ -402,6 +406,8 @@ class LLMClient:
                     "quantity": quantity if quantity else "建议数量",
                     "buy_quantity": "" if action != "买入" else (quantity if quantity else "建议数量"),
                     "sell_quantity": "" if action != "卖出" else (quantity if quantity else "建议数量"),
+                    "buy_price": buy_price_matches[i] if i < len(buy_price_matches) else "",
+                    "sell_price": sell_price_matches[i] if i < len(sell_price_matches) else "",
                     "stop_loss": stop_loss_matches[i] if i < len(stop_loss_matches) else "",
                     "take_profit": take_profit_matches[i] if i < len(take_profit_matches) else "",
                     "reason": "基于技术分析"
