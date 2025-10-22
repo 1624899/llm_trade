@@ -413,6 +413,8 @@ class PromptGenerator:
       "name": "ETF名称",
       "action": "买入/卖出/持有",
       "quantity": "目标持仓数量",
+      "buy_quantity": "建议买入数量",
+      "sell_quantity": "建议卖出数量",
       "stop_loss": "止损价格",
       "take_profit": "止盈价格",
       "reason": "操作理由"

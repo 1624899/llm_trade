@@ -13,6 +13,7 @@ from loguru import logger
 import time
 import os
 from .utils import validate_etf_code, get_current_time_str
+from .database_manager import DatabaseManager
 
 
 class ETFDataFetcher:
@@ -33,6 +34,9 @@ class ETFDataFetcher:
         
         # 数据缓存
         self.cache = {}
+        
+        # 数据库管理器
+        self.db_manager = DatabaseManager(config)
         
         logger.info("ETF数据获取器初始化完成")
     
@@ -88,6 +92,12 @@ class ETFDataFetcher:
                     'update_time': get_current_time_str()
                 }
                 
+                # 保存到数据库
+                try:
+                    self.db_manager.save_realtime_data(result)
+                except Exception as e:
+                    logger.warning(f"保存ETF {etf_code} 实时数据到数据库失败: {e}")
+                
                 # 缓存数据
                 self.cache[cache_key] = {
                     'data': result,
@@ -104,7 +114,7 @@ class ETFDataFetcher:
         
         return None
     
-    def get_historical_data(self, etf_code: str, period: str = "1d", 
+    def get_historical_data(self, etf_code: str, period: str = "1d",
                            count: int = 100) -> Optional[pd.DataFrame]:
         """
         获取ETF历史数据
@@ -130,6 +140,23 @@ class ETFDataFetcher:
         for attempt in range(self.retry_times):
             try:
                 logger.info(f"获取ETF历史数据: {etf_code}, 周期: {period}, 尝试次数: {attempt + 1}")
+                
+                # 先从数据库获取已有数据
+                existing_data = None
+                try:
+                    existing_data = self.db_manager.get_historical_data(etf_code, period, count)
+                    if existing_data is not None and not existing_data.empty:
+                        logger.info(f"从数据库获取到ETF {etf_code} 已有数据，共 {len(existing_data)} 条记录")
+                    else:
+                        logger.info(f"数据库中没有ETF {etf_code} 的历史数据")
+                except Exception as e:
+                    logger.warning(f"从数据库获取ETF {etf_code} 历史数据失败: {e}")
+                
+                # 获取最新数据的时间戳
+                latest_date = None
+                if existing_data is not None and not existing_data.empty:
+                    latest_date = existing_data.index.max()
+                    logger.info(f"数据库中最新数据时间: {latest_date}")
                 
                 # 优先使用efinance获取分钟级数据
                 df = None
@@ -213,14 +240,42 @@ class ETFDataFetcher:
                 
                 if df is None or df.empty:
                     logger.warning(f"ETF {etf_code} 历史数据为空")
+                    # 如果获取新数据失败，但数据库中有数据，则返回数据库中的数据
+                    if existing_data is not None and not existing_data.empty:
+                        # 缓存数据
+                        self.cache[cache_key] = {
+                            'data': existing_data,
+                            'timestamp': time.time()
+                        }
+                        logger.info(f"返回数据库中的历史数据，共 {len(existing_data)} 条记录")
+                        return existing_data
                     return None
                 
                 # 数据预处理
                 df = self._preprocess_historical_data(df)
                 
+                # 如果有最新数据时间，则只保留比该时间更新的数据
+                if latest_date is not None:
+                    df = df[df.index > latest_date]
+                    logger.info(f"过滤出比数据库最新时间更新的数据，共 {len(df)} 条新记录")
+                
+                # 合并新数据和已有数据
+                if existing_data is not None and not existing_data.empty and not df.empty:
+                    df = pd.concat([existing_data, df])
+                    # 去重并按时间排序
+                    df = df[~df.index.duplicated(keep='last')].sort_index()
+                    logger.info(f"合并后总数据条数: {len(df)}")
+                
                 # 取指定数量的数据
                 if len(df) > count:
                     df = df.tail(count)
+                
+                # 保存到数据库（只保存新获取的数据）
+                if not df.empty:
+                    try:
+                        self.db_manager.save_historical_data(etf_code, period, df)
+                    except Exception as e:
+                        logger.warning(f"保存ETF {etf_code} 历史数据到数据库失败: {e}")
                 
                 # 缓存数据
                 self.cache[cache_key] = {
@@ -235,6 +290,20 @@ class ETFDataFetcher:
                 logger.error(f"获取ETF {etf_code} 历史数据失败 (尝试 {attempt + 1}): {e}")
                 if attempt < self.retry_times - 1:
                     time.sleep(2 ** attempt)
+        
+        # 如果所有尝试都失败，但数据库中有数据，则返回数据库中的数据
+        try:
+            existing_data = self.db_manager.get_historical_data(etf_code, period, count)
+            if existing_data is not None and not existing_data.empty:
+                # 缓存数据
+                self.cache[cache_key] = {
+                    'data': existing_data,
+                    'timestamp': time.time()
+                }
+                logger.info(f"所有尝试失败，返回数据库中的历史数据，共 {len(existing_data)} 条记录")
+                return existing_data
+        except Exception as e:
+            logger.warning(f"从数据库获取ETF {etf_code} 历史数据失败: {e}")
         
         return None
     

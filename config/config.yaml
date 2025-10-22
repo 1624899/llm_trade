@@ -21,7 +21,6 @@ indicators:
   ema:
     short: 12
     long: 20
-    signal: 9
   macd:
     fast: 12
     slow: 26
@@ -51,3 +50,12 @@ trading:
   leverage: 1  # 杠杆倍数
   risk_percent: 2  # 风险比例（%）
   max_positions: 5  # 最大持仓数量
+
+# 数据库配置
+database:
+  host: "localhost"
+  port: 3306
+  user: "root"
+  password: ".13051162736"  # 请根据实际情况修改
+  database: "market_data_db"
+  charset: "utf8mb4"

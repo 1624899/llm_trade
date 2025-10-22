@@ -400,6 +400,8 @@ class LLMClient:
                     "name": etf_name if etf_name else "",
                     "action": action,
                     "quantity": quantity if quantity else "建议数量",
+                    "buy_quantity": "" if action != "买入" else (quantity if quantity else "建议数量"),
+                    "sell_quantity": "" if action != "卖出" else (quantity if quantity else "建议数量"),
                     "stop_loss": stop_loss_matches[i] if i < len(stop_loss_matches) else "",
                     "take_profit": take_profit_matches[i] if i < len(take_profit_matches) else "",
                     "reason": "基于技术分析"
