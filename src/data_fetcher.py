@@ -1,9 +1,8 @@
 """
 行情数据获取模块
-使用AkShare获取A股ETF实时和历史数据
+使用efinance获取A股ETF实时和历史数据
 """
 
-import akshare as ak
 import efinance as ef
 import pandas as pd
 import numpy as np
@@ -60,28 +59,25 @@ class ETFDataFetcher:
             try:
                 logger.info(f"获取ETF实时数据: {etf_code}, 尝试次数: {attempt + 1}")
                 
-                # 使用AkShare获取实时数据
-                df = ak.fund_etf_fund_info_em(fund=etf_code)
+                # 使用efinance获取ETF的最新日线数据作为实时数据
+                etf_data = ef.stock.get_quote_history(etf_code, klt=101)  # 日K线
                 
-                if df.empty:
+                if etf_data.empty:
                     logger.warning(f"ETF {etf_code} 实时数据为空")
                     return None
                 
-                # 提取关键信息
-                latest_data = df.iloc[-1] if len(df) > 0 else None
-                if latest_data is None:
-                    logger.warning(f"ETF {etf_code} 无法获取最新数据")
-                    return None
+                # 提取最新的数据（今天的数据）
+                latest_data = etf_data.iloc[-1]
                 
                 # 构造返回数据
                 result = {
                     'code': etf_code,
-                    'name': latest_data.get('基金简称', ''),
-                    'current_price': float(latest_data.get('最新价', 0)),
-                    'open_price': float(latest_data.get('开盘价', 0)),
-                    'high_price': float(latest_data.get('最高价', 0)),
-                    'low_price': float(latest_data.get('最低价', 0)),
-                    'prev_close': float(latest_data.get('昨收价', 0)),
+                    'name': latest_data.get('股票名称', ''),
+                    'current_price': float(latest_data.get('收盘', 0)),  # 使用收盘价作为当前价格
+                    'open_price': float(latest_data.get('开盘', 0)),
+                    'high_price': float(latest_data.get('最高', 0)),
+                    'low_price': float(latest_data.get('最低', 0)),
+                    'prev_close': float(latest_data.get('收盘', 0) - latest_data.get('涨跌额', 0)),  # 计算昨收价
                     'volume': int(latest_data.get('成交量', 0)),
                     'amount': float(latest_data.get('成交额', 0)),
                     'change_pct': float(latest_data.get('涨跌幅', 0)),
@@ -152,15 +148,7 @@ class ETFDataFetcher:
                             logger.info(f"efinance获取ETF {etf_code} 分钟级数据成功，数据条数: {len(df)}")
                     except Exception as e:
                         logger.warning(f"efinance获取ETF {etf_code} 分钟级数据失败: {e}")
-                        # 回退到AkShare
-                        try:
-                            logger.info(f"回退到AkShare获取ETF {etf_code} 分钟级数据...")
-                            df = ak.fund_etf_hist_em(symbol=etf_code, period=period)
-                        except Exception as ak_e:
-                            logger.warning(f"AkShare获取ETF {etf_code} 分钟级数据也失败: {ak_e}")
-                            # 如果分钟级数据获取失败，使用日级数据替代
-                            logger.warning(f"分钟级数据获取失败，使用日级数据替代: {etf_code}")
-                            df = ak.fund_etf_hist_em(symbol=etf_code)
+
                 elif period == '1h':
                     # 小时级数据（使用60分钟）
                     try:
@@ -180,14 +168,6 @@ class ETFDataFetcher:
                             logger.info(f"efinance获取ETF {etf_code} 小时级数据成功，数据条数: {len(df)}")
                     except Exception as e:
                         logger.warning(f"efinance获取ETF {etf_code} 小时级数据失败: {e}")
-                        # 回退到AkShare
-                        try:
-                            logger.info(f"回退到AkShare获取ETF {etf_code} 小时级数据...")
-                            df = ak.fund_etf_hist_em(symbol=etf_code, period="60")
-                        except Exception as ak_e:
-                            logger.warning(f"AkShare获取ETF {etf_code} 小时级数据也失败: {ak_e}")
-                            logger.warning(f"小时级数据获取失败，使用日级数据替代: {etf_code}")
-                            df = ak.fund_etf_hist_em(symbol=etf_code)
                 else:
                     # 日级数据
                     try:
@@ -207,10 +187,6 @@ class ETFDataFetcher:
                             logger.info(f"efinance获取ETF {etf_code} 日级数据成功，数据条数: {len(df)}")
                     except Exception as e:
                         logger.warning(f"efinance获取ETF {etf_code} 日级数据失败: {e}")
-                        # 回退到AkShare
-                        logger.info(f"回退到AkShare获取ETF {etf_code} 日级数据...")
-                        df = ak.fund_etf_hist_em(symbol=etf_code)
-                
                 if df is None or df.empty:
                     logger.warning(f"ETF {etf_code} 历史数据为空")
                     return None
