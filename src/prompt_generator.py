@@ -8,9 +8,9 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 from loguru import logger
 try:
-    from .utils import get_trading_minutes, get_current_time_str, format_number
+    from .utils import get_trading_minutes, get_current_time_str, format_number, load_etf_list
 except ImportError:
-    from utils import get_trading_minutes, get_current_time_str, format_number
+    from utils import get_trading_minutes, get_current_time_str, format_number, load_etf_list
 
 
 class PromptGenerator:
@@ -27,6 +27,7 @@ class PromptGenerator:
         self.account_data = None
         self.trading_minutes = 0
         self.current_time = get_current_time_str()
+        self.etf_list = load_etf_list()
         
         logger.info("语料生成器初始化完成")
     
@@ -131,9 +132,9 @@ class PromptGenerator:
             单个ETF数据字符串
         """
         try:
-            # 获取基本信息
-            etf_name = etf_data.get('name', f'ETF{etf_code}')
-            category = etf_data.get('category', '其他')
+            # 获取基本信息，优先从配置文件获取标准名称
+            etf_name = self._get_etf_name_from_config(etf_code) or etf_data.get('name', f'ETF{etf_code}')
+            category = self._get_etf_category_from_config(etf_code) or etf_data.get('category', '其他')
             
             # 获取当前价格和指标
             current_data = etf_data.get('current_data', {})
@@ -307,7 +308,8 @@ class PromptGenerator:
             for position in positions:
                 # 格式化ETF持仓信息
                 symbol = position.get('symbol', 'N/A')
-                name = position.get('name', 'N/A')
+                # 优先从配置文件获取标准名称
+                name = self._get_etf_name_from_config(symbol) or position.get('name', 'N/A')
                 quantity = position.get('quantity', 0)
                 position_ratio = position.get('position_ratio', 0)
                 avg_price = position.get('avg_price', 0)
@@ -408,6 +410,7 @@ class PromptGenerator:
   "recommendations": [
     {
       "symbol": "ETF代码",
+      "name": "ETF名称",
       "action": "买入/卖出/持有",
       "quantity": "目标持仓数量",
       "stop_loss": "止损价格",
@@ -503,6 +506,10 @@ class PromptGenerator:
                             take_profit = rec.get('take_profit', '')
                             reason = rec.get('reason', '')
                             
+                            # 在历史记录中也使用标准ETF名称
+                            etf_name = self._get_etf_name_from_config(symbol)
+                            display_name = f"{etf_name}" if etf_name else symbol
+                            
                             history_section += f"- {symbol}: {action} {quantity}股, 止损{stop_loss}, 止盈{take_profit}, 理由: {reason}\n"
                     
                     history_section += "\n---\n\n"
@@ -516,3 +523,43 @@ class PromptGenerator:
         except Exception as e:
             logger.error(f"生成历史分析数据部分失败: {e}")
             return "### 历史分析记录\n\n历史分析数据获取失败。"
+    
+    def _get_etf_name_from_config(self, etf_code: str) -> str:
+        """
+        从配置文件获取ETF标准名称
+        
+        Args:
+            etf_code: ETF代码
+            
+        Returns:
+            ETF标准名称，如果找不到返回None
+        """
+        try:
+            monitored_etfs = self.etf_list.get('monitored_etfs', [])
+            for etf_info in monitored_etfs:
+                if etf_info.get('code') == etf_code:
+                    return etf_info.get('name')
+            return None
+        except Exception as e:
+            logger.error(f"从配置文件获取ETF名称失败: {e}")
+            return None
+    
+    def _get_etf_category_from_config(self, etf_code: str) -> str:
+        """
+        从配置文件获取ETF类别
+        
+        Args:
+            etf_code: ETF代码
+            
+        Returns:
+            ETF类别，如果找不到返回None
+        """
+        try:
+            monitored_etfs = self.etf_list.get('monitored_etfs', [])
+            for etf_info in monitored_etfs:
+                if etf_info.get('code') == etf_code:
+                    return etf_info.get('category')
+            return None
+        except Exception as e:
+            logger.error(f"从配置文件获取ETF类别失败: {e}")
+            return None

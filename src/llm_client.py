@@ -392,8 +392,12 @@ class LLMClient:
             
             # 组合交易建议
             for i, (symbol, action, quantity) in enumerate(etf_matches):
+                # 尝试从配置文件获取ETF名称
+                etf_name = self._get_etf_name_from_config(symbol)
+                
                 recommendation = {
                     "symbol": symbol,
+                    "name": etf_name if etf_name else "",
                     "action": action,
                     "quantity": quantity if quantity else "建议数量",
                     "stop_loss": stop_loss_matches[i] if i < len(stop_loss_matches) else "",
@@ -411,6 +415,34 @@ class LLMClient:
                 
         except Exception as e:
             logger.error(f"正则表达式提取交易信号失败: {e}")
+            return None
+    
+    def _get_etf_name_from_config(self, etf_code: str) -> str:
+        """
+        从配置文件获取ETF标准名称
+        
+        Args:
+            etf_code: ETF代码
+            
+        Returns:
+            ETF标准名称，如果找不到返回None
+        """
+        try:
+            # 动态导入避免循环依赖
+            import sys
+            import os
+            sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+            
+            from src.utils import load_etf_list
+            etf_list = load_etf_list()
+            
+            monitored_etfs = etf_list.get('monitored_etfs', [])
+            for etf_info in monitored_etfs:
+                if etf_info.get('code') == etf_code:
+                    return etf_info.get('name')
+            return None
+        except Exception as e:
+            logger.error(f"从配置文件获取ETF名称失败: {e}")
             return None
     
     def save_trading_analysis(self, trading_data: Dict[str, Any],
