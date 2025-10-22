@@ -157,7 +157,16 @@ class PromptGenerator:
                 change_pct = industry.get('change_pct', 0)
                 
                 section += f"**{rank}. {industry_name}**\n"
-                section += f"- 行业指数: {index_value:.2f}，涨跌幅: {change_pct:.2f}%\n\n"
+                section += f"- 行业指数: {index_value:.2f}，涨跌幅: {change_pct:+.2f}%\n"
+                
+                # 添加资金流入流出信息
+                inflow = industry.get('inflow', 0)
+                outflow = industry.get('outflow', 0)
+                net_amount = industry.get('net_amount', 0)
+                # 统一使用亿元作为单位显示
+                unit = "亿元"
+                
+                section += f"- 资金流入: {inflow:.2f}{unit}，资金流出: {outflow:.2f}{unit}，净流入: {net_amount:+.2f}{unit}\n\n"
             
             return section
             
