@@ -91,7 +91,7 @@ class PromptGenerator:
         account_info = account_data.get('account_info', {})
         call_count = account_info.get('call_count', 0)
         
-        header = f"""自您开始交易以来已经过去了 {self.trading_minutes} 分钟。当前时间是 {self.current_time}，您已被调用 {call_count} 次。下面，我们为您提供各种状态数据、价格数据和预测信号，以便您发现阿尔法。下面是您的当前账户信息、价值、表现、头寸等。
+        header = f"""自您开始交易以来已经过去了 {self.trading_minutes} 分钟。当前时间是 {self.current_time}，您已被调用 {call_count} 次。接下来，我会为您提供各种状态数据、价格数据和预测信号。下面是您的当前账户信息、价值、表现、头寸等。
 
 以下所有价格或信号数据均按顺序排列：最旧→最新"""
         
@@ -143,9 +143,6 @@ class PromptGenerator:
             current_macd = current_data.get('current_macd', 0)
             current_rsi7 = current_data.get('current_rsi_7', 0)
             
-            # 获取模拟数据
-            simulated_data = self._generate_simulated_data()
-            
             # 获取日内数据
             intraday_data = etf_data.get('intraday_data', {})
             intraday_section = self._generate_intraday_section(intraday_data)
@@ -154,13 +151,8 @@ class PromptGenerator:
             long_term_data = etf_data.get('long_term_data', {})
             long_term_section = self._generate_long_term_section(long_term_data)
             
-            section = f"""### 所有{category}ETF（{etf_name}）数据  
+            section = f"""### 所有{category}ETF（{etf_name}）数据
 **current_price = {current_price:.2f}**，**current_ema20 = {current_ema20:.2f}**，**current_macd = {current_macd:.2f}**，**current_rsi（7 个周期）= {current_rsi7:.2f}**
-
-此外，以下是{category}ETF的最新未平仓合约（模拟为ETF持仓热度）和隐含资金成本（年化股息调整后）：
-
-- **持仓热度（模拟）**：最新：{simulated_data['holdings_heat']}，平均：{simulated_data['avg_holdings']}  
-- **隐含资金成本**：{simulated_data['funding_rate']}（年化，反映股息与融资成本）
 
 #### 日内系列（3 分钟间隔，最旧→最新）：
 
@@ -176,26 +168,6 @@ class PromptGenerator:
             logger.error(f"生成单个ETF {etf_code} 数据部分失败: {e}")
             return ""
     
-    def _generate_simulated_data(self) -> Dict[str, str]:
-        """
-        生成模拟数据
-        
-        Returns:
-            模拟数据字典
-        """
-        import random
-        
-        # 生成随机但合理的模拟数据
-        holdings_heat = f"{random.uniform(8, 15):.2f} 万手"
-        avg_holdings = f"{random.uniform(8, 15):.2f} 万手"
-        funding_rate = f"{random.uniform(-2e-5, -1e-5):.1E}"
-        
-        return {
-            'holdings_heat': holdings_heat,
-            'avg_holdings': avg_holdings,
-            'funding_rate': funding_rate
-        }
-    
     def _generate_intraday_section(self, intraday_data: Dict[str, Any]) -> str:
         """
         生成日内数据部分
@@ -208,26 +180,30 @@ class PromptGenerator:
         """
         try:
             # 获取价格序列
-            mid_prices = intraday_data.get('mid_prices', [228.82, 228.75, 228.68, 228.61, 228.63, 228.49, 228.46, 228.47, 228.40, 228.45])
-            ema_series = intraday_data.get('ema_series', [228.71, 228.70, 228.68, 228.66, 228.65, 228.62, 228.60, 228.58, 228.55, 228.62])
-            macd_series = intraday_data.get('macd_series', [0.12, 0.10, 0.06, 0.03, 0.01, -0.02, -0.04, -0.06, -0.07, -0.08])
-            rsi7_series = intraday_data.get('rsi7_series', [55.8, 54.9, 41.2, 43.5, 46.1, 36.8, 38.2, 37.9, 33.1, 43.21])
-            rsi14_series = intraday_data.get('rsi14_series', [57.9, 57.5, 50.1, 51.3, 52.6, 47.4, 47.9, 47.8, 45.3, 48.5])
+            mid_prices = intraday_data.get('mid_prices', [])
+            ema_series = intraday_data.get('ema_series', [])
+            macd_series = intraday_data.get('macd_series', [])
+            rsi7_series = intraday_data.get('rsi7_series', [])
+            rsi14_series = intraday_data.get('rsi14_series', [])
+            
+            # 如果没有数据，返回提示信息
+            if not mid_prices and not ema_series and not macd_series and not rsi7_series and not rsi14_series:
+                return "日内数据暂无"
             
             # 格式化数据
-            mid_prices_str = ', '.join([f"{p:.2f}" for p in mid_prices])
-            ema_series_str = ', '.join([f"{e:.2f}" for e in ema_series])
-            macd_series_str = ', '.join([f"{m:.2f}" for m in macd_series])
-            rsi7_series_str = ', '.join([f"{r:.1f}" for r in rsi7_series])
-            rsi14_series_str = ', '.join([f"{r:.1f}" for r in rsi14_series])
+            mid_prices_str = ', '.join([f"{p:.2f}" for p in mid_prices]) if mid_prices else "暂无数据"
+            ema_series_str = ', '.join([f"{e:.2f}" for e in ema_series]) if ema_series else "暂无数据"
+            macd_series_str = ', '.join([f"{m:.2f}" for m in macd_series]) if macd_series else "暂无数据"
+            rsi7_series_str = ', '.join([f"{r:.1f}" for r in rsi7_series]) if rsi7_series else "暂无数据"
+            rsi14_series_str = ', '.join([f"{r:.1f}" for r in rsi14_series]) if rsi14_series else "暂无数据"
             
-            section = f"""**中间价**：[{mid_prices_str}]  
+            section = f"""**中间价**：[{mid_prices_str}]
 
-**EMA指标（20期）**：[{ema_series_str}]  
+**EMA指标（20期）**：[{ema_series_str}]
 
-**MACD指标**：[{macd_series_str}]  
+**MACD指标**：[{macd_series_str}]
 
-**RSI指标（7期）**：[{rsi7_series_str}]  
+**RSI指标（7期）**：[{rsi7_series_str}]
 
 **RSI指标（14期）**：[{rsi14_series_str}]"""
             
@@ -249,25 +225,37 @@ class PromptGenerator:
         """
         try:
             # 获取长期指标
-            ema20 = long_term_data.get('ema20', 223.15)
-            ema50 = long_term_data.get('ema50', 226.80)
-            atr3 = long_term_data.get('atr3', 1.82)
-            atr14 = long_term_data.get('atr14', 2.11)
-            current_volume = long_term_data.get('current_volume', 85200)
-            avg_volume = long_term_data.get('avg_volume', 980000)
+            ema20 = long_term_data.get('ema20', 0)
+            ema50 = long_term_data.get('ema50', 0)
+            atr3 = long_term_data.get('atr3', 0)
+            atr14 = long_term_data.get('atr14', 0)
+            current_volume = long_term_data.get('current_volume', 0)
+            avg_volume = long_term_data.get('avg_volume', 0)
             
             # 获取长期序列
-            macd_series = long_term_data.get('macd_series', [-3.02, -2.81, -2.60, -2.48, -2.20, -1.85, -1.50, -1.25, -0.81, -0.28])
-            rsi_series = long_term_data.get('rsi_series', [40.1, 40.9, 41.2, 38.7, 45.6, 50.0, 51.8, 50.1, 59.0, 62.8])
+            macd_series = long_term_data.get('macd_series', [])
+            rsi_series = long_term_data.get('rsi_series', [])
+            
+            # 如果没有数据，返回提示信息
+            if ema20 == 0 and ema50 == 0 and atr3 == 0 and atr14 == 0 and current_volume == 0 and avg_volume == 0 and not macd_series and not rsi_series:
+                return "长期数据暂无"
             
             # 格式化数据
-            macd_series_str = ', '.join([f"{m:.2f}" for m in macd_series])
-            rsi_series_str = ', '.join([f"{r:.1f}" for r in rsi_series])
+            macd_series_str = ', '.join([f"{m:.2f}" for m in macd_series]) if macd_series else "暂无数据"
+            rsi_series_str = ', '.join([f"{r:.1f}" for r in rsi_series]) if rsi_series else "暂无数据"
             
-            section = f"""- **20 周期 EMA**：{ema20:.2f} vs. **50 周期 EMA**：{ema50:.2f}  
-- **3 期 ATR**：{atr3:.2f} vs. **14 期 ATR**：{atr14:.2f}  
-- **当前交易量**：{current_volume:,} 股 vs. **平均交易量**：{avg_volume:,} 股  
-- **MACD指标**：[{macd_series_str}]  
+            # 格式化各个指标值
+            ema20_str = f"{ema20:.2f}" if ema20 > 0 else "暂无数据"
+            ema50_str = f"{ema50:.2f}" if ema50 > 0 else "暂无数据"
+            atr3_str = f"{atr3:.2f}" if atr3 > 0 else "暂无数据"
+            atr14_str = f"{atr14:.2f}" if atr14 > 0 else "暂无数据"
+            current_volume_str = f"{current_volume:,}" if current_volume > 0 else "暂无数据"
+            avg_volume_str = f"{avg_volume:,}" if avg_volume > 0 else "暂无数据"
+            
+            section = f"""- **20 周期 EMA**：{ema20_str} vs. **50 周期 EMA**：{ema50_str}
+- **3 期 ATR**：{atr3_str} vs. **14 期 ATR**：{atr14_str}
+- **当前交易量**：{current_volume_str} 股 vs. **平均交易量**：{avg_volume_str} 股
+- **MACD指标**：[{macd_series_str}]
 - **RSI指标（14期）**：[{rsi_series_str}]"""
             
             return section
@@ -311,6 +299,7 @@ class PromptGenerator:
                 # 优先从配置文件获取标准名称
                 name = self._get_etf_name_from_config(symbol) or position.get('name', 'N/A')
                 quantity = position.get('quantity', 0)
+                available_quantity = position.get('available_quantity', 0)
                 position_ratio = position.get('position_ratio', 0)
                 avg_price = position.get('avg_price', 0)
                 daily_pnl = position.get('daily_pnl', 0)
@@ -320,6 +309,7 @@ class PromptGenerator:
                 position_info = f"""
 **{symbol} - {name}**
 - 持仓数量: {quantity}
+- 可用持仓: {available_quantity}
 - 仓位占比: {position_ratio:.2f}%
 - 买入均价: {avg_price:.2f}
 - 当日盈亏: {daily_pnl:.2f}
@@ -411,7 +401,7 @@ class PromptGenerator:
     {
       "symbol": "ETF代码",
       "name": "ETF名称",
-      "action": "买入/卖出/持有",
+      "action": "买入/卖出/持有/观望",
       "quantity": "目标持仓数量",
       "buy_quantity": "建议买入数量",
       "sell_quantity": "建议卖出数量",
@@ -424,6 +414,15 @@ class PromptGenerator:
   ]
 }
 ```
+
+**重要提示：**
+- action字段必须是"买入"、"卖出"、"持有"或"观望"之一
+- 如果是观望操作，quantity、buy_quantity、sell_quantity应设为"0"
+- 如果是买入操作，sell_quantity应设为"0"
+- 如果是卖出操作，buy_quantity应设为"0"
+- 如果是持有操作，buy_quantity和sell_quantity应设为"0"
+- 价格字段请保留两位小数
+- 请为每个ETF提供具体的理由，包括技术指标分析
 
 4. **风险管理**：建议的止损位和目标价位
 5. **资金管理**：是否需要调整仓位配置

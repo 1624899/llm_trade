@@ -220,7 +220,7 @@ class ETFTradingSystem:
                         'atr3': current_indicators.get('current_atr_3', 0),
                         'atr14': current_indicators.get('current_atr_14', 0),
                         'current_volume': current_indicators.get('current_volume', 0),
-                        'avg_volume': 980000,  # 模拟平均成交量
+                        'avg_volume': historical_data['volume'].mean() if not historical_data.empty else 0,  # 使用真实平均成交量
                         'macd_series': indicator_series.get('macd', [0] * 10),
                         'rsi_series': indicator_series.get('rsi_14', [0] * 10)
                     }

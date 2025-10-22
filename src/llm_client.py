@@ -303,7 +303,53 @@ class LLMClient:
                 f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
                 f.write(f"使用模型: {self.provider} - {self.model}\n\n")
                 f.write("---\n\n")
-                f.write(advice)
+                
+                # 尝试提取JSON格式的交易建议
+                trading_signals = self.extract_trading_signals(advice)
+                
+                if trading_signals:
+                    # 格式化JSON输出
+                    json_output = json.dumps(trading_signals, ensure_ascii=False, indent=2)
+                    f.write("```json\n")
+                    f.write(json_output)
+                    f.write("\n```\n\n")
+                    
+                    # 添加详细分析部分
+                    analysis_summary = trading_signals.get('analysis_summary', '')
+                    if analysis_summary:
+                        f.write("### 详细分析\n\n")
+                        f.write(f"#### 市场概况\n{analysis_summary}\n\n")
+                    
+                    # 添加各个ETF的详细分析
+                    recommendations = trading_signals.get('recommendations', [])
+                    if recommendations:
+                        f.write("#### 1. 市场状况分析\n")
+                        for rec in recommendations:
+                            symbol = rec.get('symbol', '')
+                            name = rec.get('name', '')
+                            reason = rec.get('reason', '')
+                            f.write(f"**{name}({symbol})**：{reason}\n\n")
+                        
+                        f.write("#### 2. 持仓风险评估\n")
+                        f.write("当前持仓风险分析...\n\n")
+                        
+                        f.write("#### 3. 风险管理建议\n")
+                        for rec in recommendations:
+                            symbol = rec.get('symbol', '')
+                            name = rec.get('name', '')
+                            stop_loss = rec.get('stop_loss', '')
+                            take_profit = rec.get('take_profit', '')
+                            if stop_loss and take_profit:
+                                f.write(f"- **{name}**：止损{stop_loss}，目标{take_profit}\n")
+                        f.write("\n")
+                        
+                        f.write("#### 4. 资金管理建议\n")
+                        f.write("资金分配建议...\n\n")
+                        
+                        f.write("**总体策略**：基于技术分析和风险管理的综合建议。\n")
+                else:
+                    # 如果无法提取JSON格式，则直接保存原始建议
+                    f.write(advice)
             
             logger.info(f"交易建议已保存到: {filepath}")
             return filepath
