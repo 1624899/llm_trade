@@ -530,6 +530,15 @@ class LLMClient:
             
             # 添加市场快照
             for symbol, data in market_data.items():
+                # 跳过市场情绪数据（以_开头）
+                if symbol.startswith('_'):
+                    continue
+                    
+                # 确保data是字典类型
+                if not isinstance(data, dict):
+                    logger.warning(f"跳过非字典类型的市场数据: {symbol}")
+                    continue
+                    
                 current_data = data.get("current_data", {})
                 analysis_record["market_snapshot"][symbol] = {
                     "name": data.get("name", ""),

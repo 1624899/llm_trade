@@ -1,6 +1,6 @@
 """
 标准化语料生成模块
-将市场数据、技术指标和账户信息转换为LLM可理解的标准化格式
+将市场数据、技术指标和账户信息转换为LLM可理解的标准化格式，包含新增的实时数据和增强指标
 """
 
 import json
@@ -59,6 +59,9 @@ class PromptGenerator:
             # 生成ETF数据部分
             etf_sections = self._generate_etf_sections(market_data)
             
+            # 生成市场情绪数据部分
+            market_sentiment_section = self._generate_market_sentiment_section(market_data)
+            
             # 生成账户信息部分
             account_section = self._generate_account_section(account_data)
             
@@ -69,7 +72,7 @@ class PromptGenerator:
             analysis_request = self.generate_analysis_request()
             
             # 组合完整的提示词
-            prompt = f"{header}\n\n{history_section}\n\n{etf_sections}\n\n{account_section}\n\n{performance_section}\n\n{analysis_request}"
+            prompt = f"{header}\n\n{history_section}\n\n{etf_sections}\n\n{market_sentiment_section}\n\n{account_section}\n\n{performance_section}\n\n{analysis_request}"
             
             logger.info("交易提示词生成成功")
             return prompt
@@ -110,6 +113,10 @@ class PromptGenerator:
         etf_sections = []
         
         for etf_code, etf_data in market_data.items():
+            # 跳过市场情绪数据
+            if etf_code.startswith('_'):
+                continue
+                
             try:
                 section = self._generate_single_etf_section(etf_code, etf_data)
                 if section:
@@ -120,6 +127,44 @@ class PromptGenerator:
         
         return "\n\n---\n\n".join(etf_sections)
     
+    def _generate_market_sentiment_section(self, market_data: Dict[str, Any]) -> str:
+        """
+        生成市场情绪数据部分
+        
+        Args:
+            market_data: 市场数据字典
+            
+        Returns:
+            市场情绪数据字符串
+        """
+        try:
+            # 检查是否有市场情绪数据
+            market_sentiment_data = market_data.get('_market_sentiment', [])
+            
+            if not market_sentiment_data or not isinstance(market_sentiment_data, list):
+                return "### 市场情绪指标\n\n暂无市场情绪数据。"
+            
+            # 生成市场情绪数据部分
+            section = "### 市场情绪指标（行业资金流向）\n\n"
+            
+            # 只显示前10个行业
+            top_industries = market_sentiment_data[:10]
+            
+            for industry in top_industries:
+                rank = industry.get('rank', 0)
+                industry_name = industry.get('industry', '')
+                index_value = industry.get('index', 0)
+                change_pct = industry.get('change_pct', 0)
+                
+                section += f"**{rank}. {industry_name}**\n"
+                section += f"- 行业指数: {index_value:.2f}，涨跌幅: {change_pct:.2f}%\n\n"
+            
+            return section
+            
+        except Exception as e:
+            logger.error(f"生成市场情绪数据部分失败: {e}")
+            return "### 市场情绪指标\n\n市场情绪数据获取失败。"
+            
     def _generate_single_etf_section(self, etf_code: str, etf_data: Dict[str, Any]) -> str:
         """
         生成单个ETF数据部分
@@ -143,6 +188,12 @@ class PromptGenerator:
             current_macd = current_data.get('current_macd', 0)
             current_rsi7 = current_data.get('current_rsi_7', 0)
             
+            # 获取新增的增强指标
+            trend_strength = current_data.get('trend_strength', 0)
+            support = current_data.get('support', 0)
+            resistance = current_data.get('resistance', 0)
+            volatility = current_data.get('volatility', 0)
+            
             # 获取日内数据
             intraday_data = etf_data.get('intraday_data', {})
             intraday_section = self._generate_intraday_section(intraday_data)
@@ -151,16 +202,37 @@ class PromptGenerator:
             long_term_data = etf_data.get('long_term_data', {})
             long_term_section = self._generate_long_term_section(long_term_data)
             
+            # 获取买卖盘口数据
+            order_book = etf_data.get('order_book', {})
+            order_book_section = self._generate_order_book_section(order_book)
+            
+            # 获取资金流向数据
+            fund_flow = etf_data.get('fund_flow', {})
+            fund_flow_section = self._generate_fund_flow_section(fund_flow)
+            
             section = f"""### 所有{category}ETF（{etf_name}）数据
-**current_price = {current_price:.2f}**，**current_ema20 = {current_ema20:.2f}**，**current_macd = {current_macd:.2f}**，**current_rsi（7 个周期）= {current_rsi7:.2f}**
-
-#### 日内系列（3 分钟间隔，最旧→最新）：
-
-{intraday_section}
-
-#### 长期背景（4 小时时间范围）：
-
-{long_term_section}"""
+            **current_price = {current_price:.2f}**，**current_ema20 = {current_ema20:.2f}**，**current_macd = {current_macd:.2f}**，**current_rsi（7 个周期）= {current_rsi7:.2f}**
+            
+            #### 增强技术指标：
+            - **趋势强度**：{trend_strength:.2f}（-1到1，越接近1表示上升趋势越强）
+            - **支撑位**：{support:.2f}，**阻力位**：{resistance:.2f}
+            - **波动率**：{volatility:.4f}
+            
+            #### 买卖盘口数据（五档行情）：
+            
+            {order_book_section}
+            
+            #### 资金流向分析：
+            
+            {fund_flow_section}
+            
+            #### 日内系列（3 分钟间隔，最旧→最新）：
+            
+            {intraday_section}
+            
+            #### 长期背景（4 小时时间范围）：
+            
+            {long_term_section}"""
             
             return section
             
@@ -263,6 +335,64 @@ class PromptGenerator:
         except Exception as e:
             logger.error(f"生成长期数据部分失败: {e}")
             return "长期数据获取失败"
+    
+    def _generate_order_book_section(self, order_book: Dict[str, Any]) -> str:
+        """
+        生成买卖盘口数据部分
+        
+        Args:
+            order_book: 买卖盘口数据字典
+            
+        Returns:
+            买卖盘口数据字符串
+        """
+        # 买卖盘口功能暂时禁用
+        return "买卖盘口数据功能暂时禁用（接口问题）"
+    
+    def _generate_fund_flow_section(self, fund_flow: Dict[str, Any]) -> str:
+        """
+        生成资金流向数据部分
+        
+        Args:
+            fund_flow: 资金流向数据字典
+            
+        Returns:
+            资金流向数据字符串
+        """
+        try:
+            if not fund_flow:
+                return "暂无资金流向数据"
+            
+            # 检查数据格式，适配不同的接口返回格式
+            if 'close_price' in fund_flow:
+                # 原始格式
+                date = fund_flow.get('date', '')
+                close_price = fund_flow.get('close_price', 0)
+                change_pct = fund_flow.get('change_pct', 0)
+                main_net_inflow = fund_flow.get('main_net_inflow', 0)
+                main_net_inflow_ratio = fund_flow.get('main_net_inflow_ratio', 0)
+                super_large_net_inflow = fund_flow.get('super_large_net_inflow', 0)
+                large_net_inflow = fund_flow.get('large_net_inflow', 0)
+                medium_net_inflow = fund_flow.get('medium_net_inflow', 0)
+                small_net_inflow = fund_flow.get('small_net_inflow', 0)
+                
+                section = f"""- **日期**：{date}
+                - **收盘价**：{close_price:.2f}，**涨跌幅**：{change_pct:.2f}%
+                - **主力净流入**：{main_net_inflow:,.0f}元 ({main_net_inflow_ratio:.2f}%)
+                - **超大单净流入**：{super_large_net_inflow:,.0f}元
+                - **大单净流入**：{large_net_inflow:,.0f}元
+                - **中单净流入**：{medium_net_inflow:,.0f}元
+                - **小单净流入**：{small_net_inflow:,.0f}元"""
+            else:
+                # 简化格式（从stock_individual_fund_flow_rank接口）
+                section = f"""- **资金流向数据**：已获取简化版本
+                - **详细信息**：{str(fund_flow)[:200]}..."""
+            
+            return section
+            
+        except Exception as e:
+            logger.error(f"生成资金流向数据部分失败: {e}")
+            return "资金流向数据获取失败"
     
     def _generate_account_section(self, account_data: Dict[str, Any]) -> str:
         """
@@ -426,6 +556,8 @@ class PromptGenerator:
 
 4. **风险管理**：建议的止损位和目标价位
 5. **资金管理**：是否需要调整仓位配置
+6. **市场情绪分析**：根据行业资金流向数据，分析当前市场热点和资金流向
+7. **增强技术分析**：结合趋势强度、支撑阻力位、波动率等增强指标进行分析
 
 请提供详细的分析，并务必按照上述JSON格式提供具体的操作建议。"""
         

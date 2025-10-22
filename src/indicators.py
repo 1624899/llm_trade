@@ -1,6 +1,6 @@
 """
 技术指标计算模块
-计算EMA、MACD、RSI、KDJ、BOLL、WR等技术指标
+计算EMA、MACD、RSI、KDJ、BOLL、WR等技术指标，以及增强指标和风险指标
 """
 
 import pandas as pd
@@ -392,3 +392,132 @@ class TechnicalIndicators:
         except Exception as e:
             logger.error(f"获取指标序列失败: {e}")
             return {}
+    
+    def calculate_trend_strength(self, prices: pd.Series, period: int = 20) -> float:
+        """
+        计算趋势强度指标
+        
+        Args:
+            prices: 价格序列
+            period: 计算周期
+            
+        Returns:
+            趋势强度值 (-1到1之间，越接近1表示上升趋势越强，越接近-1表示下降趋势越强)
+        """
+        try:
+            if len(prices) < period:
+                return 0.0
+            
+            # 计算线性回归斜率
+            x = np.arange(len(prices[-period:]))
+            y = prices[-period:].values
+            
+            # 线性回归
+            slope, intercept = np.polyfit(x, y, 1)
+            
+            # 计算趋势强度 (标准化斜率)
+            price_range = prices[-period:].max() - prices[-period:].min()
+            if price_range == 0:
+                return 0.0
+            
+            trend_strength = slope / price_range * period
+            
+            # 限制在-1到1之间
+            trend_strength = np.clip(trend_strength, -1, 1)
+            
+            return float(trend_strength)
+            
+        except Exception as e:
+            logger.error(f"趋势强度计算失败: {e}")
+            return 0.0
+    
+    def calculate_support_resistance(self, prices: pd.Series, period: int = 20) -> Dict[str, float]:
+        """
+        计算支撑位和阻力位
+        
+        Args:
+            prices: 价格序列
+            period: 计算周期
+            
+        Returns:
+            支撑位和阻力位字典
+        """
+        try:
+            if len(prices) < period:
+                return {'support': 0.0, 'resistance': 0.0}
+            
+            recent_prices = prices[-period:]
+            
+            # 简单支撑位：近期最低价
+            support = recent_prices.min()
+            
+            # 简单阻力位：近期最高价
+            resistance = recent_prices.max()
+            
+            return {
+                'support': float(support),
+                'resistance': float(resistance)
+            }
+            
+        except Exception as e:
+            logger.error(f"支撑阻力位计算失败: {e}")
+            return {'support': 0.0, 'resistance': 0.0}
+    
+    def calculate_volatility(self, prices: pd.Series, period: int = 14) -> float:
+        """
+        计算波动率指标
+        
+        Args:
+            prices: 价格序列
+            period: 计算周期
+            
+        Returns:
+            波动率值
+        """
+        try:
+            if len(prices) < period:
+                return 0.0
+            
+            # 计算收益率
+            returns = prices.pct_change().dropna()
+            
+            if len(returns) < period:
+                return 0.0
+            
+            # 计算标准差作为波动率
+            volatility = returns[-period:].std()
+            
+            return float(volatility)
+            
+        except Exception as e:
+            logger.error(f"波动率计算失败: {e}")
+            return 0.0
+    
+    def calculate_correlation(self, prices1: pd.Series, prices2: pd.Series, period: int = 20) -> float:
+        """
+        计算两个价格序列的相关性
+        
+        Args:
+            prices1: 第一个价格序列
+            prices2: 第二个价格序列
+            period: 计算周期
+            
+        Returns:
+            相关性值 (-1到1之间)
+        """
+        try:
+            if len(prices1) < period or len(prices2) < period:
+                return 0.0
+            
+            # 取最近period个数据点
+            p1 = prices1[-period:]
+            p2 = prices2[-period:]
+            
+            # 计算相关系数
+            correlation = p1.corr(p2)
+            
+            return float(correlation) if not np.isnan(correlation) else 0.0
+            
+        except Exception as e:
+            logger.error(f"相关性计算失败: {e}")
+            return 0.0

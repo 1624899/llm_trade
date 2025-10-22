@@ -13,8 +13,12 @@ llm:
 data:
   update_interval: 180  # 数据更新间隔（秒）
   cache_duration: 3600  # 缓存持续时间（秒）
+  realtime_cache_duration: 60  # 实时数据缓存持续时间（秒）
   retry_times: 3        # 重试次数
   timeout: 30           # 请求超时时间（秒）
+  max_workers: 5        # 并发线程数
+  price_change_limit: 0.2  # 价格变动限制（20%）
+  volume_change_limit: 10.0  # 成交量变动限制（10倍）
 
 # 技术指标参数
 indicators:
