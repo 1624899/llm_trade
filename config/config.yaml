@@ -1,5 +1,9 @@
 # 系统配置文件
 
+# 系统配置
+system:
+  test_mode: false  # 测试模式，跳过LLM交互
+
 # LLM API配置
 llm:
   provider: "deepseek"  

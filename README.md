@@ -79,3 +79,49 @@ pip install -r requirements.txt
 - 需要配置有效的LLM API密钥
 - 确保网络连接正常以获取实时数据
 - 建议定期备份账户数据
+
+## 测试模式
+
+系统支持测试模式，可以在不调用LLM API的情况下运行，用于验证系统功能和数据获取是否正常。
+
+### 启用测试模式
+
+在 `config/config.yaml` 文件中设置：
+
+```yaml
+system:
+  test_mode: true  # 设置为true启用测试模式，跳过LLM交互
+```
+
+### 测试模式功能
+
+- 跳过LLM API调用
+- 使用模拟的交易建议响应
+- 仍会获取实时市场数据
+- 仍会保存分析结果到文件
+- 仍会更新账户信息（但不会增加调用次数）
+
+### 命令行运行测试模式
+
+```bash
+# 单次分析测试模式
+python main.py --mode single
+
+# 连续分析测试模式
+python main.py --mode continuous
+
+# 系统测试（测试模式下会跳过LLM连接测试）
+python main.py --mode test
+
+# 查看系统状态
+python main.py --mode status
+```
+
+### 运行测试脚本
+
+系统还提供了一个专门的测试脚本：
+
+```bash
+python test_mode.py --test all  # 运行所有测试
+python test_mode.py --test single  # 仅测试单次分析
+```

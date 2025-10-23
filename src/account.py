@@ -195,24 +195,3 @@ ETF持仓概览
             logger.error(f"导出ETF账户摘要失败: {e}")
             return "ETF账户摘要导出失败"
     
-    def update_position_price(self, symbol: str, current_price: float) -> bool:
-        """
-        更新ETF持仓价格（已移除功能）
-        根据用户要求，此功能已移除，用户需手动维护data/account_data.json文件
-        
-        Args:
-            symbol: ETF代码
-            current_price: 当前价格
-            
-        Returns:
-            总是返回False，表示未执行更新操作
-        """
-        logger.warning(f"更新持仓价格功能已移除，请手动更新data/account_data.json文件中的{symbol}持仓价格")
-        return False
-    
-    def update_call_count(self) -> None:
-        """
-        更新调用次数（已移除功能）
-        根据用户要求，此功能已移除，用户需手动维护data/account_data.json文件
-        """
-        logger.warning("更新调用次数功能已移除，请手动更新data/account_data.json文件中的调用次数")

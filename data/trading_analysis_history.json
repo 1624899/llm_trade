@@ -1,0 +1,194 @@
+[
+  {
+    "timestamp": "2025-10-23 14:20:57",
+    "analysis_summary": "当前市场整体呈现震荡偏弱格局，各ETF技术指标分化明显。黄金ETF表现相对强势，处于上升趋势中；军工、医药ETF技术面偏弱，存在下行风险；芯片、新能源ETF处于震荡整理阶段。账户当前胜率仅20%，需加强风险控制。",
+    "recommendations": [
+      {
+        "symbol": "512710",
+        "name": "军工龙头ETF",
+        "action": "卖出",
+        "quantity": "0",
+        "buy_quantity": "0",
+        "sell_quantity": "7000",
+        "buy_price": "0.00",
+        "sell_price": "0.67",
+        "stop_loss": "0.65",
+        "take_profit": "0.00",
+        "reason": "技术指标显示明显弱势：RSI(7)仅25.84处于超卖区间，趋势强度0.11偏弱，EMA20(0.70)高于现价0.67，MACD转负。当前持仓亏损-77.61，建议减仓控制风险"
+      },
+      {
+        "symbol": "518880",
+        "name": "黄金ETF",
+        "action": "买入",
+        "quantity": "3000",
+        "buy_quantity": "3000",
+        "sell_quantity": "0",
+        "buy_price": "9.02",
+        "sell_price": "0.00",
+        "stop_loss": "8.70",
+        "take_profit": "9.50",
+        "reason": "技术面最强：价格9.02突破EMA20(8.76)，MACD(0.38)正值扩大，趋势强度1.00显示强劲上升趋势。买盘挂单量远大于卖盘，资金承接力强"
+      },
+      {
+        "symbol": "512010",
+        "name": "医药ETF",
+        "action": "持有",
+        "quantity": "4000",
+        "buy_quantity": "0",
+        "sell_quantity": "0",
+        "buy_price": "0.00",
+        "sell_price": "0.00",
+        "stop_loss": "0.40",
+        "take_profit": "0.44",
+        "reason": "技术指标偏弱但接近支撑位：RSI(7)33.75接近超卖，趋势强度-0.92显示强烈下降趋势，但现价0.41接近支撑位0.41。建议持有观察支撑有效性"
+      },
+      {
+        "symbol": "159599",
+        "name": "芯片ETF基金",
+        "action": "持有",
+        "quantity": "2000",
+        "buy_quantity": "0",
+        "sell_quantity": "0",
+        "buy_price": "0.00",
+        "sell_price": "0.00",
+        "stop_loss": "2.00",
+        "take_profit": "2.15",
+        "reason": "震荡整理格局：价格2.05略低于EMA20(2.07)，RSI(7)43.81中性偏弱，趋势强度-0.16显示轻微下降趋势。支撑位2.00提供较强支撑"
+      },
+      {
+        "symbol": "159637",
+        "name": "新能源车龙头ETF",
+        "action": "持有",
+        "quantity": "1200",
+        "buy_quantity": "0",
+        "sell_quantity": "0",
+        "buy_price": "0.00",
+        "sell_price": "0.00",
+        "stop_loss": "0.85",
+        "take_profit": "0.90",
+        "reason": "技术面相对稳定：价格0.87与EMA20持平，RSI(7)47.11中性，趋势强度0.10显示轻微上升趋势。当前持仓盈利1.15，建议继续持有"
+      }
+    ],
+    "market_snapshot": {
+      "518880": {
+        "name": "黄金ETF",
+        "current_price": 9.02,
+        "current_ema_long": 8.761945308983464,
+        "current_macd": 0.3777305229296761,
+        "current_rsi_7": 52.36543023354311
+      },
+      "159599": {
+        "name": "芯片ETF基金",
+        "current_price": 2.051,
+        "current_ema_long": 2.0673112540533403,
+        "current_macd": 0.03993067506103021,
+        "current_rsi_7": 43.80851627808975
+      },
+      "159637": {
+        "name": "新能源车龙头ETF",
+        "current_price": 0.874,
+        "current_ema_long": 0.8707193162215511,
+        "current_macd": 0.02069993739339482,
+        "current_rsi_7": 47.114116504566745
+      },
+      "512010": {
+        "name": "医药ETF",
+        "current_price": 0.413,
+        "current_ema_long": 0.4260699943756576,
+        "current_macd": -0.004931468170006614,
+        "current_rsi_7": 33.74842931002118
+      },
+      "159770": {
+        "name": "机器人ETF",
+        "current_price": 1.035,
+        "current_ema_long": 1.069411551106949,
+        "current_macd": -0.008741768120734017,
+        "current_rsi_7": 38.25683588362407
+      },
+      "512710": {
+        "name": "军工龙头ETF",
+        "current_price": 0.673,
+        "current_ema_long": 0.6976776019641611,
+        "current_macd": -0.0031269861087638295,
+        "current_rsi_7": 25.839967743886206
+      },
+      "515980": {
+        "name": "人工智能ETF",
+        "current_price": 0.847,
+        "current_ema_long": 0.8504339624127628,
+        "current_macd": 0.009688396731972082,
+        "current_rsi_7": 47.29261485837222
+      }
+    },
+    "account_snapshot": {
+      "total_assets": 14780.94,
+      "total_pnl": -126.86,
+      "daily_pnl": -124.47,
+      "available_cash": 1791.64,
+      "start_time": "2025-10-20 09:51:16",
+      "call_count": 20
+    },
+    "current_positions": [
+      {
+        "symbol": "512710",
+        "name": "军工龙头",
+        "quantity": 9200,
+        "available_quantity": 7000,
+        "position_ratio": 41.89,
+        "avg_price": 0.673,
+        "daily_pnl": -77.61,
+        "total_pnl": -77.61,
+        "market_value": 6191.6,
+        "current_price": 0.673
+      },
+      {
+        "symbol": "518880",
+        "name": "黄金ETF",
+        "quantity": 0,
+        "available_quantity": 0,
+        "position_ratio": 0.0,
+        "avg_price": 0.0,
+        "daily_pnl": -92.2,
+        "total_pnl": -92.2,
+        "market_value": 0.0,
+        "current_price": 9.068
+      },
+      {
+        "symbol": "512010",
+        "name": "医药ETF",
+        "quantity": 4000,
+        "available_quantity": 4000,
+        "position_ratio": 11.18,
+        "avg_price": 0.413,
+        "daily_pnl": -33.0,
+        "total_pnl": -33.0,
+        "market_value": 1652.0,
+        "current_price": 0.413
+      },
+      {
+        "symbol": "159599",
+        "name": "芯片ETF基金",
+        "quantity": 2000,
+        "available_quantity": 2000,
+        "position_ratio": 27.73,
+        "avg_price": 2.049,
+        "daily_pnl": -17.4,
+        "total_pnl": -17.4,
+        "market_value": 4098.0,
+        "current_price": 2.049
+      },
+      {
+        "symbol": "159637",
+        "name": "新能源龙头",
+        "quantity": 1200,
+        "available_quantity": 1200,
+        "position_ratio": 7.1,
+        "avg_price": 0.873,
+        "daily_pnl": 1.15,
+        "total_pnl": 1.15,
+        "market_value": 1047.6,
+        "current_price": 0.873
+      }
+    ]
+  }
+]

@@ -1,6 +1,6 @@
 """
 行情数据获取模块
-使用akshare和efinance获取A股ETF实时和历史数据
+使用akshare、efinance和新浪财经爬取获取A股ETF实时和历史数据
 """
 
 import efinance as ef
@@ -15,6 +15,7 @@ import os
 import concurrent.futures
 import threading
 from .utils import validate_etf_code, get_current_time_str
+from .sina_crawler import SinaETFCrawler
 
 
 class ETFDataFetcher:
@@ -42,6 +43,9 @@ class ETFDataFetcher:
         # 数据有效性检查参数
         self.price_change_limit = 0.2  # 价格变动限制20%
         self.volume_change_limit = 10.0  # 成交量变动限制10倍
+        
+        # 初始化新浪财经爬取器
+        self.sina_crawler = SinaETFCrawler()
         
         logger.info("ETF数据获取器初始化完成")
     
@@ -276,7 +280,7 @@ class ETFDataFetcher:
     
     def get_minute_tick_data(self, etf_code: str, period: str = "1") -> Optional[pd.DataFrame]:
         """
-        获取ETF分钟级TICK数据
+        获取ETF分钟级TICK数据（使用新浪财经爬取）
         
         Args:
             etf_code: ETF代码
@@ -288,21 +292,43 @@ class ETFDataFetcher:
         try:
             logger.info(f"获取ETF分钟级TICK数据: {etf_code}, 周期: {period}分钟")
             
-            # 使用akshare获取分钟级数据
-            # 改进的交易所判断逻辑
-            market = self._determine_market(etf_code)
-            full_code = f"{etf_code}.{market.upper()}"
+            # 检查缓存
+            cache_key = f"tick_{etf_code}_{period}"
+            if self._is_cache_valid(cache_key, realtime=True):
+                logger.info(f"使用缓存TICK数据: {etf_code}")
+                return self.cache[cache_key]['data']
             
-            # 分钟级TICK数据接口问题较多，暂时禁用
-            logger.info(f"分钟级TICK数据接口暂时禁用: {etf_code}")
-            return None
+            # 使用新浪财经爬取器获取实时行情数据
+            quote_data = self.sina_crawler.get_real_time_quote(etf_code)
             
-            if df is None or df.empty:
-                logger.warning(f"ETF {etf_code} 分钟级TICK数据为空")
+            if quote_data is None:
+                logger.warning(f"ETF {etf_code} 实时数据为空")
                 return None
             
-            logger.info(f"ETF {etf_code} 分钟级TICK数据获取成功，数据条数: {len(df)}")
-            return df
+            # 将实时数据转换为DataFrame格式
+            current_time = time.strftime('%Y-%m-%d %H:%M:%S')  # 使用当前时间
+            tick_data = pd.DataFrame([{
+                'time': current_time,
+                'price': quote_data['current_price'],
+                'volume': quote_data['volume'],
+                'amount': quote_data['amount'],
+                'change_pct': quote_data['change_pct']
+            }])
+            
+            # 设置时间索引
+            if 'time' in tick_data.columns:
+                tick_data['time'] = pd.to_datetime(tick_data['time'])
+                tick_data.set_index('time', inplace=True)
+            
+            # 缓存数据
+            with self.cache_lock:
+                self.cache[cache_key] = {
+                    'data': tick_data,
+                    'timestamp': time.time()
+                }
+            
+            logger.info(f"ETF {etf_code} 分钟级TICK数据获取成功，数据条数: {len(tick_data)}")
+            return tick_data
             
         except Exception as e:
             logger.error(f"获取ETF {etf_code} 分钟级TICK数据失败: {e}")
@@ -310,7 +336,7 @@ class ETFDataFetcher:
     
     def get_order_book_data(self, etf_code: str) -> Optional[Dict]:
         """
-        获取ETF买卖盘口数据（五档行情）
+        获取ETF买卖盘口数据（五档行情，使用新浪财经爬取）
         
         Args:
             etf_code: ETF代码
@@ -321,28 +347,43 @@ class ETFDataFetcher:
         try:
             logger.info(f"获取ETF买卖盘口数据: {etf_code}")
             
-            # 使用akshare获取买卖盘口数据
-            # 改进的交易所判断逻辑
-            market = self._determine_market(etf_code)
-            full_code = f"{etf_code}.{market.upper()}"
+            # 检查缓存
+            cache_key = f"orderbook_{etf_code}"
+            if self._is_cache_valid(cache_key, realtime=True):
+                logger.info(f"使用缓存买卖盘数据: {etf_code}")
+                return self.cache[cache_key]['data']
             
-            # 买卖盘口数据接口问题较多，暂时禁用
-            logger.info(f"买卖盘口数据接口暂时禁用: {etf_code}")
-            return None
+            # 使用新浪财经爬取器获取五档买卖盘数据
+            order_book_data = self.sina_crawler.get_order_book(etf_code)
             
-            if df is None or df.empty:
+            if order_book_data is None:
                 logger.warning(f"ETF {etf_code} 买卖盘口数据为空")
                 return None
             
-            # 转换数据格式
-            order_book = {}
-            for _, row in df.iterrows():
-                item = row['item']
-                value = row['value']
-                order_book[item] = value
+            # 转换为标准格式
+            result = {
+                'code': order_book_data['code'],
+                'name': order_book_data['name'],
+                'current_price': order_book_data['price'],
+                'change_pct': order_book_data['change_pct'],
+                'bid_prices': [item['price'] for item in order_book_data['bid']],
+                'bid_volumes': [item['vol'] for item in order_book_data['bid']],
+                'ask_prices': [item['price'] for item in order_book_data['ask']],
+                'ask_volumes': [item['vol'] for item in order_book_data['ask']],
+                'bid_levels': order_book_data['bid'],  # 保留原始格式
+                'ask_levels': order_book_data['ask'],  # 保留原始格式
+                'update_time': order_book_data['update_time']
+            }
+            
+            # 缓存数据
+            with self.cache_lock:
+                self.cache[cache_key] = {
+                    'data': result,
+                    'timestamp': time.time()
+                }
             
             logger.info(f"ETF {etf_code} 买卖盘口数据获取成功")
-            return order_book
+            return result
             
         except Exception as e:
             logger.error(f"获取ETF {etf_code} 买卖盘口数据失败: {e}")
@@ -493,7 +534,7 @@ class ETFDataFetcher:
     
     def get_multiple_etf_data(self, etf_codes: List[str]) -> Dict[str, Dict]:
         """
-        批量获取多个ETF数据（并发版本）
+        批量获取多个ETF数据（使用新浪财经爬取，并发版本）
         
         Args:
             etf_codes: ETF代码列表
@@ -503,66 +544,142 @@ class ETFDataFetcher:
         """
         results = {}
         
-        def fetch_single_etf(code: str) -> Tuple[str, Optional[Dict]]:
-            """获取单个ETF数据的内部函数"""
-            try:
-                data = self.get_real_time_data(code)
-                return code, data
-            except Exception as e:
-                logger.error(f"获取ETF {code} 数据时发生错误: {e}")
-                return code, None
-        
-        # 使用线程池并发获取数据
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            # 提交所有任务
-            future_to_code = {executor.submit(fetch_single_etf, code): code for code in etf_codes}
+        try:
+            logger.info(f"批量获取ETF实时数据，共{len(etf_codes)}只")
             
-            # 收集结果
-            for future in concurrent.futures.as_completed(future_to_code):
-                code, data = future.result()
-                if data:
-                    results[code] = data
-                    logger.info(f"成功获取ETF {code} 数据")
-                else:
-                    logger.warning(f"无法获取ETF {code} 的数据")
+            # 优先使用新浪财经爬取器批量获取
+            sina_results = self.sina_crawler.get_multiple_quotes(etf_codes)
+            
+            # 将新浪财经数据转换为标准格式
+            for code, data in sina_results.items():
+                try:
+                    standard_data = {
+                        'code': data['code'],
+                        'name': data['name'],
+                        'current_price': data['current_price'],
+                        'open_price': data['open_price'],
+                        'high_price': data['high_price'],
+                        'low_price': data['low_price'],
+                        'prev_close': data['prev_close'],
+                        'change_amount': data.get('change_amount', 0.0),
+                        'change_pct': data['change_pct'],
+                        'volume': data['volume'],
+                        'amount': data['amount'],
+                        'update_time': data['update_time'],
+                        'market': data.get('market', 'UNKNOWN')
+                    }
+                    results[code] = standard_data
+                    logger.info(f"成功获取ETF {code} 数据（新浪财经）")
+                except Exception as e:
+                    logger.error(f"转换新浪财经数据失败 {code}: {e}")
+            
+            # 对于获取失败的ETF，尝试使用原有方法
+            failed_codes = [code for code in etf_codes if code not in results]
+            if failed_codes:
+                logger.info(f"尝试使用原有方法获取失败的ETF数据: {failed_codes}")
+                
+                def fetch_single_etf(code: str) -> Tuple[str, Optional[Dict]]:
+                    """获取单个ETF数据的内部函数"""
+                    try:
+                        data = self.get_real_time_data(code)
+                        return code, data
+                    except Exception as e:
+                        logger.error(f"获取ETF {code} 数据时发生错误: {e}")
+                        return code, None
+                
+                # 使用线程池并发获取数据
+                with concurrent.futures.ThreadPoolExecutor(max_workers=min(self.max_workers, len(failed_codes))) as executor:
+                    # 提交所有任务
+                    future_to_code = {executor.submit(fetch_single_etf, code): code for code in failed_codes}
+                    
+                    # 收集结果
+                    for future in concurrent.futures.as_completed(future_to_code):
+                        code, data = future.result()
+                        if data:
+                            results[code] = data
+                            logger.info(f"成功获取ETF {code} 数据（原有方法）")
+                        else:
+                            logger.warning(f"无法获取ETF {code} 的数据")
+            
+        except Exception as e:
+            logger.error(f"批量获取ETF数据失败: {e}")
         
         return results
     
     def get_multiple_etf_advanced_data(self, etf_codes: List[str]) -> Dict[str, Dict]:
         """
-        批量获取多个ETF的增强数据（包括实时数据、盘口数据、资金流向等）
+        批量获取多个ETF的增强数据（包括实时数据、盘口数据、资金流向等，使用新浪财经爬取）
         
         Args:
-            etf_codes: ETF代码列表
+            etf_codes: ETF代码列表 或 ETF信息字典列表
             
         Returns:
             ETF增强数据字典
         """
         results = {}
         
-        def fetch_etf_advanced_data(etf_info: Dict) -> Tuple[str, Dict]:
+        def fetch_etf_advanced_data(etf_input) -> Tuple[str, Dict]:
             """获取单个ETF增强数据的内部函数"""
-            etf_code = etf_info['code']
-            etf_name = etf_info['name']
-            etf_category = etf_info['category']
+            # 处理不同格式的输入
+            if isinstance(etf_input, str):
+                etf_code = etf_input
+                etf_name = ""
+                etf_category = ""
+            else:
+                etf_code = etf_input['code']
+                etf_name = etf_input.get('name', '')
+                etf_category = etf_input.get('category', '')
             
             try:
-                # 获取各种数据
-                real_time_data = self.get_real_time_data(etf_code)
+                logger.info(f"获取ETF {etf_code} 增强数据")
+                
+                # 使用新浪财经爬取器获取完整数据（包含实时数据和买卖盘）
+                complete_data = self.sina_crawler.get_complete_data(etf_code)
+                
+                # 从完整数据中提取实时数据和买卖盘数据
+                real_time_data = {
+                    'code': complete_data['code'],
+                    'name': complete_data['name'],
+                    'current_price': complete_data['current_price'],
+                    'open_price': complete_data['open_price'],
+                    'high_price': complete_data['high_price'],
+                    'low_price': complete_data['low_price'],
+                    'prev_close': complete_data['prev_close'],
+                    'change_amount': complete_data['change_amount'],
+                    'change_pct': complete_data['change_pct'],
+                    'volume': complete_data['volume'],
+                    'amount': complete_data['amount'],
+                    'update_time': complete_data['update_time'],
+                    'market': complete_data['market']
+                } if complete_data else None
+                
+                order_book_data = {
+                    'code': complete_data['code'],
+                    'name': complete_data['name'],
+                    'price': complete_data['current_price'],
+                    'open': complete_data['open_price'],
+                    'prev_close': complete_data['prev_close'],
+                    'change_pct': complete_data['change_pct'],
+                    'bid': complete_data['bid'],
+                    'ask': complete_data['ask'],
+                    'update_time': complete_data['update_time']
+                } if complete_data else None
+                
+                # 获取其他数据（使用原有方法）
                 historical_data = self.get_historical_data(etf_code, period="1d", count=100)
-                order_book_data = self.get_order_book_data(etf_code)
                 fund_flow_data = self.get_fund_flow_data(etf_code)
                 minute_tick_data = self.get_minute_tick_data(etf_code, period="1")
                 
                 result = {
                     'code': etf_code,
-                    'name': etf_name,
+                    'name': real_time_data.get('name', etf_name) if real_time_data else etf_name,
                     'category': etf_category,
                     'real_time_data': real_time_data,
                     'historical_data': historical_data,
                     'order_book_data': order_book_data,
                     'fund_flow_data': fund_flow_data,
-                    'minute_tick_data': minute_tick_data
+                    'minute_tick_data': minute_tick_data,
+                    'data_source': 'sina_finance' if real_time_data else 'fallback'
                 }
                 
                 return etf_code, result
@@ -572,9 +689,9 @@ class ETFDataFetcher:
                 return etf_code, {}
         
         # 使用线程池并发获取数据
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(self.max_workers, len(etf_codes))) as executor:
             # 提交所有任务
-            future_to_etf = {executor.submit(fetch_etf_advanced_data, etf_info): etf_info for etf_info in etf_codes}
+            future_to_etf = {executor.submit(fetch_etf_advanced_data, etf_input): etf_input for etf_input in etf_codes}
             
             # 收集结果
             for future in concurrent.futures.as_completed(future_to_etf):
@@ -864,7 +981,7 @@ class ETFDataFetcher:
                         if existing_filepath != filepath:  # 不删除当前要保存的文件
                             try:
                                 os.remove(existing_filepath)
-                                logger.info(f"删除旧的缓存文件: {existing_filepath}")
+                                logger.debug(f"删除旧的缓存文件: {existing_filepath}")
                             except Exception as e:
                                 logger.warning(f"删除旧缓存文件失败 {existing_filepath}: {e}")
                 

@@ -131,6 +131,8 @@ class PromptGenerator:
         """
         生成市场情绪数据部分
         
+        注意：行业资金流向数据为当日数据，但非实时更新
+        
         Args:
             market_data: 市场数据字典
             
@@ -146,6 +148,7 @@ class PromptGenerator:
             
             # 生成市场情绪数据部分
             section = "### 市场情绪指标（行业资金流向）\n\n"
+            section += "⚠️ **注意**：以下行业资金流向数据为当日数据，但非实时更新\n\n"
             
             # 只显示前10个行业
             top_industries = market_sentiment_data[:10]
@@ -227,7 +230,7 @@ class PromptGenerator:
             - **支撑位**：{support:.2f}，**阻力位**：{resistance:.2f}
             - **波动率**：{volatility:.4f}
             
-            #### 买卖盘口数据（五档行情）：
+            #### 实时买卖盘口数据（五档行情）：
             
             {order_book_section}
             
@@ -355,12 +358,120 @@ class PromptGenerator:
         Returns:
             买卖盘口数据字符串
         """
-        # 买卖盘口功能暂时禁用
-        return "买卖盘口数据功能暂时禁用（接口问题）"
+        try:
+            if not order_book:
+                return "暂无买卖盘口数据"
+            
+            # 获取买卖盘数据 - 尝试多种可能的字段名
+            bid_prices = order_book.get('bid_prices', [])
+            bid_volumes = order_book.get('bid_volumes', [])
+            ask_prices = order_book.get('ask_prices', [])
+            ask_volumes = order_book.get('ask_volumes', [])
+            
+            # 如果没有标准格式数据，尝试使用原始格式
+            if not bid_prices and not ask_prices:
+                bid_levels = order_book.get('bid_levels', [])
+                ask_levels = order_book.get('ask_levels', [])
+                
+                if bid_levels and ask_levels:
+                    # 从原始格式提取数据
+                    bid_prices = [level.get('price', 0) for level in bid_levels]
+                    bid_volumes = [level.get('vol', 0) for level in bid_levels]
+                    ask_prices = [level.get('price', 0) for level in ask_levels]
+                    ask_volumes = [level.get('vol', 0) for level in ask_levels]
+            
+            # 如果仍然没有数据，尝试从data_fetcher.py的格式中获取
+            if not bid_prices and not ask_prices:
+                # 检查是否有bid和ask字段（来自sina_crawler.py）
+                bid_data = order_book.get('bid', [])
+                ask_data = order_book.get('ask', [])
+                
+                if bid_data:
+                    # 从bid字段提取数据
+                    bid_prices = [item.get('price', 0) for item in bid_data if isinstance(item, dict)]
+                    bid_volumes = [item.get('vol', 0) for item in bid_data if isinstance(item, dict)]
+                
+                if ask_data:
+                    # 从ask字段提取数据
+                    ask_prices = [item.get('price', 0) for item in ask_data if isinstance(item, dict)]
+                    ask_volumes = [item.get('vol', 0) for item in ask_data if isinstance(item, dict)]
+            
+            # 添加调试信息
+            logger.debug(f"买卖盘口数据调试信息:")
+            logger.debug(f"  - bid_prices: {bid_prices}")
+            logger.debug(f"  - bid_volumes: {bid_volumes}")
+            logger.debug(f"  - ask_prices: {ask_prices}")
+            logger.debug(f"  - ask_volumes: {ask_volumes}")
+            logger.debug(f"  - order_book keys: {list(order_book.keys())}")
+            
+            # 如果仍然没有数据，返回提示信息
+            if not bid_prices and not ask_prices:
+                logger.warning("买卖盘口数据格式不匹配或为空")
+                return "买卖盘口数据格式不匹配"
+            
+            # 格式化买卖盘数据
+            section = ""
+            
+            # 过滤异常数据 - 获取合理的价格范围
+            def filter_valid_data(prices, volumes):
+                """过滤掉异常价格数据"""
+                valid_prices = []
+                valid_volumes = []
+                for price, volume in zip(prices, volumes):
+                    # 价格合理性检查：价格大于0，小于1000，且与第一个价格的差异不超过50%
+                    if (price > 0 and price < 1000 and volume > 0 and
+                        len(valid_prices) == 0 or  # 第一个有效数据
+                        (len(prices) > 0 and abs(price - prices[0]) / prices[0] < 0.5)):  # 与第一个价格差异不超过50%
+                        valid_prices.append(price)
+                        valid_volumes.append(volume)
+                return valid_prices, valid_volumes
+            
+            # 过滤买盘数据
+            if bid_prices and bid_volumes:
+                bid_prices, bid_volumes = filter_valid_data(bid_prices, bid_volumes)
+            
+            # 过滤卖盘数据
+            if ask_prices and ask_volumes:
+                ask_prices, ask_volumes = filter_valid_data(ask_prices, ask_volumes)
+            
+            # 买盘数据（从高到低）
+            if bid_prices and bid_volumes:
+                section += "**买盘**：\n"
+                for i in range(min(5, len(bid_prices), len(bid_volumes))):
+                    price = bid_prices[i]
+                    volume = bid_volumes[i]
+                    section += f"- 买{i+1}: {price:.3f}元，{volume:,}手\n"
+            
+            # 卖盘数据（从低到高）
+            if ask_prices and ask_volumes:
+                if section:
+                    section += "\n"
+                section += "**卖盘**：\n"
+                for i in range(min(5, len(ask_prices), len(ask_volumes))):
+                    price = ask_prices[i]
+                    volume = ask_volumes[i]
+                    section += f"- 卖{i+1}: {price:.3f}元，{volume:,}手\n"
+            
+            # 添加买卖价差信息
+            if bid_prices and ask_prices:
+                best_bid = bid_prices[0] if bid_prices else 0
+                best_ask = ask_prices[0] if ask_prices else 0
+                if best_bid > 0 and best_ask > 0:
+                    spread = best_ask - best_bid
+                    spread_pct = (spread / best_bid) * 100 if best_bid > 0 else 0
+                    section += f"\n**买卖价差**: {spread:.3f} ({spread_pct:.2f}%)"
+            
+            return section if section else "买卖盘口数据不完整"
+            
+        except Exception as e:
+            logger.error(f"生成买卖盘口数据部分失败: {e}")
+            return "买卖盘口数据获取失败"
     
     def _generate_fund_flow_section(self, fund_flow: Dict[str, Any]) -> str:
         """
         生成资金流向数据部分
+        
+        注意：资金流向数据为前一交易日数据，非实时数据
         
         Args:
             fund_flow: 资金流向数据字典
@@ -385,17 +496,26 @@ class PromptGenerator:
                 medium_net_inflow = fund_flow.get('medium_net_inflow', 0)
                 small_net_inflow = fund_flow.get('small_net_inflow', 0)
                 
-                section = f"""- **日期**：{date}
-                - **收盘价**：{close_price:.2f}，**涨跌幅**：{change_pct:.2f}%
-                - **主力净流入**：{main_net_inflow:,.0f}元 ({main_net_inflow_ratio:.2f}%)
-                - **超大单净流入**：{super_large_net_inflow:,.0f}元
-                - **大单净流入**：{large_net_inflow:,.0f}元
-                - **中单净流入**：{medium_net_inflow:,.0f}元
-                - **小单净流入**：{small_net_inflow:,.0f}元"""
+                # 添加数据时效性说明
+                section = f"""### 资金流向分析（{date}）
+
+**注意**：以下资金流向数据为前一交易日数据，非实时数据
+
+- **日期**：{date}
+- **收盘价**：{close_price:.2f}，**涨跌幅**：{change_pct:.2f}%
+- **主力净流入**：{main_net_inflow:,.0f}元 ({main_net_inflow_ratio:.2f}%)
+- **超大单净流入**：{super_large_net_inflow:,.0f}元
+- **大单净流入**：{large_net_inflow:,.0f}元
+- **中单净流入**：{medium_net_inflow:,.0f}元
+- **小单净流入**：{small_net_inflow:,.0f}元"""
             else:
                 # 简化格式（从stock_individual_fund_flow_rank接口）
-                section = f"""- **资金流向数据**：已获取简化版本
-                - **详细信息**：{str(fund_flow)[:200]}..."""
+                section = f"""### 资金流向分析
+
+**注意**：资金流向数据为前一交易日数据，非实时数据
+
+- **资金流向数据**：已获取简化版本
+- **详细信息**：{str(fund_flow)[:200]}..."""
             
             return section
             
@@ -556,6 +676,7 @@ class PromptGenerator:
 
 **重要提示：**
 - action字段必须是"买入"、"卖出"、"持有"或"观望"之一
+- available_quantity为可供卖出的持仓
 - 如果是观望操作，quantity、buy_quantity、sell_quantity应设为"0"
 - 如果是买入操作，sell_quantity应设为"0"
 - 如果是卖出操作，buy_quantity应设为"0"
@@ -629,7 +750,7 @@ class PromptGenerator:
                 if not isinstance(history_data, list) or not history_data:
                     return "### 历史分析记录\n\n暂无历史分析记录。"
                 
-                history_section = "### 历史分析记录（最近3条）\n\n"
+                history_section = "### 历史分析记录（最近1条）\n\n"
                 
                 for record in history_data:
                     # 提取关键信息

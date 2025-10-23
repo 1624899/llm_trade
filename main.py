@@ -50,6 +50,10 @@ class ETFTradingSystem:
         self.prompt_generator = PromptGenerator(self.config)
         self.llm_client = LLMClient(self.config)
         
+        # 获取系统配置
+        self.system_config = self.config.get('system', {})
+        self.test_mode = self.system_config.get('test_mode', False)
+        
         # 监控的ETF列表
         self.monitored_etfs = self.etf_list.get('monitored_etfs', [])
         
@@ -59,7 +63,10 @@ class ETFTradingSystem:
         print("🚀 A股ETF交易分析系统初始化完成")
         print(f"📊 监控ETF数量: {len(self.monitored_etfs)}")
         print(f"💰 当前持仓数量: {len(self.account_manager.get_positions())}")
-        print(f"🤖 LLM模型: {self.llm_client.get_model_info()['provider']} - {self.llm_client.get_model_info()['model']}")
+        if self.test_mode:
+            print("🧪 系统处于测试模式，将跳过LLM交互")
+        else:
+            print(f"🤖 LLM模型: {self.llm_client.get_model_info()['provider']} - {self.llm_client.get_model_info()['model']}")
     
     def run_single_analysis(self) -> bool:
         """
@@ -84,9 +91,7 @@ class ETFTradingSystem:
             
             print(f"✅ 成功获取 {len(market_data)} 个ETF的市场数据")
             
-            # 2. 更新账户持仓价格
-            print("💼 正在更新账户持仓价格...")
-            self._update_account_prices(market_data)
+
             
             # 3. 生成标准化语料
             print("📝 正在生成分析语料...")
@@ -99,23 +104,24 @@ class ETFTradingSystem:
             
             print("✅ 分析语料生成成功")
             
-            # 4. 调用LLM获取交易建议
-            print("🤖 正在调用AI模型生成交易建议...")
-            trading_advice = self.llm_client.generate_trading_advice(prompt)
-            
-            if not trading_advice:
-                print("❌ 交易建议生成失败")
-                return False
-            
-            print("✅ 交易建议生成成功")
+            # 4. 调用LLM获取交易建议（测试模式下跳过）
+            if self.test_mode:
+                print("🧪 测试模式：跳过LLM交互，使用模拟响应")
+                trading_advice = self._generate_test_response()
+            else:
+                print("🤖 正在调用AI模型生成交易建议...")
+                trading_advice = self.llm_client.generate_trading_advice(prompt)
+                
+                if not trading_advice:
+                    print("❌ 交易建议生成失败")
+                    return False
+                
+                print("✅ 交易建议生成成功")
             
             # 5. 保存结果
             self._save_analysis_results(prompt, trading_advice, market_data)
             
-            # 6. 更新调用次数
-            self.account_manager.update_call_count()
-            
-            # 7. 显示结果
+            # 6. 显示结果
             self._display_results(trading_advice)
             
             print("\n🎉 单次分析完成！")
@@ -288,23 +294,6 @@ class ETFTradingSystem:
         print(f"✅ 市场数据收集完成，成功处理 {len(market_data)} 个ETF")
         return market_data
     
-    def _update_account_prices(self, market_data: Dict[str, Any]) -> None:
-        """
-        更新账户持仓价格
-        
-        Args:
-            market_data: 市场数据字典
-        """
-        positions = self.account_manager.get_positions()
-        
-        for position in positions:
-            symbol = position['symbol']
-            
-            if symbol in market_data:
-                current_price = market_data[symbol]['current_data'].get('current_price', 0)
-                if current_price > 0:
-                    self.account_manager.update_position_price(symbol, current_price)
-                    print(f"💰 更新持仓 {symbol} 价格: {current_price:.2f}")
     
     def _save_analysis_results(self, prompt: str, advice: str, market_data: Dict[str, Any]) -> None:
         """
@@ -328,7 +317,16 @@ class ETFTradingSystem:
             
             # 提取交易信号并保存JSON数据
             print("🔍 正在提取交易信号...")
-            trading_signals = self.llm_client.extract_trading_signals(advice)
+            # 在测试模式下，直接解析JSON格式的建议
+            if self.test_mode:
+                try:
+                    import json
+                    trading_signals = json.loads(advice)
+                except Exception as e:
+                    print(f"⚠️  测试模式下解析交易信号失败: {e}")
+                    trading_signals = None
+            else:
+                trading_signals = self.llm_client.extract_trading_signals(advice)
             
             if trading_signals:
                 account_data = self.account_manager.account_data
@@ -401,13 +399,16 @@ class ETFTradingSystem:
                 print("❌ 数据获取失败")
                 return
         
-        # 测试LLM连接
+        # 测试LLM连接（测试模式下跳过）
         print("3. 测试LLM连接...")
-        if self.llm_client.test_connection():
-            print("✅ LLM连接成功")
+        if self.test_mode:
+            print("🧪 测试模式：跳过LLM连接测试")
         else:
-            print("❌ LLM连接失败")
-            return
+            if self.llm_client.test_connection():
+                print("✅ LLM连接成功")
+            else:
+                print("❌ LLM连接失败")
+                return
         
         print("🎉 系统测试完成，所有功能正常！")
     
@@ -415,6 +416,72 @@ class ETFTradingSystem:
         """显示系统状态"""
         print("\n📊 系统状态")
         print("="*50)
+        print(f"配置文件: {'✅ 已加载' if self.config else '❌ 未加载'}")
+        print(f"ETF列表: {'✅ 已加载' if self.etf_list else '❌ 未加载'}")
+        print(f"监控ETF数量: {len(self.monitored_etfs)}")
+        print(f"当前持仓数量: {len(self.account_manager.get_positions())}")
+        account_info = self.account_manager.get_account_info()
+        print(f"账户总价值: {account_info.get('total_assets', 0):.2f}")
+        print(f"总收益率: {account_info.get('total_return_pct', 0):.2f}%")
+        if self.test_mode:
+            print("🧪 系统处于测试模式，跳过LLM交互")
+        else:
+            print(f"LLM模型: {self.llm_client.get_model_info()['provider']} - {self.llm_client.get_model_info()['model']}")
+        print(f"交易时间: {'✅ 是' if is_trading_time() else '❌ 否'}")
+        print("="*50)
+    
+    def _generate_test_response(self) -> str:
+        """
+        生成测试模式下的模拟LLM响应
+        
+        Returns:
+            模拟的交易建议文本
+        """
+        test_response = """{
+  "analysis_summary": "测试模式下的市场分析总结：当前市场处于震荡状态，各ETF技术指标显示不同的信号。",
+  "recommendations": [
+    {
+      "symbol": "512710",
+      "name": "军工龙头",
+      "action": "持有",
+      "quantity": "9200",
+      "buy_quantity": "0",
+      "sell_quantity": "0",
+      "buy_price": "",
+      "sell_price": "",
+      "stop_loss": "0.65",
+      "take_profit": "0.72",
+      "reason": "技术指标显示短期有支撑，建议继续持有观察"
+    },
+    {
+      "symbol": "518880",
+      "name": "黄金ETF",
+      "action": "观望",
+      "quantity": "0",
+      "buy_quantity": "0",
+      "sell_quantity": "0",
+      "buy_price": "",
+      "sell_price": "",
+      "stop_loss": "",
+      "take_profit": "",
+      "reason": "当前无持仓，市场方向不明朗，建议观望"
+    },
+    {
+      "symbol": "512010",
+      "name": "医药ETF",
+      "action": "买入",
+      "quantity": "5000",
+      "buy_quantity": "1000",
+      "sell_quantity": "0",
+      "buy_price": "0.415",
+      "sell_price": "",
+      "stop_loss": "0.39",
+      "take_profit": "0.45",
+      "reason": "技术指标显示超卖反弹迹象，建议适量买入"
+    }
+  ]
+}"""
+        return test_response
         print(f"配置文件: {'✅ 已加载' if self.config else '❌ 未加载'}")
         print(f"ETF列表: {'✅ 已加载' if self.etf_list else '❌ 未加载'}")
         print(f"监控ETF数量: {len(self.monitored_etfs)}")

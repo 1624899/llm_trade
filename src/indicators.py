@@ -81,67 +81,50 @@ class TechnicalIndicators:
     
     def calculate_rsi(self, prices: pd.Series, period: int = 14) -> pd.Series:
         """
-        计算相对强弱指数(RSI)
-        
-        Args:
-            prices: 价格序列
-            period: 周期
-            
-        Returns:
-            RSI序列
+        计算RSI（Wilders平滑版本，使用EMA）
         """
         try:
-            # 计算价格变化
             delta = prices.diff()
+            gain = delta.where(delta > 0, 0.0)
+            loss = -delta.where(delta < 0, 0.0)
             
-            # 分离涨跌
-            gain = delta.where(delta > 0, 0)
-            loss = -delta.where(delta < 0, 0)
+            # 使用 Wilders 平滑（alpha = 1/period）
+            avg_gain = gain.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+            avg_loss = loss.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
             
-            # 计算平均涨跌幅
-            avg_gain = gain.rolling(window=period).mean()
-            avg_loss = loss.rolling(window=period).mean()
-            
-            # 计算RS和RSI
             rs = avg_gain / avg_loss
             rsi = 100 - (100 / (1 + rs))
             
+            # 处理除零或无穷
+            rsi = rsi.replace([np.inf, -np.inf], np.nan).fillna(50)
             return rsi
         except Exception as e:
             logger.error(f"RSI计算失败: {e}")
             return pd.Series()
     
     def calculate_kdj(self, high: pd.Series, low: pd.Series, 
-                     close: pd.Series, period: int = 9) -> Dict[str, pd.Series]:
+                 close: pd.Series, period: int = 9) -> Dict[str, pd.Series]:
         """
-        计算KDJ指标
-        
-        Args:
-            high: 最高价序列
-            low: 最低价序列
-            close: 收盘价序列
-            period: 周期
-            
-        Returns:
-            KDJ指标字典
+        计算KDJ指标（标准SMA版本）
         """
         try:
-            # 计算最高价和最低价的滚动值
-            highest_high = high.rolling(window=period).max()
-            lowest_low = low.rolling(window=period).min()
+            # 滚动最高/最低
+            highest_high = high.rolling(window=period, min_periods=1).max()
+            lowest_low = low.rolling(window=period, min_periods=1).min()
             
-            # 计算RSV (Raw Stochastic Value)
+            # RSV
             rsv = (close - lowest_low) / (highest_high - lowest_low) * 100
-            
-            # 计算K值 (使用指数移动平均)
+            rsv = rsv.fillna(50)  # 初始值设为50
+
+            # K: 3日SMA of RSV
             k_period = self.indicator_config.get('kdj', {}).get('k_period', 3)
-            k_values = rsv.ewm(alpha=1/k_period, adjust=False).mean()
+            k_values = rsv.rolling(window=k_period, min_periods=1).mean()
             
-            # 计算D值
+            # D: 3日SMA of K
             d_period = self.indicator_config.get('kdj', {}).get('d_period', 3)
-            d_values = k_values.ewm(alpha=1/d_period, adjust=False).mean()
+            d_values = k_values.rolling(window=d_period, min_periods=1).mean()
             
-            # 计算J值
+            # J = 3K - 2D
             j_values = 3 * k_values - 2 * d_values
             
             return {
@@ -179,10 +162,16 @@ class TechnicalIndicators:
             lower_band = middle_band - (rolling_std * std_dev)
             
             # 计算带宽
-            bandwidth = (upper_band - lower_band) / middle_band * 100
+            band_width = upper_band - lower_band
+            bandwidth =  band_width / middle_band * 100
             
             # 计算%B（价格在布林带中的位置）
-            percent_b = (prices - lower_band) / (upper_band - lower_band)
+            percent_b = np.where(
+                band_width > 1e-8, 
+                (prices - lower_band) / band_width, 
+                 0.5  # 当带宽为0时，视为中轨
+                )
+            percent_b = pd.Series(percent_b, index=prices.index)
             
             return {
                 'upper': upper_band,
@@ -223,29 +212,29 @@ class TechnicalIndicators:
             return pd.Series()
     
     def calculate_atr(self, high: pd.Series, low: pd.Series, 
-                     close: pd.Series, period: int = 14) -> pd.Series:
+                 close: pd.Series, period: int = 14) -> pd.Series:
         """
-        计算平均真实波幅(ATR)
-        
-        Args:
-            high: 最高价序列
-            low: 最低价序列
-            close: 收盘价序列
-            period: 周期
-            
-        Returns:
-            ATR序列
+        计算ATR（Wilders平滑版本）
         """
         try:
-            # 计算真实波幅
+            # 真实波幅 TR
             tr1 = high - low
-            tr2 = abs(high - close.shift(1))
-            tr3 = abs(low - close.shift(1))
-            
+            tr2 = (high - close.shift(1)).abs()
+            tr3 = (low - close.shift(1)).abs()
             tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
             
-            # 计算平均真实波幅
-            atr = tr.rolling(window=period).mean()
+            # 初始化 ATR 序列
+            atr = pd.Series(index=tr.index, dtype='float64')
+            atr.iloc[:period] = np.nan
+            
+            if len(tr) >= period:
+                # 初始值：前 period 个 TR 的 SMA
+                initial_atr = tr.iloc[:period].mean()
+                atr.iloc[period - 1] = initial_atr
+                
+                # 递推：ATR_t = (ATR_{t-1} * (n-1) + TR_t) / n
+                for i in range(period, len(tr)):
+                    atr.iloc[i] = (atr.iloc[i - 1] * (period - 1) + tr.iloc[i]) / period
             
             return atr
         except Exception as e:

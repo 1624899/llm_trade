@@ -1,34 +1,72 @@
 {
   "account_info": {
-    "total_assets": 15058.85,
-    "total_pnl": 58.85,
-    "daily_pnl": 100.05,
-    "available_cash": 11184.25,
+    "total_assets": 14780.94,
+    "total_pnl": -126.86,
+    "daily_pnl": -124.47,
+    "available_cash": 1791.64,
     "start_time": "2025-10-20 09:51:16",
-    "call_count": 8
+    "call_count": 20
   },
   "positions": [
     {
       "symbol": "512710",
       "name": "军工龙头",
-      "quantity": 1500,
-      "position_ratio": 6.85,
-      "avg_price": 0.688,
-      "daily_pnl": -0.05,
-      "total_pnl": -0.05,
-      "market_value": 1032.00,
-      "current_price": 0.688
+      "quantity": 9200,
+      "available_quantity": 7000,
+      "position_ratio": 41.89,
+      "avg_price": 0.673,
+      "daily_pnl": -77.61,
+      "total_pnl": -77.61,
+      "market_value": 6191.60,
+      "current_price": 0.673
     },
     {
       "symbol": "518880",
       "name": "黄金ETF",
-      "quantity": 300,
-      "position_ratio": 18.88,
-      "avg_price": 9.279,
-      "daily_pnl": 58.90,
-      "total_pnl": 58.80,
-      "market_value": 2842.50,
-      "current_price": 9.475
+      "quantity": 0,
+      "available_quantity": 0,
+      "position_ratio": 0.00,
+      "avg_price": 0.000,
+      "daily_pnl": -92.20,
+      "total_pnl": -92.20,
+      "market_value": 0.00,
+      "current_price": 9.068
+    },
+    {
+      "symbol": "512010",
+      "name": "医药ETF",
+      "quantity": 4000,
+      "available_quantity": 4000,
+      "position_ratio": 11.18,
+      "avg_price": 0.413,
+      "daily_pnl": -33.00,
+      "total_pnl": -33.00,
+      "market_value": 1652.00,
+      "current_price": 0.413
+    },
+    {
+      "symbol": "159599",
+      "name": "芯片ETF基金",
+      "quantity": 2000,
+      "available_quantity": 2000,
+      "position_ratio": 27.73,
+      "avg_price": 2.049,
+      "daily_pnl": -17.40,
+      "total_pnl": -17.40,
+      "market_value": 4098.00,
+      "current_price": 2.049
+    },
+    {
+      "symbol": "159637",
+      "name": "新能源龙头",
+      "quantity": 1200,
+      "available_quantity": 1200,
+      "position_ratio": 7.10,
+      "avg_price": 0.873,
+      "daily_pnl": 1.15,
+      "total_pnl": 1.15,
+      "market_value": 1047.60,
+      "current_price": 0.873
     }
   ]
 }

@@ -190,7 +190,7 @@ class LLMClient:
                 api_url,
                 headers=self.headers,
                 json=request_data,
-                timeout=120,
+                timeout=200,
                 stream=True
             )
             
@@ -305,7 +305,11 @@ class LLMClient:
                 f.write("---\n\n")
                 
                 # 尝试提取JSON格式的交易建议
-                trading_signals = self.extract_trading_signals(advice)
+                # 如果advice已经是JSON格式（测试模式），直接解析
+                try:
+                    trading_signals = json.loads(advice)
+                except:
+                    trading_signals = self.extract_trading_signals(advice)
                 
                 if trading_signals:
                     # 格式化JSON输出
@@ -503,7 +507,7 @@ class LLMClient:
                             market_data: Dict[str, Any],
                             account_data: Dict[str, Any]) -> str:
         """
-        保存交易分析数据到JSON文件，使用固定名称并保留最近3次历史记录
+        保存交易分析数据到JSON文件，使用固定名称并只保留最近一次记录
         
         Args:
             trading_data: 提取的交易数据
@@ -568,8 +572,8 @@ class LLMClient:
             # 添加新的分析记录到历史记录开头
             history_data.insert(0, analysis_record)
             
-            # 保留最近3次记录
-            history_data = history_data[:3]
+            # 只保留最近一次记录
+            history_data = history_data[:1]
             
             # 保存历史记录文件
             with open(history_file, 'w', encoding='utf-8') as f:
@@ -581,7 +585,7 @@ class LLMClient:
                 json.dump(analysis_record, f, ensure_ascii=False, indent=2)
             
             logger.info(f"交易分析数据已保存到: {current_file}")
-            logger.info(f"历史记录已更新，保留最近3次记录: {history_file}")
+            logger.info(f"历史记录已更新，只保留最近一次记录: {history_file}")
             
             return current_file
             
