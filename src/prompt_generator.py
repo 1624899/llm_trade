@@ -484,8 +484,36 @@ class PromptGenerator:
                 return "暂无资金流向数据"
             
             # 检查数据格式，适配不同的接口返回格式
-            if 'close_price' in fund_flow:
-                # 原始格式
+            if 'recent_3_days' in fund_flow:
+                # 最近3天的数据格式
+                recent_data = fund_flow.get('recent_3_days', [])
+                if not recent_data:
+                    return "暂无资金流向数据"
+                
+                section = "### 资金流向分析（最近3天）\n\n"
+                section += "**注意**：以下资金流向数据为前3个交易日数据，不一定包括当日，非实时数据\n\n"
+                
+                # 按日期倒序排列（最新的在前）
+                for i, data in enumerate(recent_data):
+                    date = data.get('date', '')
+                    close_price = data.get('close_price', 0)
+                    change_pct = data.get('change_pct', 0)
+                    main_net_inflow = data.get('main_net_inflow', 0)
+                    main_net_inflow_ratio = data.get('main_net_inflow_ratio', 0)
+                    super_large_net_inflow = data.get('super_large_net_inflow', 0)
+                    large_net_inflow = data.get('large_net_inflow', 0)
+                    medium_net_inflow = data.get('medium_net_inflow', 0)
+                    small_net_inflow = data.get('small_net_inflow', 0)
+                    
+                    section += f"#### 第{i+1}天（{date}）\n"
+                    section += f"- **收盘价**：{close_price:.2f}，**涨跌幅**：{change_pct:.2f}%\n"
+                    section += f"- **主力净流入**：{main_net_inflow:,.0f}元 ({main_net_inflow_ratio:.2f}%)\n"
+                    section += f"- **超大单净流入**：{super_large_net_inflow:,.0f}元\n"
+                    section += f"- **大单净流入**：{large_net_inflow:,.0f}元\n"
+                    section += f"- **中单净流入**：{medium_net_inflow:,.0f}元\n"
+                    section += f"- **小单净流入**：{small_net_inflow:,.0f}元\n\n"
+            elif 'close_price' in fund_flow:
+                # 原始格式（单天数据）
                 date = fund_flow.get('date', '')
                 close_price = fund_flow.get('close_price', 0)
                 change_pct = fund_flow.get('change_pct', 0)
@@ -498,9 +526,9 @@ class PromptGenerator:
                 
                 # 添加数据时效性说明
                 section = f"""### 资金流向分析（{date}）
-
+                
 **注意**：以下资金流向数据为前一交易日数据，非实时数据
-
+                
 - **日期**：{date}
 - **收盘价**：{close_price:.2f}，**涨跌幅**：{change_pct:.2f}%
 - **主力净流入**：{main_net_inflow:,.0f}元 ({main_net_inflow_ratio:.2f}%)
@@ -511,9 +539,9 @@ class PromptGenerator:
             else:
                 # 简化格式（从stock_individual_fund_flow_rank接口）
                 section = f"""### 资金流向分析
-
+                
 **注意**：资金流向数据为前一交易日数据，非实时数据
-
+                
 - **资金流向数据**：已获取简化版本
 - **详细信息**：{str(fund_flow)[:200]}..."""
             
@@ -645,7 +673,7 @@ class PromptGenerator:
 
 ### 交易分析请求
 
-基于以上提供的数据，请提供以下兼具短期操作性与中长期战略视角的分析：
+基于以上提供的数据，请完整提供以下兼具短期操作性与中长期战略视角的分析：
 
 1. **市场状况分析**：  
    - 当前各ETF的短期技术信号（3–30分钟级别）与中期趋势状态（日线/4小时级别）分别如何？是否存在背离或共振？  

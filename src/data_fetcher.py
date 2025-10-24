@@ -397,7 +397,7 @@ class ETFDataFetcher:
             etf_code: ETF代码
             
         Returns:
-            资金流向数据字典
+            资金流向数据字典，包含最近3天的数据
         """
         try:
             logger.info(f"获取ETF资金流向数据: {etf_code}")
@@ -413,8 +413,36 @@ class ETFDataFetcher:
                 logger.warning(f"ETF {etf_code} 资金流向数据为空")
                 return None
             
-            # 获取最新一天的数据
-            if len(df) > 0:
+            # 获取最近3天的数据（最新数据为昨天）
+            if len(df) >= 3:
+                # 取最近3天的数据（不包括今天，因为今天的数据可能不完整）
+                recent_data = df.iloc[-3:]
+                fund_flow_list = []
+                
+                for _, data in recent_data.iterrows():
+                    fund_flow = {
+                        'date': data.get('日期', ''),
+                        'close_price': float(data.get('收盘价', 0)),
+                        'change_pct': float(data.get('涨跌幅', 0)),
+                        'main_net_inflow': float(data.get('主力净流入-净额', 0)),
+                        'main_net_inflow_ratio': float(data.get('主力净流入-净占比', 0)),
+                        'super_large_net_inflow': float(data.get('超大单净流入-净额', 0)),
+                        'super_large_net_inflow_ratio': float(data.get('超大单净流入-净占比', 0)),
+                        'large_net_inflow': float(data.get('大单净流入-净额', 0)),
+                        'large_net_inflow_ratio': float(data.get('大单净流入-净占比', 0)),
+                        'medium_net_inflow': float(data.get('中单净流入-净额', 0)),
+                        'medium_net_inflow_ratio': float(data.get('中单净流入-净占比', 0)),
+                        'small_net_inflow': float(data.get('小单净流入-净额', 0)),
+                        'small_net_inflow_ratio': float(data.get('小单净流入-净占比', 0))
+                    }
+                    fund_flow_list.append(fund_flow)
+                
+                logger.info(f"ETF {etf_code} 最近3天资金流向数据获取成功")
+                return {
+                    'recent_3_days': fund_flow_list
+                }
+            elif len(df) > 0:
+                # 如果数据不足3天，获取所有可用数据
                 latest_data = df.iloc[-1]
                 fund_flow = {
                     'date': latest_data.get('日期', ''),
@@ -432,7 +460,7 @@ class ETFDataFetcher:
                     'small_net_inflow_ratio': float(latest_data.get('小单净流入-净占比', 0))
                 }
                 
-                logger.info(f"ETF {etf_code} 资金流向数据获取成功")
+                logger.info(f"ETF {etf_code} 资金流向数据获取成功（仅{len(df)}天数据）")
                 return fund_flow
             
             logger.warning(f"ETF {etf_code} 资金流向数据为空")
