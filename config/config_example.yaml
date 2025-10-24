@@ -1,28 +1,80 @@
-# 示例配置文件
-# 该文件展示了配置文件的正确格式
+# 统一OpenAI兼容格式配置示例文件
+# 所有LLM模型都使用相同的API格式，便于管理和切换
 
-# LLM API配置
-llm:
-  provider: "deepseek"  # LLM提供商，如deepseek, openai等
-  api_key: "your_api_key_here"  # 替换为你的API密钥
-  base_url: "https://api.deepseek.com/v1"  # API基础URL
-  model: "deepseek-chat"  # 使用的模型
-  max_tokens: 8000  # 最大token数
-  temperature: 0.7  # 温度参数，控制输出的随机性
+# 系统配置
+system:
+  test_mode: false  # 测试模式，跳过LLM交互
+
+# LLM模型配置 - 所有模型都使用OpenAI兼容格式
+llm_models:
+  # DeepSeek配置
+  deepseek:
+    api_key: "sk-your-deepseek-api-key"
+    base_url: "https://api.deepseek.com/v1"
+    model: "deepseek-chat"
+    max_tokens: 8000
+    temperature: 0.7
+  
+  # OpenAI官方配置
+  openai:
+    api_key: "sk-your-openai-api-key"
+    base_url: "https://api.openai.com/v1"
+    model: "gpt-4"  # 可选: gpt-3.5-turbo, gpt-4, gpt-4-turbo等
+    max_tokens: 8000
+    temperature: 0.7
+  
+  # 通义千问配置
+  qwen:
+    api_key: "sk-your-qwen-api-key"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    model: "qwen-turbo"  # 可选: qwen-turbo, qwen-plus, qwen-max等
+    max_tokens: 8000
+    temperature: 0.7
+  
+  # 心流开放平台配置
+  xinliu:
+    api_key: "your-wenxin-api-key"
+    base_url: "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/eb-instant"
+    model: "ernie-bot"
+    max_tokens: 8000
+    temperature: 0.7
+  
+  # 本地Ollama配置
+  ollama:
+    api_key: "ollama"  # Ollama通常不需要真实密钥
+    base_url: "http://localhost:11434/v1"
+    model: "llama2"  # 可选: llama2, mistral, vicuna等
+    max_tokens: 8000
+    temperature: 0.7
+  
+  # 自定义API配置（适用于任何OpenAI兼容的服务）
+  custom:
+    api_key: "your-custom-api-key"
+    base_url: "https://your-custom-api.com/v1"
+    model: "your-custom-model"
+    max_tokens: 8000
+    temperature: 0.7
+
+# 当前激活的LLM模型
+# 修改此值即可切换使用的模型
+active_llm: "deepseek"
 
 # 数据获取配置
 data:
   update_interval: 180  # 数据更新间隔（秒）
   cache_duration: 3600  # 缓存持续时间（秒）
+  realtime_cache_duration: 60  # 实时数据缓存持续时间（秒）
   retry_times: 3        # 重试次数
   timeout: 30           # 请求超时时间（秒）
+  max_workers: 5        # 并发线程数
+  price_change_limit: 0.2  # 价格变动限制（20%）
+  volume_change_limit: 10.0  # 成交量变动限制（10倍）
 
 # 技术指标参数
 indicators:
   ema:
     short: 12
     long: 20
-    signal: 9
   macd:
     fast: 12
     slow: 26
@@ -42,13 +94,7 @@ indicators:
 
 # 日志配置
 logging:
-  level: "INFO"  # 日志级别
-  file: "logs/etf_trading.log"  # 日志文件路径
-  max_size: "10MB"  # 日志文件最大大小
-  backup_count: 5  # 日志文件备份数量
-
-# 交易配置
-trading:
-  leverage: 1  # 杠杆倍数
-  risk_percent: 2  # 风险比例（%）
-  max_positions: 5  # 最大持仓数量
+  level: "INFO"
+  file: "logs/etf_trading.log"
+  max_size: "10MB"
+  backup_count: 5

@@ -66,7 +66,7 @@ class ETFTradingSystem:
         if self.test_mode:
             print("🧪 系统处于测试模式，将跳过LLM交互")
         else:
-            print(f"🤖 LLM模型: {self.llm_client.get_model_info()['provider']} - {self.llm_client.get_model_info()['model']}")
+            print(f"🤖 LLM模型: {self.llm_client.get_model_info()['active_model']} - {self.llm_client.get_model_info()['model']}")
     
     def run_single_analysis(self) -> bool:
         """
@@ -426,7 +426,7 @@ class ETFTradingSystem:
         if self.test_mode:
             print("🧪 系统处于测试模式，跳过LLM交互")
         else:
-            print(f"LLM模型: {self.llm_client.get_model_info()['provider']} - {self.llm_client.get_model_info()['model']}")
+            print(f"LLM模型: {self.llm_client.get_model_info()['active_model']} - {self.llm_client.get_model_info()['model']}")
         print(f"交易时间: {'✅ 是' if is_trading_time() else '❌ 否'}")
         print("="*50)
     

@@ -4,14 +4,43 @@
 system:
   test_mode: false  # 测试模式，跳过LLM交互
 
-# LLM API配置
-llm:
-  provider: "deepseek"  
-  api_key: "sk-b62bc08f8fe6475b871c60bc22e979d1"
-  base_url: "https://api.deepseek.com/v1"
-  model: "deepseek-chat"
-  max_tokens: 8000
-  temperature: 0.7
+
+# LLM模型配置 - 所有模型都使用OpenAI兼容格式
+llm_models:
+  deepseek:
+    api_key: "sk-b62bc08f8fe6475b871c60bc22e979d1"
+    base_url: "https://api.deepseek.com/v1"
+    model: "deepseek-chat"
+    max_tokens: 8000
+    temperature: 0.7
+  
+# 心流开放平台配置
+  xinliu:
+    api_key: "sk-1492d65ea5891343559983c82cc4d18e"  # 填入您的OpenAI API密钥
+    base_url: "https://apis.iflow.cn/v1"
+    model: "qwen3-max"
+    max_tokens: 8000
+    temperature: 0.7
+  
+  qwen:
+    api_key: ""  # 填入您的通义千问API密钥
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    model: "qwen-turbo"
+    max_tokens: 8000
+    temperature: 0.7
+  
+  ollama:
+    api_key: "ollama"  # Ollama通常不需要真实密钥
+    base_url: "http://localhost:11434/v1"
+    model: "llama2"
+    max_tokens: 8000
+    temperature: 0.7
+
+# 当前激活的LLM模型
+active_llm: "xinliu"
+
+
+
 
 # 数据获取配置
 data:

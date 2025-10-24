@@ -1,6 +1,6 @@
 """
 LLM API调用模块
-仅支持DeepSeek API调用
+使用统一的OpenAI兼容格式调用多种LLM服务
 """
 
 import requests
@@ -11,7 +11,7 @@ from loguru import logger
 
 
 class LLMClient:
-    """LLM客户端"""
+    """LLM客户端 - 统一OpenAI兼容格式"""
     
     def __init__(self, config: Dict):
         """
@@ -21,39 +21,70 @@ class LLMClient:
             config: 配置字典
         """
         self.config = config
-        self.llm_config = config.get('llm', {})
+        self.llm_config = config.get('llm_models', {})
+        self.active_llm = config.get('active_llm', '')
         
-        self.provider = self.llm_config.get('provider', 'deepseek')
-        self.api_key = self.llm_config.get('api_key', '')
-        self.base_url = self.llm_config.get('base_url', 'https://api.deepseek.com/v1')
-        self.model = self.llm_config.get('model', 'deepseek-chat')
-        self.max_tokens = self.llm_config.get('max_tokens', 4000)
-        self.temperature = self.llm_config.get('temperature', 0.7)
+        # 加载当前激活的模型配置
+        self.model_config = self._load_active_model_config()
+        
+        if not self.model_config:
+            logger.error(f"无法加载模型配置，激活模型: {self.active_llm}")
+            return
+        
+        # 设置模型参数
+        self.api_key = self.model_config.get('api_key', '')
+        self.base_url = self.model_config.get('base_url', '')
+        self.model = self.model_config.get('model', '')
+        self.max_tokens = self.model_config.get('max_tokens', 4000)
+        self.temperature = self.model_config.get('temperature', 0.7)
         
         # 请求头
         self.headers = self._get_headers()
         
-        logger.info(f"LLM客户端初始化完成，提供商: {self.provider}")
+        logger.info(f"LLM客户端初始化完成，模型: {self.active_llm} ({self.model})")
+    
+    def _load_active_model_config(self) -> Dict[str, Any]:
+        """
+        加载当前激活的模型配置
+        
+        Returns:
+            模型配置字典
+        """
+        if not self.active_llm:
+            logger.error("未设置激活的LLM模型")
+            return {}
+        
+        model_config = self.llm_config.get(self.active_llm, {})
+        if not model_config:
+            logger.error(f"找不到模型配置: {self.active_llm}")
+            return {}
+        
+        # 验证必需的配置项
+        required_fields = ['api_key', 'base_url', 'model']
+        for field in required_fields:
+            if not model_config.get(field):
+                logger.error(f"模型 {self.active_llm} 缺少必需配置: {field}")
+                return {}
+        
+        return model_config
     
     def _get_headers(self) -> Dict[str, str]:
         """
-        获取请求头
+        获取请求头（统一OpenAI兼容格式）
         
         Returns:
             请求头字典
         """
         headers = {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {self.api_key}'
         }
-        
-        # DeepSeek 使用 Bearer token 认证
-        headers['Authorization'] = f'Bearer {self.api_key}'
         
         return headers
     
     def _build_request(self, prompt: str) -> Dict[str, Any]:
         """
-        构建DeepSeek请求
+        构建请求（统一OpenAI兼容格式）
         
         Args:
             prompt: 提示词
@@ -79,7 +110,7 @@ class LLMClient:
     
     def _get_api_url(self) -> str:
         """
-        获取API URL
+        获取API URL（统一OpenAI兼容格式）
         
         Returns:
             API URL字符串
@@ -88,7 +119,7 @@ class LLMClient:
     
     def _parse_response(self, response_data: Dict[str, Any]) -> str:
         """
-        解析DeepSeek响应
+        解析响应（统一OpenAI兼容格式）
         
         Args:
             response_data: 响应数据
@@ -99,13 +130,13 @@ class LLMClient:
         try:
             return response_data['choices'][0]['message']['content']
         except (KeyError, IndexError) as e:
-            logger.error(f"解析DeepSeek响应失败: {e}")
+            logger.error(f"解析{self.active_llm}响应失败: {e}")
             return ""
     
     def generate_trading_advice(self, prompt: str, 
                               retry_times: int = 3) -> Optional[str]:
         """
-        生成交易建议
+        生成交易建议（统一OpenAI兼容格式）
         
         Args:
             prompt: 提示词
@@ -114,13 +145,13 @@ class LLMClient:
         Returns:
             交易建议文本
         """
-        if not self.api_key:
-            logger.error("LLM API密钥未配置")
+        if not self.model_config:
+            logger.error("LLM模型配置无效")
             return None
         
         for attempt in range(retry_times):
             try:
-                logger.info(f"调用LLM API生成交易建议，尝试次数: {attempt + 1}")
+                logger.info(f"调用{self.active_llm} API生成交易建议，尝试次数: {attempt + 1}")
                 
                 # 构建请求
                 request_data = self._build_request(prompt)
@@ -148,9 +179,9 @@ class LLMClient:
                     logger.warning("LLM返回空响应")
                     
             except requests.exceptions.RequestException as e:
-                logger.error(f"LLM API请求失败 (尝试 {attempt + 1}): {e}")
+                logger.error(f"{self.active_llm} API请求失败 (尝试 {attempt + 1}): {e}")
             except json.JSONDecodeError as e:
-                logger.error(f"LLM响应解析失败 (尝试 {attempt + 1}): {e}")
+                logger.error(f"{self.active_llm}响应解析失败 (尝试 {attempt + 1}): {e}")
             except Exception as e:
                 logger.error(f"生成交易建议失败 (尝试 {attempt + 1}): {e}")
             
@@ -163,7 +194,7 @@ class LLMClient:
     def generate_streaming_advice(self, prompt: str, 
                                 callback_func=None) -> Optional[str]:
         """
-        流式生成交易建议
+        流式生成交易建议（统一OpenAI兼容格式）
         
         Args:
             prompt: 提示词
@@ -172,12 +203,12 @@ class LLMClient:
         Returns:
             交易建议文本
         """
-        if not self.api_key:
-            logger.error("LLM API密钥未配置")
+        if not self.model_config:
+            logger.error("LLM模型配置无效")
             return None
         
         try:
-            logger.info("开始流式生成交易建议")
+            logger.info(f"开始流式生成交易建议，模型: {self.active_llm}")
             
             # 构建请求
             request_data = self._build_request(prompt)
@@ -211,8 +242,7 @@ class LLMClient:
                         try:
                             data = json.loads(data_str)
                             
-                            # 解析流式数据
-                            # DeepSeek流式响应格式
+                            # 解析流式数据（OpenAI兼容格式）
                             if 'choices' in data and len(data['choices']) > 0:
                                 delta = data['choices'][0].get('delta', {})
                                 content = delta.get('content', '')
@@ -238,24 +268,28 @@ class LLMClient:
     
     def test_connection(self) -> bool:
         """
-        测试API连接
+        测试API连接（统一OpenAI兼容格式）
         
         Returns:
             连接是否成功
         """
+        if not self.model_config:
+            logger.error("LLM模型配置无效")
+            return False
+        
         try:
             test_prompt = "请回复'连接成功'"
             response = self.generate_trading_advice(test_prompt, retry_times=1)
             
             if response and "成功" in response:
-                logger.info("LLM API连接测试成功")
+                logger.info(f"{self.active_llm} API连接测试成功")
                 return True
             else:
-                logger.error("LLM API连接测试失败")
+                logger.error(f"{self.active_llm} API连接测试失败")
                 return False
                 
         except Exception as e:
-            logger.error(f"LLM API连接测试异常: {e}")
+            logger.error(f"{self.active_llm} API连接测试异常: {e}")
             return False
     
     def get_model_info(self) -> Dict[str, Any]:
@@ -266,7 +300,7 @@ class LLMClient:
             模型信息字典
         """
         return {
-            'provider': self.provider,
+            'active_model': self.active_llm,
             'model': self.model,
             'max_tokens': self.max_tokens,
             'temperature': self.temperature,
@@ -301,7 +335,7 @@ class LLMClient:
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(f"# ETF交易建议\n\n")
                 f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-                f.write(f"使用模型: {self.provider} - {self.model}\n\n")
+                f.write(f"使用模型: {self.active_llm} - {self.model}\n\n")
                 f.write("---\n\n")
                 
                 # 尝试提取JSON格式的交易建议
@@ -525,6 +559,7 @@ class LLMClient:
             # 创建完整的分析记录
             analysis_record = {
                 "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                "model_used": f"{self.active_llm} - {self.model}",
                 "analysis_summary": trading_data.get("analysis_summary", ""),
                 "recommendations": trading_data.get("recommendations", []),
                 "market_snapshot": {},
