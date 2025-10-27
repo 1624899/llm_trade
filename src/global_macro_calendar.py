@@ -251,29 +251,25 @@ class GlobalMacroCalendar:
             # 添加重要性描述
             if '重要性' in processed_df.columns:
                 processed_df['importance_desc'] = processed_df['重要性'].map(self.importance_map)
-                # 同时保留英文列名以便兼容
-                processed_df['importance'] = processed_df['重要性']
+                # 转换重要性为数值型，避免重复
+                processed_df['重要性'] = pd.to_numeric(processed_df['重要性'], errors='coerce')
             
             # 添加地区描述
             if '地区' in processed_df.columns:
                 processed_df['region_desc'] = processed_df['地区'].map(self.region_map)
                 # 对于没有映射的地区，使用原始代码
                 processed_df['region_desc'] = processed_df['region_desc'].fillna(processed_df['地区'])
-                # 同时保留英文列名以便兼容
-                processed_df['region'] = processed_df['地区']
+                # 不再创建重复的region列
             
-            # 时间格式化
+            # 时间格式化，只处理中文时间列
             if '时间' in processed_df.columns:
-                processed_df['time'] = pd.to_datetime(processed_df['时间'], errors='coerce')
-                # 同时保留中文列名
-                processed_df['时间'] = processed_df['time']
+                processed_df['时间'] = pd.to_datetime(processed_df['时间'], errors='coerce')
             
-            # 数值列处理
+            # 数值列处理，只保留中文列名
             numeric_columns = ['今值', '预期', '前值']
-            english_columns = ['actual', 'expected', 'previous']
-            for chinese_col, english_col in zip(numeric_columns, english_columns):
-                if chinese_col in processed_df.columns:
-                    processed_df[english_col] = pd.to_numeric(processed_df[chinese_col], errors='coerce')
+            for col in numeric_columns:
+                if col in processed_df.columns:
+                    processed_df[col] = pd.to_numeric(processed_df[col], errors='coerce')
             
             # 添加数据获取时间
             processed_df['fetch_time'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -316,8 +312,6 @@ class GlobalMacroCalendar:
             # 过滤地区，只保留中国和美国
             if '地区' in df_filtered.columns:
                 df_filtered = df_filtered[df_filtered['地区'].isin(['中国', '美国'])]
-            elif 'region' in df_filtered.columns:
-                df_filtered = df_filtered[df_filtered['region'].isin(['中国', '美国'])]
             
             df_filtered.to_csv(filepath, index=False, encoding='utf-8-sig')
             
@@ -369,8 +363,6 @@ class GlobalMacroCalendar:
             # 过滤地区，只保留中国和美国
             if '地区' in combined_df_filtered.columns:
                 combined_df_filtered = combined_df_filtered[combined_df_filtered['地区'].isin(['中国', '美国'])]
-            elif 'region' in combined_df_filtered.columns:
-                combined_df_filtered = combined_df_filtered[combined_df_filtered['region'].isin(['中国', '美国'])]
             
             combined_df_filtered.to_csv(filepath, index=False, encoding='utf-8-sig')
             
@@ -442,14 +434,10 @@ class GlobalMacroCalendar:
             
             # 添加数值信息
             values_info = []
-            for col in ['actual', 'expected', 'previous']:
-                if col in row and pd.notna(row[col]):
-                    col_desc = {'actual': '实际值', 'expected': '预期值', 'previous': '前值'}[col]
-                    values_info.append(f"{col_desc}:{row[col]}")
-            # 也检查中文列名
             for col in ['今值', '预期', '前值']:
                 if col in row and pd.notna(row[col]):
-                    values_info.append(f"{col}:{row[col]}")
+                    col_desc = {'今值': '实际值', '预期': '预期值', '前值': '前值'}[col]
+                    values_info.append(f"{col_desc}:{row[col]}")
             
             values_str = f" ({', '.join(values_info)})" if values_info else ""
             
@@ -517,14 +505,10 @@ class GlobalMacroCalendar:
                 
                 # 添加数值信息
                 values_info = []
-                for col in ['actual', 'expected', 'previous']:
-                    if col in row and pd.notna(row[col]):
-                        col_desc = {'actual': '实际值', 'expected': '预期值', 'previous': '前值'}[col]
-                        values_info.append(f"{col_desc}:{row[col]}")
-                # 也检查中文列名
                 for col in ['今值', '预期', '前值']:
                     if col in row and pd.notna(row[col]):
-                        values_info.append(f"{col}:{row[col]}")
+                        col_desc = {'今值': '实际值', '预期': '预期值', '前值': '前值'}[col]
+                        values_info.append(f"{col_desc}:{row[col]}")
                 
                 values_str = f" ({', '.join(values_info)})" if values_info else ""
                 
@@ -619,8 +603,6 @@ class GlobalMacroCalendar:
             # 过滤地区，只保留中国和美国
             if '地区' in df_filtered.columns:
                 df_filtered = df_filtered[df_filtered['地区'].isin(['中国', '美国'])]
-            elif 'region' in df_filtered.columns:
-                df_filtered = df_filtered[df_filtered['region'].isin(['中国', '美国'])]
             
             df_filtered.to_csv(filepath, index=False, encoding='utf-8-sig')
             
