@@ -1,6 +1,6 @@
 """
-标准化语料生成模块
-将市场数据、技术指标和账户信息转换为LLM可理解的标准化格式，包含新增的实时数据和增强指标
+标准化语料生成模块 - AI自主交易模式
+将市场数据、技术指标和账户信息转换为LLM可理解的标准化格式，专注于AI自主交易决策
 """
 
 import json
@@ -14,7 +14,7 @@ except ImportError:
 
 
 class PromptGenerator:
-    """语料生成器"""
+    """AI自主交易语料生成器"""
     
     def __init__(self, config: Dict):
         """
@@ -29,57 +29,8 @@ class PromptGenerator:
         self.current_time = get_current_time_str()
         self.etf_list = load_etf_list()
         
-        logger.info("语料生成器初始化完成")
+        logger.info("AI自主交易语料生成器初始化完成")
     
-    def generate_trading_prompt(self, market_data: Dict[str, Any],
-                              account_data: Dict[str, Any]) -> str:
-        """
-        生成交易分析提示词
-        
-        Args:
-            market_data: 市场数据字典
-            account_data: 账户数据字典
-            
-        Returns:
-            标准化交易提示词
-        """
-        try:
-            # 更新账户数据和交易分钟数
-            self.account_data = account_data
-            account_info = account_data.get('account_info', {})
-            start_time_str = account_info.get('start_time')
-            self.trading_minutes = get_trading_minutes(start_time_str)
-            
-            # 生成头部信息
-            header = self._generate_header(account_data)
-            
-            # 生成历史分析数据部分
-            history_section = self._generate_history_section()
-            
-            # 生成ETF数据部分
-            etf_sections = self._generate_etf_sections(market_data)
-            
-            # 生成市场情绪数据部分
-            market_sentiment_section = self._generate_market_sentiment_section(market_data)
-            
-            # 生成账户信息部分
-            account_section = self._generate_account_section(account_data)
-            
-            # 生成绩效指标部分
-            performance_section = self._generate_performance_section(account_data)
-            
-            # 生成分析请求
-            analysis_request = self.generate_analysis_request()
-            
-            # 组合完整的提示词
-            prompt = f"{header}\n\n{history_section}\n\n{etf_sections}\n\n{market_sentiment_section}\n\n{account_section}\n\n{performance_section}\n\n{analysis_request}"
-            
-            logger.info("交易提示词生成成功")
-            return prompt
-            
-        except Exception as e:
-            logger.error(f"生成交易提示词失败: {e}")
-            return ""
     
     def _generate_header(self, account_data: Dict[str, Any]) -> str:
         """
@@ -396,14 +347,6 @@ class PromptGenerator:
                     ask_prices = [item.get('price', 0) for item in ask_data if isinstance(item, dict)]
                     ask_volumes = [item.get('vol', 0) for item in ask_data if isinstance(item, dict)]
             
-            # 添加调试信息
-            logger.debug(f"买卖盘口数据调试信息:")
-            logger.debug(f"  - bid_prices: {bid_prices}")
-            logger.debug(f"  - bid_volumes: {bid_volumes}")
-            logger.debug(f"  - ask_prices: {ask_prices}")
-            logger.debug(f"  - ask_volumes: {ask_volumes}")
-            logger.debug(f"  - order_book keys: {list(order_book.keys())}")
-            
             # 如果仍然没有数据，返回提示信息
             if not bid_prices and not ask_prices:
                 logger.warning("买卖盘口数据格式不匹配或为空")
@@ -491,7 +434,7 @@ class PromptGenerator:
                     return "暂无资金流向数据"
                 
                 section = "### 资金流向分析（最近3天）\n\n"
-                section += "**注意**：以下资金流向数据为前3个交易日数据，不一定包括当日，非实时数据\n\n"
+                section += "**注意**：以下资金流向数据为前3个交易日数据，不是当日数据，非实时数据\n\n"
                 
                 # 按日期倒序排列（最新的在前）
                 for i, data in enumerate(recent_data):
@@ -660,162 +603,6 @@ class PromptGenerator:
             logger.error(f"生成ETF绩效指标部分失败: {e}")
             return "ETF绩效指标获取失败"
     
-    def generate_analysis_request(self) -> str:
-        """
-        生成分析请求
-        
-        Returns:
-            分析请求字符串
-        """
-        request = """
-
----
-
-### 交易分析请求
-
-基于以上提供的数据，请完整提供以下兼具短期操作性与中长期战略视角的分析：
-
-1. **市场状况分析**：  
-   - 当前各ETF的短期技术信号（3–30分钟级别）与中期趋势状态（日线/4小时级别）分别如何？是否存在背离或共振？  
-   - 哪些ETF处于趋势初期、中期或尾声阶段？
-
-2. **持仓风险评估**：  
-   - 当前持仓是否与中期市场方向一致？是否存在“逆势持仓”或“弱势资产拖累组合”？  
-   - 各持仓的风险回报比（基于支撑/阻力/波动率）是否合理？
-
-3. **交易建议**：  
-   请明确区分两类建议：  
-   - **短期操作**（未来1–2小时内可执行）  
-   - **中长期调仓方向**（未来1–5个交易日的目标仓位调整）  
-
-4. **风险管理**：建议的止损位和目标价位是否基于有效技术位或波动率？  
-5. **资金管理**：当前现金占比是否合理？是否应向高趋势强度、强资金流入的资产倾斜？  
-6. **市场情绪分析**：结合行业资金流向，判断当前主线是科技（芯片/AI/军工）还是避险（黄金）？  
-7. **增强技术分析**：综合趋势强度、EMA排列、MACD动量、支撑阻力与波动率，评估各ETF所处阶段。
-
----
-
-**重要：请严格按照以下JSON格式提供交易建议，便于系统自动提取：**
-
-```json
-{
-  "analysis_summary": "简要分析总结（需包含短期信号与中长期趋势判断）",
-  "recommendations": [
-    {
-      "symbol": "ETF代码",
-      "name": "ETF名称",
-      "action": "买入/卖出/持有/观望",
-      "quantity": "目标持仓数量（整数）",
-      "buy_quantity": "本次建议买入数量（整数）",
-      "sell_quantity": "本次建议卖出数量（整数）",
-      "buy_price": "建议买入价格（保留两位小数）",
-      "sell_price": "建议卖出价格（保留两位小数）",
-      "stop_loss": "止损价格（保留两位小数）",
-      "take_profit": "止盈价格（保留两位小数）",
-      "time_horizon": "短期/中期",
-      "reason": "操作理由（需说明：技术状态、资金面、是否符合中长期配置逻辑）"
-    }
-  ]
-}
-"""
-        
-        return request
-    
-    def save_prompt_to_file(self, prompt: str, filename: str = None) -> str:
-        """
-        保存提示词到文件
-        
-        Args:
-            prompt: 提示词内容
-            filename: 文件名
-            
-        Returns:
-            保存的文件路径
-        """
-        try:
-            import os
-            
-            if filename is None:
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"trading_prompt_{timestamp}.md"
-            
-            # 确保输出目录存在
-            output_dir = "outputs"
-            os.makedirs(output_dir, exist_ok=True)
-            
-            filepath = os.path.join(output_dir, filename)
-            
-            with open(filepath, 'w', encoding='utf-8') as f:
-                f.write(prompt)
-            
-            logger.info(f"提示词已保存到: {filepath}")
-            return filepath
-            
-        except Exception as e:
-            logger.error(f"保存提示词失败: {e}")
-            return ""
-    
-    def _generate_history_section(self) -> str:
-        """
-        生成历史分析数据部分
-        
-        Returns:
-            历史分析数据字符串
-        """
-        try:
-            import os
-            
-            # 读取历史记录文件
-            history_file = "data/trading_analysis_history.json"
-            
-            if not os.path.exists(history_file):
-                return "### 历史分析记录\n\n暂无历史分析记录。"
-            
-            try:
-                with open(history_file, 'r', encoding='utf-8') as f:
-                    history_data = json.load(f)
-                
-                if not isinstance(history_data, list) or not history_data:
-                    return "### 历史分析记录\n\n暂无历史分析记录。"
-                
-                history_section = "### 历史分析记录（最近1条）\n\n"
-                
-                for record in history_data:
-                    # 提取关键信息
-                    timestamp = record.get('timestamp', '')
-                    analysis_summary = record.get('analysis_summary', '')
-                    recommendations = record.get('recommendations', [])
-                    
-                    history_section += f"**分析时间**: {timestamp}\n"
-                    history_section += f"**分析总结**: {analysis_summary}\n"
-                    
-                    if recommendations:
-                        history_section += "**建议操作**:\n"
-                        for rec in recommendations:
-                            symbol = rec.get('symbol', '')
-                            action = rec.get('action', '')
-                            quantity = rec.get('quantity', '')
-                            stop_loss = rec.get('stop_loss', '')
-                            take_profit = rec.get('take_profit', '')
-                            reason = rec.get('reason', '')
-                            
-                            # 在历史记录中也使用标准ETF名称
-                            etf_name = self._get_etf_name_from_config(symbol)
-                            display_name = f"{etf_name}" if etf_name else symbol
-                            
-                            history_section += f"- {symbol}: {action} {quantity}股, 止损{stop_loss}, 止盈{take_profit}, 理由: {reason}\n"
-                    
-                    history_section += "\n---\n\n"
-                
-                return history_section
-                
-            except Exception as e:
-                logger.error(f"读取历史分析文件失败: {e}")
-                return "### 历史分析记录\n\n历史分析数据读取失败。"
-            
-        except Exception as e:
-            logger.error(f"生成历史分析数据部分失败: {e}")
-            return "### 历史分析记录\n\n历史分析数据获取失败。"
     
     def _get_etf_name_from_config(self, etf_code: str) -> str:
         """
@@ -856,3 +643,148 @@ class PromptGenerator:
         except Exception as e:
             logger.error(f"从配置文件获取ETF类别失败: {e}")
             return None
+    
+    def generate_trading_decision_request(self) -> str:
+        """
+        生成自主交易决策请求
+        
+        Returns:
+            交易决策请求字符串
+        """
+        request = """
+
+---
+
+### AI自主交易决策请求
+
+基于以上提供的市场数据、技术指标和账户信息，请直接做出交易决策。您是一个专业的ETF交易决策系统，需要基于当前市场状况和账户状态，自主决定具体的交易操作。
+
+**决策要求：**
+1. **直接决策**：不要提供分析建议，直接输出具体的交易决策
+2. **风险控制**：单次交易金额不超过总资产的10%，确保风险可控
+3. **资金管理**：考虑当前现金余额和持仓情况，合理分配资金
+4. **技术分析**：基于趋势强度、EMA、MACD、RSI等技术指标做出决策
+5. **市场情绪**：结合资金流向和市场情绪做出判断
+
+**决策考虑因素：**
+- 当前市场数据和技术指标
+- 账户现金和持仓状态
+- 风险管理原则
+- 历史交易表现
+- 市场情绪和资金流向
+
+**重要：请严格按照以下JSON格式输出交易决策，系统将直接执行：**
+
+```json
+{
+  "decision": "BUY/SELL/HOLD",
+  "symbol": "6位数字ETF代码（必须是159599、512010、159637、159770、512710、515980、518880中的一个）",
+  "amount": 交易金额（数字）,
+  "quantity": 交易数量（整数）,
+  "confidence": 决策置信度（0-1之间的数字）,
+  "reason": "决策理由（简述技术指标、市场状况和风险考虑）"
+}
+```
+
+**ETF代码验证要求：**
+- 必须是6位数字格式
+- 必须是以下监控ETF列表中的代码之一：
+  - 518880 (黄金ETF)
+  - 159599 (芯片ETF基金)
+  - 159637 (新能源车龙头ETF)
+  - 159770 (机器人ETF)
+  - 512710 (军工龙头ETF)
+  - 515980 (人工智能ETF)
+  - 512010 (医药ETF)
+- 系统将严格验证ETF代码的有效性，无效代码将导致决策被拒绝
+
+**注意事项：**
+- 如果决策为HOLD，则amount和quantity可以为0
+- 置信度应基于技术指标的明确程度和市场状况的确定性
+- 决策理由应简明扼要，包含关键的技术指标和市场因素
+- 确保决策符合风险管理原则，避免过度集中或高风险操作
+- 请仔细核对ETF代码，确保代码格式正确且在监控列表中
+"""
+        
+        return request
+    
+    def generate_trading_decision_prompt(self, market_data: Dict[str, Any],
+                                        account_data: Dict[str, Any]) -> str:
+        """
+        生成交易决策提示词
+        
+        Args:
+            market_data: 市场数据字典
+            account_data: 账户数据字典
+            
+        Returns:
+            标准化交易决策提示词
+        """
+        try:
+            # 更新账户数据和交易分钟数
+            self.account_data = account_data
+            account_info = account_data.get('account_info', {})
+            start_time_str = account_info.get('start_time')
+            self.trading_minutes = get_trading_minutes(start_time_str)
+            
+            # 生成头部信息
+            header = self._generate_header(account_data)
+            
+            # 生成ETF数据部分
+            etf_sections = self._generate_etf_sections(market_data)
+            
+            # 生成市场情绪数据部分
+            market_sentiment_section = self._generate_market_sentiment_section(market_data)
+            
+            # 生成账户信息部分
+            account_section = self._generate_account_section(account_data)
+            
+            # 生成绩效指标部分
+            performance_section = self._generate_performance_section(account_data)
+            
+            # 生成交易决策请求
+            decision_request = self.generate_trading_decision_request()
+            
+            # 组合完整的提示词
+            prompt = f"{header}\n\n{etf_sections}\n\n{market_sentiment_section}\n\n{account_section}\n\n{performance_section}\n\n{decision_request}"
+            
+            logger.info("AI自主交易决策提示词生成成功")
+            return prompt
+            
+        except Exception as e:
+            logger.error(f"生成AI自主交易决策提示词失败: {e}")
+            return ""
+    
+    def save_prompt_to_file(self, prompt: str, filename: str = None) -> str:
+        """
+        保存提示词到文件
+        
+        Args:
+            prompt: 提示词内容
+            filename: 文件名
+            
+        Returns:
+            保存的文件路径
+        """
+        try:
+            import os
+            
+            if filename is None:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"trading_decision_prompt_{timestamp}.md"
+            
+            # 确保输出目录存在
+            output_dir = "outputs"
+            os.makedirs(output_dir, exist_ok=True)
+            
+            filepath = os.path.join(output_dir, filename)
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(prompt)
+            
+            logger.info(f"AI自主交易决策提示词已保存到: {filepath}")
+            return filepath
+            
+        except Exception as e:
+            logger.error(f"保存AI自主交易决策提示词失败: {e}")
+            return ""

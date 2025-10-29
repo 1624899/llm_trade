@@ -1,35 +1,125 @@
 {
   "account_info": {
-    "total_assets": 14844.04,
-    "total_pnl": -61.65,
-    "daily_pnl": 0.00,
-    "available_cash": 9737.24,
-    "start_time": "2025-10-27 09:35:00"
+    "total_assets": 10019.438,
+    "total_pnl": 19.438000000000248,
+    "daily_pnl": 0.0,
+    "available_cash": 3668.9789999999994,
+    "start_time": "2025-10-29 13:54:09",
+    "initial_cash": 10000.0
   },
   "positions": [
     {
-      "symbol": "512710",
-      "name": "军工龙头",
-      "quantity": 2200,
-      "available_quantity": 2200,
-      "position_ratio": 10.30,
-      "avg_price": 0.705,
-      "daily_pnl": 11.65,
-      "total_pnl": -11.45,
-      "market_value": 1526.80,
-      "current_price": 0.694
-    },
-    {
       "symbol": "518880",
       "name": "黄金ETF",
-      "quantity": 400,
-      "available_quantity": 400,
-      "position_ratio": 24.15,
-      "avg_price": 9.043,
-      "daily_pnl": -8.80,
-      "total_pnl": -45.00,
-      "market_value": 3580.00,
-      "current_price": 8.950
+      "quantity": 115,
+      "available_quantity": 115,
+      "position_ratio": 9.976407858404833,
+      "avg_price": 8.649,
+      "current_price": 8.692,
+      "daily_pnl": 0.0,
+      "total_pnl": 4.945000000000119,
+      "market_value": 999.58
+    },
+    {
+      "symbol": "159599",
+      "name": "芯片ETF基金",
+      "quantity": 409,
+      "available_quantity": 409,
+      "position_ratio": 9.021364272127839,
+      "avg_price": 2.198,
+      "current_price": 2.21,
+      "daily_pnl": 0.0,
+      "total_pnl": 4.908000000000005,
+      "market_value": 903.89
+    },
+    {
+      "symbol": "159637",
+      "name": "新能源车龙头ETF",
+      "quantity": 3727,
+      "available_quantity": 3727,
+      "position_ratio": 34.817042632530885,
+      "avg_price": 0.9339879259458009,
+      "current_price": 0.936,
+      "daily_pnl": 0.0,
+      "total_pnl": 7.4990000000001205,
+      "market_value": 3488.472
+    },
+    {
+      "symbol": "515980",
+      "name": "人工智能ETF",
+      "quantity": 1043,
+      "available_quantity": 1043,
+      "position_ratio": 9.566574492501475,
+      "avg_price": 0.917,
+      "current_price": 0.919,
+      "daily_pnl": 0.0,
+      "total_pnl": 2.086000000000002,
+      "market_value": 958.517
+    }
+  ],
+  "trade_history": [
+    {
+      "time": "2025-10-29 13:54:22",
+      "type": "buy",
+      "symbol": "518880",
+      "name": "黄金ETF",
+      "quantity": 115,
+      "price": 8.649,
+      "amount": 994.6349999999999
+    },
+    {
+      "time": "2025-10-29 14:04:46",
+      "type": "buy",
+      "symbol": "159599",
+      "name": "芯片ETF基金",
+      "quantity": 409,
+      "price": 2.198,
+      "amount": 898.982
+    },
+    {
+      "time": "2025-10-29 14:14:59",
+      "type": "buy",
+      "symbol": "159637",
+      "name": "新能源车龙头ETF",
+      "quantity": 860,
+      "price": 0.931,
+      "amount": 800.6600000000001
+    },
+    {
+      "time": "2025-10-29 14:25:16",
+      "type": "buy",
+      "symbol": "159637",
+      "name": "新能源车龙头ETF",
+      "quantity": 784,
+      "price": 0.932,
+      "amount": 730.688
+    },
+    {
+      "time": "2025-10-29 14:35:28",
+      "type": "buy",
+      "symbol": "515980",
+      "name": "人工智能ETF",
+      "quantity": 1043,
+      "price": 0.917,
+      "amount": 956.431
+    },
+    {
+      "time": "2025-10-29 14:45:38",
+      "type": "buy",
+      "symbol": "159637",
+      "name": "新能源车龙头ETF",
+      "quantity": 1073,
+      "price": 0.935,
+      "amount": 1003.2550000000001
+    },
+    {
+      "time": "2025-10-29 14:56:00",
+      "type": "buy",
+      "symbol": "159637",
+      "name": "新能源车龙头ETF",
+      "quantity": 1010,
+      "price": 0.937,
+      "amount": 946.37
     }
   ]
 }

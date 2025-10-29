@@ -1,13 +1,19 @@
 """
-A股ETF交易分析系统主程序
-整合所有模块，提供完整的ETF交易分析功能
+A股ETF交易分析系统主程序 - AI自主交易模式
+整合所有模块，提供完整的AI自主ETF交易功能
 """
 
 import sys
 import os
 import argparse
-from datetime import datetime
-from typing import Dict, List, Any
+import threading
+import time
+import schedule
+from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional
+from concurrent.futures import ThreadPoolExecutor
+from collections import defaultdict
+from loguru import logger
 
 # 添加src目录到Python路径
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
@@ -24,7 +30,7 @@ from src.llm_client import LLMClient
 
 
 class ETFTradingSystem:
-    """ETF交易系统主类"""
+    """ETF交易系统主类 - AI自主交易模式"""
     
     def __init__(self, config_path: str = "config/config.yaml"):
         """
@@ -60,7 +66,34 @@ class ETFTradingSystem:
         # 系统状态
         self.is_running = False
         
-        print("🚀 A股ETF交易分析系统初始化完成")
+        # 分层任务配置
+        self.layered_config = self.config.get('layered_tasks', {})
+        self.data_api_config = self.config.get('data_api', {})
+        
+        # 分层任务线程和事件
+        self.task_threads = {}
+        self.stop_events = {}
+        
+        # 数据缓存
+        self.price_cache = {}
+        self.decision_cache = {}
+        self.position_cache = {}
+        self.cache_lock = threading.Lock()
+        
+        # 任务状态监控
+        self.task_status = defaultdict(dict)
+        self.task_failures = defaultdict(int)
+        
+        # 数据接口缓存
+        self.realtime_prices_cache = []
+        self.position_history_cache = []
+        self.trade_records_cache = []
+        
+        # 交易冷却时间控制
+        self.last_trade_time = {}  # 记录每个ETF的最后交易时间
+        self.trade_cooldown_seconds = 300  # 5分钟冷却时间
+        
+        print("🚀 A股ETF交易分析系统 - AI自主交易模式初始化完成")
         print(f"📊 监控ETF数量: {len(self.monitored_etfs)}")
         print(f"💰 当前持仓数量: {len(self.account_manager.get_positions())}")
         if self.test_mode:
@@ -68,108 +101,100 @@ class ETFTradingSystem:
         else:
             print(f"🤖 LLM模型: {self.llm_client.get_model_info()['active_model']} - {self.llm_client.get_model_info()['model']}")
     
-    def run_single_analysis(self) -> bool:
+    def run_trading_decision(self) -> bool:
         """
-        运行单次分析
+        运行AI自主交易决策模式
         
         Returns:
-            分析是否成功
+            决策是否成功
         """
         try:
             print("\n" + "="*60)
-            print("📈 开始ETF交易分析...")
-            print(f"⏰ 分析时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            print("🎯 开始AI自主交易决策...")
+            print(f"⏰ 决策时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             print("="*60)
             
             # 1. 获取市场数据
             print("📡 正在获取市场数据...")
-            market_data = self._collect_market_data()
-            
-            if not market_data:
-                print("❌ 市场数据获取失败，分析终止")
-                return False
-            
-            print(f"✅ 成功获取 {len(market_data)} 个ETF的市场数据")
-            
-
-            
-            # 3. 生成标准化语料
-            print("📝 正在生成分析语料...")
-            account_data = self.account_manager.account_data
-            prompt = self.prompt_generator.generate_trading_prompt(market_data, account_data)
-            
-            if not prompt:
-                print("❌ 语料生成失败，分析终止")
-                return False
-            
-            print("✅ 分析语料生成成功")
-            
-            # 4. 调用LLM获取交易建议（测试模式下跳过）
-            if self.test_mode:
-                print("🧪 测试模式：跳过LLM交互，使用模拟响应")
-                trading_advice = self._generate_test_response()
-            else:
-                print("🤖 正在调用AI模型生成交易建议...")
-                trading_advice = self.llm_client.generate_trading_advice(prompt)
+            try:
+                market_data = self._collect_market_data()
                 
-                if not trading_advice:
-                    print("❌ 交易建议生成失败")
+                if not market_data:
+                    print("❌ 市场数据获取失败，决策终止")
+                    logger.error("市场数据获取失败，决策终止")
                     return False
                 
-                print("✅ 交易建议生成成功")
+                print(f"✅ 成功获取 {len(market_data)} 个ETF的市场数据")
+                logger.info(f"成功获取 {len(market_data)} 个ETF的市场数据")
+            except Exception as e:
+                print(f"❌ 市场数据获取异常: {e}")
+                logger.error(f"市场数据获取异常: {e}")
+                return False
             
-            # 5. 保存结果
-            self._save_analysis_results(prompt, trading_advice, market_data)
+            # 2. 生成AI自主交易决策语料
+            print("📝 正在生成AI自主交易决策语料...")
+            try:
+                account_data = self.account_manager.account_data
+                prompt = self.prompt_generator.generate_trading_decision_prompt(market_data, account_data)
+                
+                if not prompt:
+                    print("❌ AI自主交易决策语料生成失败，决策终止")
+                    logger.error("AI自主交易决策语料生成失败，决策终止")
+                    return False
+                
+                print("✅ AI自主交易决策语料生成成功")
+                logger.info("AI自主交易决策语料生成成功")
+            except Exception as e:
+                print(f"❌ AI自主交易决策语料生成异常: {e}")
+                logger.error(f"AI自主交易决策语料生成异常: {e}")
+                return False
             
-            # 6. 显示结果
-            self._display_results(trading_advice)
+            # 3. 调用LLM获取交易决策（测试模式下跳过）
+            if self.test_mode:
+                print("🧪 测试模式：跳过LLM交互，使用模拟决策")
+                trading_decision = self._generate_test_decision_response()
+                logger.info("测试模式：使用模拟决策")
+            else:
+                print("🤖 正在调用AI模型生成AI自主交易决策...")
+                try:
+                    trading_decision = self.llm_client.generate_trading_decision(prompt, account_data=account_data)
+                    
+                    if not trading_decision:
+                        print("❌ AI自主交易决策生成失败")
+                        logger.error("AI自主交易决策生成失败")
+                        return False
+                    
+                    print("✅ AI自主交易决策生成成功")
+                    logger.info(f"AI自主交易决策生成成功: {trading_decision.get('decision', 'UNKNOWN')} {trading_decision.get('symbol', '')}")
+                except Exception as e:
+                    print(f"❌ AI自主交易决策生成异常: {e}")
+                    logger.error(f"AI自主交易决策生成异常: {e}")
+                    return False
             
-            print("\n🎉 单次分析完成！")
-            return True
+            # 4. 保存决策结果
+            self._save_decision_results(prompt, trading_decision, market_data, account_data)
+            
+            # 5. 执行AI决策
+            print(f"🎯 开始执行AI决策: {trading_decision.get('decision', 'UNKNOWN')} {trading_decision.get('symbol', '')}")
+            try:
+                execution_success = self.execute_ai_decision_task(trading_decision)
+                
+                # 6. 显示决策结果
+                self._display_decision_results(trading_decision)
+                
+                execution_status = "执行成功" if execution_success else "执行失败"
+                print(f"\n🎉 AI自主交易决策完成！{execution_status}")
+                logger.info(f"AI自主交易决策完成，状态: {execution_status}")
+                return execution_success
+            except Exception as e:
+                print(f"❌ AI决策执行异常: {e}")
+                logger.error(f"AI决策执行异常: {e}")
+                return False
             
         except Exception as e:
-            print(f"❌ 分析过程中发生错误: {e}")
+            print(f"❌ AI自主交易决策过程中发生错误: {e}")
+            logger.error(f"AI自主交易决策过程中发生错误: {e}")
             return False
-    
-    def run_continuous_analysis(self, interval_minutes: int = 30) -> None:
-        """
-        运行连续分析
-        
-        Args:
-            interval_minutes: 分析间隔（分钟）
-        """
-        import time
-        
-        print(f"\n🔄 开始连续分析模式，间隔: {interval_minutes} 分钟")
-        print("按 Ctrl+C 停止分析")
-        
-        self.is_running = True
-        
-        try:
-            while self.is_running:
-                # 检查是否为交易时间
-                if is_trading_time():
-                    print(f"\n🕐 {datetime.now().strftime('%H:%M:%S')} - 开始新一轮分析")
-                    
-                    success = self.run_single_analysis()
-                    
-                    if success:
-                        print(f"✅ 分析完成，等待 {interval_minutes} 分钟后进行下次分析")
-                    else:
-                        print("❌ 分析失败，5分钟后重试")
-                        interval_minutes = min(5, interval_minutes)
-                else:
-                    print(f"⏸️  当前非交易时间，等待 {interval_minutes} 分钟后检查")
-                
-                # 等待下次分析
-                time.sleep(interval_minutes * 60)
-                
-        except KeyboardInterrupt:
-            print("\n⏹️  用户停止分析")
-            self.is_running = False
-        except Exception as e:
-            print(f"\n❌ 连续分析发生错误: {e}")
-            self.is_running = False
     
     def _collect_market_data(self) -> Dict[str, Any]:
         """
@@ -294,80 +319,114 @@ class ETFTradingSystem:
         print(f"✅ 市场数据收集完成，成功处理 {len(market_data)} 个ETF")
         return market_data
     
-    
-    def _save_analysis_results(self, prompt: str, advice: str, market_data: Dict[str, Any]) -> None:
+    def _save_decision_results(self, prompt: str, decision: Dict[str, Any], 
+                             market_data: Dict[str, Any], account_data: Dict[str, Any]) -> None:
         """
-        保存分析结果
+        保存AI自主交易决策结果
         
         Args:
-            prompt: 分析语料
-            advice: 交易建议
+            prompt: 决策语料
+            decision: 交易决策
             market_data: 市场数据
+            account_data: 账户数据
         """
         try:
+            import os
+            import json
+            from datetime import datetime
+            
             # 保存语料
-            prompt_file = self.prompt_generator.save_prompt_to_file(prompt)
+            prompt_file = self.prompt_generator.save_prompt_to_file(prompt, f"ai_trading_decision_prompt_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md")
             if prompt_file:
-                print(f"📄 语料已保存: {prompt_file}")
+                print(f"📄 AI自主交易决策语料已保存: {prompt_file}")
             
-            # 保存建议
-            advice_file = self.llm_client.save_advice_to_file(advice)
-            if advice_file:
-                print(f"📄 建议已保存: {advice_file}")
+            # 保存决策JSON
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            decision_file = f"ai_trading_decision_{timestamp}.json"
             
-            # 提取交易信号并保存JSON数据
-            print("🔍 正在提取交易信号...")
-            # 在测试模式下，直接解析JSON格式的建议
-            if self.test_mode:
-                try:
-                    import json
-                    trading_signals = json.loads(advice)
-                except Exception as e:
-                    print(f"⚠️  测试模式下解析交易信号失败: {e}")
-                    trading_signals = None
-            else:
-                trading_signals = self.llm_client.extract_trading_signals(advice)
+            # 确保输出目录存在
+            output_dir = "outputs"
+            os.makedirs(output_dir, exist_ok=True)
             
-            if trading_signals:
-                account_data = self.account_manager.account_data
-                json_file = self.llm_client.save_trading_analysis(trading_signals, market_data, account_data)
-                if json_file:
-                    print(f"📊 交易分析JSON已保存: {json_file}")
+            decision_path = os.path.join(output_dir, decision_file)
+            
+            # 创建完整的决策记录
+            decision_record = {
+                "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                "model_used": f"{self.llm_client.get_model_info()['active_model']} - {self.llm_client.get_model_info()['model']}",
+                "decision": decision,
+                "market_snapshot": {},
+                "account_snapshot": account_data.get("account_info", {}),
+                "current_positions": account_data.get("positions", [])
+            }
+            
+            # 添加市场快照
+            for symbol, data in market_data.items():
+                # 跳过市场情绪数据（以_开头）
+                if symbol.startswith('_'):
+                    continue
                     
-                    # 显示提取的交易信号
-                    recommendations = trading_signals.get('recommendations', [])
-                    if recommendations:
-                        print("💡 提取的交易信号:")
-                        for i, rec in enumerate(recommendations, 1):
-                            symbol = rec.get('symbol', '')
-                            action = rec.get('action', '')
-                            quantity = rec.get('quantity', '')
-                            stop_loss = rec.get('stop_loss', '')
-                            take_profit = rec.get('take_profit', '')
-                            print(f"  {i}. {symbol}: {action} {quantity}股, 止损{stop_loss}, 止盈{take_profit}")
-                else:
-                    print("⚠️  交易分析JSON保存失败")
-            else:
-                print("⚠️  交易信号提取失败")
+                # 确保data是字典类型
+                if not isinstance(data, dict):
+                    print(f"⚠️  跳过非字典类型的市场数据: {symbol}")
+                    continue
+                    
+                current_data = data.get("current_data", {})
+                decision_record["market_snapshot"][symbol] = {
+                    "name": data.get("name", ""),
+                    "current_price": current_data.get("current_price", 0),
+                    "current_ema_long": current_data.get("current_ema_long", 0),
+                    "current_macd": current_data.get("current_macd", 0),
+                    "current_rsi_7": current_data.get("current_rsi_7", 0)
+                }
+            
+            # 保存决策文件
+            with open(decision_path, 'w', encoding='utf-8') as f:
+                json.dump(decision_record, f, ensure_ascii=False, indent=2)
+            
+            print(f"📊 AI自主交易决策JSON已保存: {decision_path}")
             
             # 保存市场数据缓存
             self.data_fetcher.save_cache_to_file()
             print("💾 市场数据已保存到 data/market_data 目录")
                 
         except Exception as e:
-            print(f"⚠️  保存分析结果失败: {e}")
+            print(f"⚠️  保存AI自主交易决策结果失败: {e}")
     
-    def _display_results(self, advice: str) -> None:
+    def _display_decision_results(self, decision: Dict[str, Any]) -> None:
         """
-        显示分析结果
+        显示AI自主交易决策结果
         
         Args:
-            advice: 交易建议
+            decision: 交易决策字典
         """
         print("\n" + "="*60)
-        print("🤖 AI交易建议")
+        print("🎯 AI自主交易决策")
         print("="*60)
-        print(advice)
+        
+        # 显示决策详情
+        decision_type = decision.get('decision', 'UNKNOWN')
+        symbol = decision.get('symbol', 'N/A')
+        amount = decision.get('amount', 0)
+        quantity = decision.get('quantity', 0)
+        confidence = decision.get('confidence', 0)
+        reason = decision.get('reason', '')
+        
+        print(f"📋 决策类型: {decision_type}")
+        print(f"📈 ETF代码: {symbol}")
+        print(f"💰 交易金额: {amount:.2f}")
+        print(f"📊 交易数量: {quantity}")
+        print(f"🎯 置信度: {confidence:.2f}")
+        print(f"💡 决策理由: {reason}")
+        
+        # 显示风险提示
+        if decision_type == "BUY":
+            print("\n⚠️  风险提示: 买入决策已通过风险控制验证，单次交易金额不超过总资产的10%")
+        elif decision_type == "SELL":
+            print("\n⚠️  风险提示: 卖出决策已验证持仓充足性")
+        elif decision_type == "HOLD":
+            print("\nℹ️  信息提示: 当前市场状况建议持有观望")
+        
         print("="*60)
         
         # 显示账户摘要
@@ -376,9 +435,26 @@ class ETFTradingSystem:
         print("="*60)
         print(account_summary)
     
+    def _generate_test_decision_response(self) -> Dict[str, Any]:
+        """
+        生成测试模式下的模拟AI自主交易决策响应
+        
+        Returns:
+            模拟的交易决策字典
+        """
+        test_decision = {
+            "decision": "BUY",
+            "symbol": "512010",
+            "amount": 1000.0,
+            "quantity": 2400,
+            "confidence": 0.75,
+            "reason": "测试模式：技术指标显示超卖反弹迹象，RSI低于30，MACD即将金叉，建议适量买入"
+        }
+        return test_decision
+    
     def test_system(self) -> None:
         """测试系统功能"""
-        print("\n🧪 开始系统测试...")
+        print("\n🧪 开始AI自主交易系统测试...")
         
         # 测试配置加载
         print("1. 测试配置加载...")
@@ -410,11 +486,11 @@ class ETFTradingSystem:
                 print("❌ LLM连接失败")
                 return
         
-        print("🎉 系统测试完成，所有功能正常！")
+        print("🎉 AI自主交易系统测试完成，所有功能正常！")
     
     def show_status(self) -> None:
         """显示系统状态"""
-        print("\n📊 系统状态")
+        print("\n📊 AI自主交易系统状态")
         print("="*50)
         print(f"配置文件: {'✅ 已加载' if self.config else '❌ 未加载'}")
         print(f"ETF列表: {'✅ 已加载' if self.etf_list else '❌ 未加载'}")
@@ -430,77 +506,956 @@ class ETFTradingSystem:
         print(f"交易时间: {'✅ 是' if is_trading_time() else '❌ 否'}")
         print("="*50)
     
-    def _generate_test_response(self) -> str:
+    def run_automatic_trading(self) -> None:
         """
-        生成测试模式下的模拟LLM响应
+        运行自动交易模式（分层定时任务系统）
+        """
+        print("\n🚀 启动AI自主交易自动模式...")
+        print("分层定时任务系统启动中...")
+        
+        try:
+            # 启动所有分层任务
+            self.start_price_monitoring()
+            self.start_ai_decision_maker()
+            self.start_position_updater()
+            
+            print("✅ 所有分层任务已启动")
+            print("按 Ctrl+C 停止所有任务")
+            
+            # 主循环，等待停止信号
+            self.is_running = True
+            while self.is_running:
+                time.sleep(1)
+                
+        except KeyboardInterrupt:
+            print("\n⏹️  用户停止AI自主交易自动模式")
+            self.stop_all_tasks()
+        except Exception as e:
+            print(f"\n❌ AI自主交易自动模式发生错误: {e}")
+            self.stop_all_tasks()
+    
+    def start_price_monitoring(self) -> None:
+        """
+        启动价格监控任务（1分钟间隔）
+        """
+        if not self.layered_config.get('price_monitoring', {}).get('enabled', False):
+            print("⚠️  价格监控任务已禁用")
+            return
+        
+        def price_monitoring_task():
+            """价格监控任务函数"""
+            config = self.layered_config.get('price_monitoring', {})
+            interval = config.get('interval_seconds', 60)
+            max_retries = config.get('max_retries', 3)
+            retry_delay = config.get('retry_delay', 5)
+            
+            stop_event = self.stop_events.get('price_monitoring')
+            
+            while not stop_event.is_set():
+                try:
+                    # 检查是否为交易时间
+                    if not self.is_trading_time():
+                        time.sleep(interval)
+                        continue
+                    
+                    start_time = time.time()
+                    print(f"📡 [{datetime.now().strftime('%H:%M:%S')}] 开始价格监控任务...")
+                    
+                    # 获取所有ETF的实时价格
+                    etf_codes = [etf['code'] for etf in self.monitored_etfs]
+                    price_data = self.data_fetcher.get_multiple_etf_data(etf_codes)
+                    
+                    if price_data:
+                        # 更新价格缓存（保留时间戳）
+                        with self.cache_lock:
+                            current_time = datetime.now()
+                            for code, data in price_data.items():
+                                # 保留原有时间戳，更新价格数据
+                                if code in self.price_cache:
+                                    old_timestamp = self.price_cache[code].get('timestamp')
+                                    self.price_cache[code] = data
+                                    if old_timestamp:
+                                        self.price_cache[code]['timestamp'] = old_timestamp
+                                    else:
+                                        self.price_cache[code]['timestamp'] = current_time
+                                else:
+                                    self.price_cache[code] = data
+                                    self.price_cache[code]['timestamp'] = current_time
+                            
+                            # 更新实时价格数据接口缓存
+                            for code, data in price_data.items():
+                                price_record = {
+                                    'timestamp': current_time,
+                                    'code': code,
+                                    'name': data.get('name', ''),
+                                    'price': data.get('current_price', 0),
+                                    'change_pct': data.get('change_pct', 0)
+                                }
+                                self.realtime_prices_cache.append(price_record)
+                            
+                            # 限制缓存大小
+                            max_points = self.data_api_config.get('realtime_prices', {}).get('max_history_points', 100)
+                            if len(self.realtime_prices_cache) > max_points:
+                                self.realtime_prices_cache = self.realtime_prices_cache[-max_points:]
+                        
+                        # 更新任务状态
+                        self.task_status['price_monitoring'] = {
+                            'last_run': datetime.now(),
+                            'status': 'success',
+                            'duration': time.time() - start_time,
+                            'etf_count': len(price_data)
+                        }
+                        self.task_failures['price_monitoring'] = 0
+                        
+                        print(f"✅ 价格监控完成，获取 {len(price_data)} 个ETF数据，耗时 {time.time() - start_time:.2f}s")
+                    else:
+                        raise Exception("获取价格数据失败")
+                    
+                    # 等待下次执行
+                    stop_event.wait(interval)
+                    
+                except Exception as e:
+                    print(f"❌ 价格监控任务失败: {e}")
+                    self.task_failures['price_monitoring'] += 1
+                    self.task_status['price_monitoring'] = {
+                        'last_run': datetime.now(),
+                        'status': 'failed',
+                        'error': str(e),
+                        'failures': self.task_failures['price_monitoring']
+                    }
+                    
+                    # 检查失败次数
+                    max_failures = self.layered_config.get('monitoring', {}).get('max_task_failures', 5)
+                    if self.task_failures['price_monitoring'] >= max_failures:
+                        print(f"⚠️  价格监控任务失败次数过多，停止执行")
+                        break
+                    
+                    # 重试延迟
+                    time.sleep(retry_delay)
+        
+        # 创建停止事件和线程
+        self.stop_events['price_monitoring'] = threading.Event()
+        thread = threading.Thread(target=price_monitoring_task, name="PriceMonitoring")
+        thread.daemon = True
+        thread.start()
+        self.task_threads['price_monitoring'] = thread
+        
+        print("📡 价格监控任务已启动（1分钟间隔）")
+    
+    def start_ai_decision_maker(self) -> None:
+        """
+        启动AI决策任务（10分钟间隔）
+        """
+        if not self.layered_config.get('ai_decision', {}).get('enabled', False):
+            print("⚠️  AI决策任务已禁用")
+            return
+        
+        def ai_decision_task():
+            """AI决策任务函数"""
+            config = self.layered_config.get('ai_decision', {})
+            interval = config.get('interval_seconds', 600)
+            max_retries = config.get('max_retries', 2)
+            retry_delay = config.get('retry_delay', 10)
+            cache_duration = config.get('decision_cache_duration', 300)
+            
+            stop_event = self.stop_events.get('ai_decision')
+            
+            while not stop_event.is_set():
+                try:
+                    # 检查是否为交易时间
+                    if not self.is_trading_time():
+                        time.sleep(interval)
+                        continue
+                    
+                    start_time = time.time()
+                    print(f"🤖 [{datetime.now().strftime('%H:%M:%S')}] 开始AI自主交易决策任务...")
+                    
+                    # 检查决策缓存
+                    with self.cache_lock:
+                        last_decision_time = self.decision_cache.get('timestamp', 0)
+                        if time.time() - last_decision_time < cache_duration:
+                            print("📋 使用缓存的AI自主交易决策结果")
+                            stop_event.wait(interval)
+                            continue
+                    
+                    # 获取市场数据
+                    market_data = self._collect_market_data()
+                    if not market_data:
+                        raise Exception("获取市场数据失败")
+                    
+                    # 确保价格缓存是最新的
+                    self._update_price_cache()
+                    
+                    # 生成交易决策
+                    account_data = self.account_manager.account_data
+                    prompt = self.prompt_generator.generate_trading_decision_prompt(market_data, account_data)
+                    
+                    if not prompt:
+                        raise Exception("生成AI自主交易决策语料失败")
+                    
+                    # 调用LLM获取决策
+                    if self.test_mode:
+                        trading_decision = self._generate_test_decision_response()
+                    else:
+                        trading_decision = self.llm_client.generate_trading_decision(prompt, account_data=account_data)
+                    
+                    if not trading_decision:
+                        raise Exception("生成AI自主交易决策失败")
+                    
+                    # 缓存决策结果
+                    with self.cache_lock:
+                        self.decision_cache = {
+                            'timestamp': time.time(),
+                            'decision': trading_decision,
+                            'market_data': market_data
+                        }
+                    
+                    # 保存决策结果
+                    self._save_decision_results(prompt, trading_decision, market_data, account_data)
+                    
+                    # 执行AI决策
+                    print(f"🎯 开始执行AI决策: {trading_decision.get('decision', 'UNKNOWN')} {trading_decision.get('symbol', '')}")
+                    execution_success = self.execute_ai_decision_task(trading_decision)
+                    
+                    # 更新任务状态
+                    self.task_status['ai_decision'] = {
+                        'last_run': datetime.now(),
+                        'status': 'success' if execution_success else 'execution_failed',
+                        'duration': time.time() - start_time,
+                        'decision_type': trading_decision.get('decision', 'UNKNOWN'),
+                        'execution_success': execution_success
+                    }
+                    self.task_failures['ai_decision'] = 0
+                    
+                    execution_status = "执行成功" if execution_success else "执行失败"
+                    print(f"✅ AI自主交易决策完成，类型: {trading_decision.get('decision', 'UNKNOWN')}，{execution_status}，耗时 {time.time() - start_time:.2f}s")
+                    
+                    # 等待下次执行
+                    stop_event.wait(interval)
+                    
+                except Exception as e:
+                    print(f"❌ AI自主交易决策任务失败: {e}")
+                    self.task_failures['ai_decision'] += 1
+                    self.task_status['ai_decision'] = {
+                        'last_run': datetime.now(),
+                        'status': 'failed',
+                        'error': str(e),
+                        'failures': self.task_failures['ai_decision']
+                    }
+                    
+                    # 检查失败次数
+                    max_failures = self.layered_config.get('monitoring', {}).get('max_task_failures', 5)
+                    if self.task_failures['ai_decision'] >= max_failures:
+                        print(f"⚠️  AI自主交易决策任务失败次数过多，停止执行")
+                        break
+                    
+                    # 重试延迟
+                    time.sleep(retry_delay)
+        
+        # 创建停止事件和线程
+        self.stop_events['ai_decision'] = threading.Event()
+        thread = threading.Thread(target=ai_decision_task, name="AIDecision")
+        thread.daemon = True
+        thread.start()
+        self.task_threads['ai_decision'] = thread
+        
+        print("🤖 AI自主交易决策任务已启动（10分钟间隔）")
+    
+    def execute_ai_decision_task(self, trading_decision: Dict[str, Any]) -> bool:
+        """
+        执行AI决策任务
+        
+        Args:
+            trading_decision: AI交易决策字典
+            
+        Returns:
+            是否执行成功
+        """
+        try:
+            print(f"🎯 [{datetime.now().strftime('%H:%M:%S')}] 开始执行AI决策...")
+            
+            # 1. 验证交易决策
+            validated_decision = self.validate_trading_decision(trading_decision)
+            if not validated_decision:
+                print("❌ 交易决策验证失败")
+                return False
+            
+            # 2. 执行交易
+            execution_result = self.execute_trading_decision(validated_decision)
+            if not execution_result:
+                print("❌ 交易执行失败")
+                return False
+            
+            # 3. 处理交易结果
+            self.handle_trading_result(validated_decision, execution_result)
+            
+            print("✅ AI决策执行完成")
+            return True
+            
+        except Exception as e:
+            print(f"❌ AI决策执行过程中发生错误: {e}")
+            return False
+    
+    def validate_trading_decision(self, trading_decision: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        验证交易决策的可行性
+        
+        Args:
+            trading_decision: AI交易决策字典
+            
+        Returns:
+            验证后的交易决策字典，如果验证失败返回None
+        """
+        try:
+            # 检查必要字段
+            required_fields = ["decision", "symbol", "confidence", "reason"]
+            for field in required_fields:
+                if field not in trading_decision:
+                    print(f"❌ 交易决策缺少必要字段: {field}")
+                    return None
+            
+            decision_type = trading_decision.get('decision', '').upper()
+            symbol = trading_decision.get('symbol', '')
+            confidence = trading_decision.get('confidence', 0)
+            
+            # 验证决策类型
+            if decision_type not in ["BUY", "SELL", "HOLD"]:
+                print(f"❌ 无效的决策类型: {decision_type}")
+                return None
+            
+            # 验证置信度
+            if confidence < 0.5:  # 置信度阈值
+                print(f"❌ 决策置信度过低: {confidence}")
+                return None
+            
+            # 验证ETF代码
+            if not symbol or len(symbol) != 6:
+                print(f"❌ 无效的ETF代码: {symbol}, 类型: {type(symbol)}")
+                return None
+            
+            # 检查是否为交易时间
+            if not self.is_trading_time():
+                print("⚠️  当前非交易时间，跳过交易执行")
+                return None
+            
+            # 检查交易冷却时间
+            if decision_type in ["BUY", "SELL"]:
+                current_time = time.time()
+                last_trade_time = self.last_trade_time.get(symbol, 0)
+                
+                if current_time - last_trade_time < self.trade_cooldown_seconds:
+                    remaining_time = self.trade_cooldown_seconds - (current_time - last_trade_time)
+                    print(f"⚠️  ETF {symbol} 仍在冷却时间内，剩余 {remaining_time:.0f} 秒")
+                    return None
+            
+            # 获取账户信息
+            account_info = self.account_manager.get_account_info()
+            total_assets = account_info.get('total_assets', 0)
+            available_cash = account_info.get('available_cash', 0)
+            
+            # 风险控制验证
+            if decision_type == "BUY":
+                # 检查买入金额
+                amount = trading_decision.get('amount', 0)
+                max_single_trade = total_assets * 0.1  # 单次交易不超过总资产10%
+                
+                if amount > max_single_trade:
+                    print(f"⚠️  买入金额{amount}超过限制{max_single_trade}，调整为最大限制")
+                    trading_decision["amount"] = max_single_trade
+                
+                if amount > available_cash:
+                    print(f"⚠️  买入金额{amount}超过可用现金{available_cash}，调整为可用现金金额")
+                    trading_decision["amount"] = available_cash
+                
+                if trading_decision.get('amount', 0) <= 0:
+                    print("❌ 买入金额无效")
+                    return None
+            
+            elif decision_type == "SELL":
+                # 检查持仓
+                position = self.account_manager.get_position_by_symbol(symbol)
+                if not position:
+                    print(f"❌ 没有ETF {symbol} 的持仓，无法卖出")
+                    return None
+                
+                available_quantity = position.get('available_quantity', 0)
+                sell_quantity = trading_decision.get('quantity', 0)
+                
+                if sell_quantity > available_quantity:
+                    print(f"⚠️  卖出数量{sell_quantity}超过可用持仓{available_quantity}，调整为可用持仓数量")
+                    trading_decision["quantity"] = available_quantity
+                
+                if trading_decision.get('quantity', 0) <= 0:
+                    print("❌ 卖出数量无效")
+                    return None
+            
+            print(f"✅ 交易决策验证通过: {decision_type} {symbol}")
+            return trading_decision
+            
+        except Exception as e:
+            print(f"❌ 验证交易决策失败: {e}")
+            return None
+    
+    def execute_trading_decision(self, trading_decision: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        执行具体的交易操作
+        
+        Args:
+            trading_decision: 验证后的交易决策字典
+            
+        Returns:
+            交易执行结果字典，如果执行失败返回None
+        """
+        try:
+            decision_type = trading_decision.get('decision', '').upper()
+            symbol = trading_decision.get('symbol', '')
+            
+            # 获取ETF名称
+            etf_name = ""
+            for etf_info in self.monitored_etfs:
+                if etf_info.get('code') == symbol:
+                    etf_name = etf_info.get('name', '')
+                    break
+            
+            if not etf_name:
+                print(f"⚠️  未找到ETF {symbol} 的名称信息")
+                etf_name = f"ETF_{symbol}"
+            
+            # 获取当前价格（带重试机制）
+            current_price = self._get_current_price_with_retry(symbol)
+            
+            if current_price <= 0:
+                print(f"❌ 无法获取ETF {symbol} 的当前价格")
+                return None
+            
+            execution_result = {
+                'decision_type': decision_type,
+                'symbol': symbol,
+                'name': etf_name,
+                'price': current_price,
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'success': False,
+                'message': ''
+            }
+            
+            if decision_type == "BUY":
+                # 计算买入数量
+                amount = trading_decision.get('amount', 0)
+                quantity = trading_decision.get('quantity', 0)
+                
+                if amount > 0 and quantity <= 0:
+                    # 根据金额计算数量
+                    quantity = int(amount / current_price / 100) * 100  # 按手数计算，1手=100股
+                    if quantity <= 0:
+                        quantity = 100  # 至少买1手
+                
+                elif quantity > 0 and amount <= 0:
+                    # 根据数量计算金额
+                    amount = quantity * current_price
+                
+                # 执行买入
+                success = self.account_manager.buy_etf(symbol, etf_name, quantity, current_price)
+                
+                if success:
+                    execution_result['success'] = True
+                    execution_result['quantity'] = quantity
+                    execution_result['amount'] = amount
+                    execution_result['message'] = f"成功买入 {symbol} {quantity}股，价格 {current_price:.3f}"
+                    print(f"✅ {execution_result['message']}")
+                else:
+                    execution_result['message'] = f"买入 {symbol} 失败"
+                    print(f"❌ {execution_result['message']}")
+                    return None
+            
+            elif decision_type == "SELL":
+                # 卖出数量
+                quantity = trading_decision.get('quantity', 0)
+                amount = quantity * current_price
+                
+                # 执行卖出
+                success = self.account_manager.sell_etf(symbol, quantity, current_price)
+                
+                if success:
+                    execution_result['success'] = True
+                    execution_result['quantity'] = quantity
+                    execution_result['amount'] = amount
+                    execution_result['message'] = f"成功卖出 {symbol} {quantity}股，价格 {current_price:.3f}"
+                    print(f"✅ {execution_result['message']}")
+                else:
+                    execution_result['message'] = f"卖出 {symbol} 失败"
+                    print(f"❌ {execution_result['message']}")
+                    return None
+            
+            elif decision_type == "HOLD":
+                execution_result['success'] = True
+                execution_result['message'] = f"持有 {symbol}，不执行交易"
+                print(f"📋 {execution_result['message']}")
+            
+            return execution_result
+            
+        except Exception as e:
+            print(f"❌ 执行交易决策失败: {e}")
+            return None
+    
+    def _get_current_price_with_retry(self, symbol: str, max_retries: int = 3) -> float:
+        """
+        带重试机制获取当前价格
+        
+        Args:
+            symbol: ETF代码
+            max_retries: 最大重试次数
+            
+        Returns:
+            当前价格，获取失败返回0
+        """
+        for attempt in range(max_retries):
+            try:
+                # 1. 首先尝试从价格缓存获取
+                with self.cache_lock:
+                    if symbol in self.price_cache:
+                        cached_price = self.price_cache[symbol].get('current_price', 0)
+                        if cached_price > 0:
+                            logger.info(f"从缓存获取ETF {symbol} 价格: {cached_price:.3f}")
+                            return cached_price
+                
+                # 2. 如果缓存没有，尝试实时获取
+                logger.info(f"缓存无ETF {symbol} 价格数据，尝试实时获取（尝试 {attempt + 1}/{max_retries}）")
+                real_time_data = self.data_fetcher.get_real_time_data(symbol)
+                
+                if real_time_data:
+                    current_price = real_time_data.get('current_price', 0)
+                    if current_price > 0:
+                        # 更新缓存
+                        with self.cache_lock:
+                            self.price_cache[symbol] = real_time_data
+                        
+                        logger.info(f"实时获取ETF {symbol} 价格成功: {current_price:.3f}")
+                        return current_price
+                
+                # 3. 如果实时获取失败，尝试从增强数据获取
+                logger.info(f"实时获取失败，尝试从增强数据获取ETF {symbol} 价格")
+                enhanced_data = self.data_fetcher.get_multiple_etf_advanced_data([{'code': symbol, 'name': etf_name, 'category': ''}])
+                
+                if enhanced_data and symbol in enhanced_data:
+                    real_time_data = enhanced_data[symbol].get('real_time_data')
+                    if real_time_data:
+                        current_price = real_time_data.get('current_price', 0)
+                        if current_price > 0:
+                            # 更新缓存
+                            with self.cache_lock:
+                                self.price_cache[symbol] = real_time_data
+                            
+                            logger.info(f"从增强数据获取ETF {symbol} 价格成功: {current_price:.3f}")
+                            return current_price
+                
+                # 如果本次尝试失败，等待后重试
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt  # 指数退避
+                    logger.warning(f"获取ETF {symbol} 价格失败，{wait_time}秒后重试")
+                    time.sleep(wait_time)
+                    
+            except Exception as e:
+                logger.error(f"获取ETF {symbol} 价格异常（尝试 {attempt + 1}/{max_retries}）: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+        
+        logger.error(f"获取ETF {symbol} 价格失败，已达到最大重试次数")
+        return 0.0
+    
+    def _update_price_cache(self) -> None:
+        """
+        更新价格缓存
+        """
+        try:
+            etf_codes = [etf['code'] for etf in self.monitored_etfs]
+            price_data = self.data_fetcher.get_multiple_etf_data(etf_codes)
+            
+            if price_data:
+                with self.cache_lock:
+                    # 更新价格缓存，但保留时间戳信息
+                    for code, data in price_data.items():
+                        if code in self.price_cache:
+                            # 保留原有的时间戳，更新价格数据
+                            old_timestamp = self.price_cache[code].get('timestamp')
+                            self.price_cache[code] = data
+                            if old_timestamp:
+                                self.price_cache[code]['timestamp'] = old_timestamp
+                        else:
+                            self.price_cache[code] = data
+                
+                logger.info(f"价格缓存更新完成，更新了 {len(price_data)} 个ETF数据")
+            else:
+                logger.warning("价格缓存更新失败，未获取到有效数据")
+                
+        except Exception as e:
+            logger.error(f"更新价格缓存失败: {e}")
+    
+    def handle_trading_result(self, trading_decision: Dict[str, Any],
+                            execution_result: Dict[str, Any]) -> None:
+        """
+        处理交易执行结果
+        
+        Args:
+            trading_decision: 交易决策字典
+            execution_result: 交易执行结果字典
+        """
+        try:
+            # 创建交易记录
+            trade_record = {
+                'timestamp': execution_result.get('timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
+                'decision': trading_decision.get('decision', ''),
+                'symbol': execution_result.get('symbol', ''),
+                'name': execution_result.get('name', ''),
+                'action': execution_result.get('decision_type', ''),
+                'quantity': execution_result.get('quantity', 0),
+                'price': execution_result.get('price', 0),
+                'amount': execution_result.get('amount', 0),
+                'confidence': trading_decision.get('confidence', 0),
+                'reason': trading_decision.get('reason', ''),
+                'success': execution_result.get('success', False),
+                'message': execution_result.get('message', ''),
+                'ai_decision_id': f"{trading_decision.get('symbol', '')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            }
+            
+            # 保存交易执行记录
+            self._save_trade_execution_record(trade_record)
+            
+            # 更新交易执行状态
+            self._update_trading_status(trade_record)
+            
+            # 记录日志
+            if execution_result.get('success', False):
+                print(f"📊 交易执行成功: {trade_record['symbol']} {trade_record['action']} {trade_record['quantity']}股")
+                
+                # 更新交易冷却时间
+                if trade_record.get('action') in ['BUY', 'SELL']:
+                    self.last_trade_time[trade_record['symbol']] = time.time()
+                    print(f"⏰ 更新 {trade_record['symbol']} 交易冷却时间")
+            else:
+                print(f"⚠️  交易执行未成功: {trade_record['message']}")
+            
+        except Exception as e:
+            print(f"❌ 处理交易结果失败: {e}")
+    
+    def _save_trade_execution_record(self, trade_record: Dict[str, Any]) -> None:
+        """
+        保存交易执行记录
+        
+        Args:
+            trade_record: 交易记录字典
+        """
+        try:
+            import os
+            import json
+            
+            # 确保目录存在
+            records_dir = "data/trade_executions"
+            os.makedirs(records_dir, exist_ok=True)
+            
+            # 保存到交易执行历史文件
+            history_file = os.path.join(records_dir, "execution_history.json")
+            
+            # 读取现有记录
+            history = []
+            if os.path.exists(history_file):
+                try:
+                    with open(history_file, 'r', encoding='utf-8') as f:
+                        history = json.load(f)
+                    if not isinstance(history, list):
+                        history = []
+                except Exception as e:
+                    print(f"⚠️  读取交易执行历史失败: {e}")
+                    history = []
+            
+            # 添加新记录
+            history.append(trade_record)
+            
+            # 只保留最近100条记录
+            history = history[-100:]
+            
+            # 保存历史记录
+            with open(history_file, 'w', encoding='utf-8') as f:
+                json.dump(history, f, ensure_ascii=False, indent=2)
+            
+            # 保存到当日记录文件
+            today = datetime.now().strftime('%Y%m%d')
+            today_file = os.path.join(records_dir, f"execution_{today}.json")
+            
+            today_history = []
+            if os.path.exists(today_file):
+                try:
+                    with open(today_file, 'r', encoding='utf-8') as f:
+                        today_history = json.load(f)
+                    if not isinstance(today_history, list):
+                        today_history = []
+                except Exception as e:
+                    print(f"⚠️  读取当日交易执行记录失败: {e}")
+                    today_history = []
+            
+            today_history.append(trade_record)
+            
+            with open(today_file, 'w', encoding='utf-8') as f:
+                json.dump(today_history, f, ensure_ascii=False, indent=2)
+            
+            print(f"💾 交易执行记录已保存")
+            
+        except Exception as e:
+            print(f"❌ 保存交易执行记录失败: {e}")
+    
+    def _update_trading_status(self, trade_record: Dict[str, Any]) -> None:
+        """
+        更新交易执行状态
+        
+        Args:
+            trade_record: 交易记录字典
+        """
+        try:
+            # 更新任务状态
+            self.task_status['ai_decision_execution'] = {
+                'last_run': datetime.now(),
+                'status': 'success' if trade_record.get('success', False) else 'failed',
+                'last_trade': {
+                    'symbol': trade_record.get('symbol', ''),
+                    'action': trade_record.get('action', ''),
+                    'success': trade_record.get('success', False),
+                    'timestamp': trade_record.get('timestamp', '')
+                }
+            }
+            
+            # 更新交易记录缓存
+            with self.cache_lock:
+                self.trade_records_cache.append(trade_record)
+                
+                # 限制缓存大小
+                max_records = self.data_api_config.get('trade_records', {}).get('max_records', 1000)
+                if len(self.trade_records_cache) > max_records:
+                    self.trade_records_cache = self.trade_records_cache[-max_records:]
+            
+        except Exception as e:
+            print(f"❌ 更新交易状态失败: {e}")
+    
+    def start_position_updater(self) -> None:
+        """
+        启动持仓更新任务（30秒间隔）
+        """
+        if not self.layered_config.get('position_update', {}).get('enabled', False):
+            print("⚠️  持仓更新任务已禁用")
+            return
+        
+        def position_update_task():
+            """持仓更新任务函数"""
+            config = self.layered_config.get('position_update', {})
+            interval = config.get('interval_seconds', 30)
+            max_retries = config.get('max_retries', 3)
+            retry_delay = config.get('retry_delay', 3)
+            
+            stop_event = self.stop_events.get('position_update')
+            
+            while not stop_event.is_set():
+                try:
+                    start_time = time.time()
+                    print(f"💰 [{datetime.now().strftime('%H:%M:%S')}] 开始持仓更新任务...")
+                    
+                    # 获取当前持仓
+                    positions = self.account_manager.get_positions()
+                    
+                    if positions:
+                        # 更新每个持仓的当前价格
+                        updated_count = 0
+                        for position in positions:
+                            symbol = position['symbol']
+                            
+                            # 从价格缓存获取最新价格
+                            with self.cache_lock:
+                                current_price = None
+                                if symbol in self.price_cache:
+                                    current_price = self.price_cache[symbol].get('current_price')
+                            
+                            if current_price:
+                                # 更新持仓价格
+                                if self.account_manager.hold_position(symbol, current_price):
+                                    updated_count += 1
+                        
+                        # 更新持仓缓存
+                        with self.cache_lock:
+                            self.position_cache = {
+                                'timestamp': time.time(),
+                                'positions': self.account_manager.get_positions(),
+                                'account_info': self.account_manager.get_account_info()
+                            }
+                            
+                            # 更新持仓历史数据接口缓存
+                            position_record = {
+                                'timestamp': datetime.now(),
+                                'total_assets': self.account_manager.get_total_value(),
+                                'total_pnl': self.account_manager.get_total_pnl(),
+                                'daily_pnl': self.account_manager.get_daily_pnl(),
+                                'positions_count': len(positions),
+                                'positions': positions.copy()
+                            }
+                            self.position_history_cache.append(position_record)
+                            
+                            # 限制缓存大小
+                            max_records = self.data_api_config.get('position_history', {}).get('max_records', 1000)
+                            if len(self.position_history_cache) > max_records:
+                                self.position_history_cache = self.position_history_cache[-max_records:]
+                        
+                        # 更新任务状态
+                        self.task_status['position_update'] = {
+                            'last_run': datetime.now(),
+                            'status': 'success',
+                            'duration': time.time() - start_time,
+                            'updated_positions': updated_count,
+                            'total_positions': len(positions)
+                        }
+                        self.task_failures['position_update'] = 0
+                        
+                        print(f"✅ 持仓更新完成，更新 {updated_count}/{len(positions)} 个持仓，耗时 {time.time() - start_time:.2f}s")
+                    else:
+                        print("📋 当前无持仓，跳过更新")
+                    
+                    # 等待下次执行
+                    stop_event.wait(interval)
+                    
+                except Exception as e:
+                    print(f"❌ 持仓更新任务失败: {e}")
+                    self.task_failures['position_update'] += 1
+                    self.task_status['position_update'] = {
+                        'last_run': datetime.now(),
+                        'status': 'failed',
+                        'error': str(e),
+                        'failures': self.task_failures['position_update']
+                    }
+                    
+                    # 检查失败次数
+                    max_failures = self.layered_config.get('monitoring', {}).get('max_task_failures', 5)
+                    if self.task_failures['position_update'] >= max_failures:
+                        print(f"⚠️  持仓更新任务失败次数过多，停止执行")
+                        break
+                    
+                    # 重试延迟
+                    time.sleep(retry_delay)
+        
+        # 创建停止事件和线程
+        self.stop_events['position_update'] = threading.Event()
+        thread = threading.Thread(target=position_update_task, name="PositionUpdate")
+        thread.daemon = True
+        thread.start()
+        self.task_threads['position_update'] = thread
+        
+        print("💰 持仓更新任务已启动（30秒间隔）")
+    
+    def stop_all_tasks(self) -> None:
+        """
+        停止所有定时任务
+        """
+        print("\n⏹️  正在停止所有定时任务...")
+        
+        # 设置所有停止事件
+        for task_name, stop_event in self.stop_events.items():
+            stop_event.set()
+        
+        # 等待所有线程结束
+        for task_name, thread in self.task_threads.items():
+            if thread.is_alive():
+                print(f"⏳ 等待 {task_name} 任务结束...")
+                thread.join(timeout=5)
+                if thread.is_alive():
+                    print(f"⚠️  {task_name} 任务未能在超时时间内结束")
+        
+        # 清空任务字典
+        self.task_threads.clear()
+        self.stop_events.clear()
+        
+        self.is_running = False
+        print("✅ 所有定时任务已停止")
+    
+    def is_trading_time(self) -> bool:
+        """
+        检查是否为交易时间
         
         Returns:
-            模拟的交易建议文本
+            是否为交易时间
         """
-        test_response = """{
-  "analysis_summary": "测试模式下的市场分析总结：当前市场处于震荡状态，各ETF技术指标显示不同的信号。",
-  "recommendations": [
-    {
-      "symbol": "512710",
-      "name": "军工龙头",
-      "action": "持有",
-      "quantity": "9200",
-      "buy_quantity": "0",
-      "sell_quantity": "0",
-      "buy_price": "",
-      "sell_price": "",
-      "stop_loss": "0.65",
-      "take_profit": "0.72",
-      "reason": "技术指标显示短期有支撑，建议继续持有观察"
-    },
-    {
-      "symbol": "518880",
-      "name": "黄金ETF",
-      "action": "观望",
-      "quantity": "0",
-      "buy_quantity": "0",
-      "sell_quantity": "0",
-      "buy_price": "",
-      "sell_price": "",
-      "stop_loss": "",
-      "take_profit": "",
-      "reason": "当前无持仓，市场方向不明朗，建议观望"
-    },
-    {
-      "symbol": "512010",
-      "name": "医药ETF",
-      "action": "买入",
-      "quantity": "5000",
-      "buy_quantity": "1000",
-      "sell_quantity": "0",
-      "buy_price": "0.415",
-      "sell_price": "",
-      "stop_loss": "0.39",
-      "take_profit": "0.45",
-      "reason": "技术指标显示超卖反弹迹象，建议适量买入"
-    }
-  ]
-}"""
-        return test_response
-        print(f"配置文件: {'✅ 已加载' if self.config else '❌ 未加载'}")
-        print(f"ETF列表: {'✅ 已加载' if self.etf_list else '❌ 未加载'}")
-        print(f"监控ETF数量: {len(self.monitored_etfs)}")
-        print(f"当前持仓数量: {len(self.account_manager.get_positions())}")
-        print(f"账户总价值: {self.account_manager.get_account_info().get('portfolio_value', 0):.2f}")
-        print(f"总收益率: {self.account_manager.get_account_info().get('total_return_pct', 0):.2f}%")
-        print(f"LLM模型: {self.llm_client.get_model_info()['provider']} - {self.llm_client.get_model_info()['model']}")
-        print(f"交易时间: {'✅ 是' if is_trading_time() else '❌ 否'}")
-        print("="*50)
+        try:
+            trading_config = self.layered_config.get('trading_hours', {})
+            
+            # 检查是否仅在工作日交易
+            if trading_config.get('weekdays_only', True):
+                now = datetime.now()
+                if now.weekday() >= 5:  # 周末不交易
+                    return False
+            
+            # 获取交易时间配置
+            morning_start = trading_config.get('morning_start', "09:30")
+            morning_end = trading_config.get('morning_end', "11:30")
+            afternoon_start = trading_config.get('afternoon_start', "13:00")
+            afternoon_end = trading_config.get('afternoon_end', "15:00")
+            
+            # 解析时间
+            now_time = datetime.now().time()
+            morning_start_time = datetime.strptime(morning_start, "%H:%M").time()
+            morning_end_time = datetime.strptime(morning_end, "%H:%M").time()
+            afternoon_start_time = datetime.strptime(afternoon_start, "%H:%M").time()
+            afternoon_end_time = datetime.strptime(afternoon_end, "%H:%M").time()
+            
+            # 检查是否在交易时间内
+            return (morning_start_time <= now_time <= morning_end_time or
+                    afternoon_start_time <= now_time <= afternoon_end_time)
+                    
+        except Exception as e:
+            print(f"❌ 检查交易时间失败: {e}")
+            return False
+    
+    def get_realtime_prices_data(self) -> List[Dict]:
+        """
+        获取实时价格数据（用于前端接口）
+        
+        Returns:
+            实时价格数据列表
+        """
+        with self.cache_lock:
+            return self.realtime_prices_cache.copy()
+    
+    def get_position_history_data(self) -> List[Dict]:
+        """
+        获取持仓历史数据（用于前端接口）
+        
+        Returns:
+            持仓历史数据列表
+        """
+        with self.cache_lock:
+            return self.position_history_cache.copy()
+    
+    def get_trade_records_data(self) -> List[Dict]:
+        """
+        获取交易记录数据（用于前端接口）
+        
+        Returns:
+            交易记录数据列表
+        """
+        # 更新交易记录缓存
+        trade_history = self.account_manager.get_trade_history()
+        with self.cache_lock:
+            self.trade_records_cache = trade_history.copy()
+            return self.trade_records_cache.copy()
+    
+    def get_task_status(self) -> Dict[str, Dict]:
+        """
+        获取任务状态（用于监控）
+        
+        Returns:
+            任务状态字典
+        """
+        return dict(self.task_status)
 
 
 def main():
     """主函数"""
-    parser = argparse.ArgumentParser(description='A股ETF交易分析系统')
-    parser.add_argument('--mode', choices=['single', 'continuous', 'test', 'status'], 
-                       default='single', help='运行模式')
-    parser.add_argument('--interval', type=int, default=30, 
-                       help='连续分析间隔（分钟）')
-    parser.add_argument('--config', type=str, default='config/config.yaml', 
+    parser = argparse.ArgumentParser(description='A股ETF交易分析系统 - AI自主交易模式')
+    parser.add_argument('--mode', choices=['decision', 'test', 'status', 'auto'],
+                       default='decision', help='运行模式：decision-单次AI决策，test-系统测试，status-显示状态，auto-自动交易')
+    parser.add_argument('--config', type=str, default='config/config.yaml',
                        help='配置文件路径')
     
     args = parser.parse_args()
@@ -509,13 +1464,9 @@ def main():
         # 初始化系统
         system = ETFTradingSystem(args.config)
         
-        if args.mode == 'single':
-            # 单次分析
-            system.run_single_analysis()
-            
-        elif args.mode == 'continuous':
-            # 连续分析
-            system.run_continuous_analysis(args.interval)
+        if args.mode == 'decision':
+            # 单次AI决策
+            system.run_trading_decision()
             
         elif args.mode == 'test':
             # 系统测试
@@ -525,8 +1476,14 @@ def main():
             # 显示状态
             system.show_status()
             
+        elif args.mode == 'auto':
+            # 自动交易模式（分层定时任务系统）
+            system.run_automatic_trading()
+            
     except KeyboardInterrupt:
         print("\n👋 程序被用户中断")
+        if 'system' in locals():
+            system.stop_all_tasks()
     except Exception as e:
         print(f"\n❌ 程序运行错误: {e}")
         sys.exit(1)

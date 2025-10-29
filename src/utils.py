@@ -71,7 +71,7 @@ def load_account_data(account_data_path: str = "data/account_data.json") -> Dict
         raise
 
 
-def save_account_data(account_data: Dict[str, Any], 
+def save_account_data(account_data: Dict[str, Any],
                      account_data_path: str = "data/account_data.json") -> None:
     """
     保存账户数据
@@ -82,7 +82,9 @@ def save_account_data(account_data: Dict[str, Any],
     """
     try:
         # 确保目录存在
-        os.makedirs(os.path.dirname(account_data_path), exist_ok=True)
+        dir_path = os.path.dirname(account_data_path)
+        if dir_path:  # 只有当目录路径不为空时才创建目录
+            os.makedirs(dir_path, exist_ok=True)
         
         with open(account_data_path, 'w', encoding='utf-8') as f:
             json.dump(account_data, f, ensure_ascii=False, indent=2)

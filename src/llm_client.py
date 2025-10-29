@@ -1,17 +1,18 @@
 """
-LLM API调用模块
-使用统一的OpenAI兼容格式调用多种LLM服务
+LLM API调用模块 - AI自主交易模式
+使用统一的OpenAI兼容格式调用多种LLM服务，专注于AI自主交易决策
 """
 
 import requests
 import json
 import time
+import re
 from typing import Dict, List, Any, Optional
 from loguru import logger
 
 
 class LLMClient:
-    """LLM客户端 - 统一OpenAI兼容格式"""
+    """LLM客户端 - AI自主交易模式"""
     
     def __init__(self, config: Dict):
         """
@@ -36,12 +37,18 @@ class LLMClient:
         self.base_url = self.model_config.get('base_url', '')
         self.model = self.model_config.get('model', '')
         self.max_tokens = self.model_config.get('max_tokens', 4000)
-        self.temperature = self.model_config.get('temperature', 0.7)
+        self.temperature = self.model_config.get('temperature', 0.3)
         
         # 请求头
         self.headers = self._get_headers()
         
-        logger.info(f"LLM客户端初始化完成，模型: {self.active_llm} ({self.model})")
+        # 加载ETF列表用于验证
+        self.etf_list = self._load_etf_list()
+        self.valid_etf_codes = self._get_valid_etf_codes()
+        self.etf_name_to_code = self._create_etf_name_mapping()
+        
+        logger.info(f"AI自主交易LLM客户端初始化完成，模型: {self.active_llm} ({self.model})")
+        logger.info(f"已加载 {len(self.valid_etf_codes)} 个有效ETF代码用于验证")
     
     def _load_active_model_config(self) -> Dict[str, Any]:
         """
@@ -68,6 +75,68 @@ class LLMClient:
         
         return model_config
     
+    def _load_etf_list(self) -> Dict[str, Any]:
+        """
+        加载ETF列表
+        
+        Returns:
+            ETF列表字典
+        """
+        try:
+            from .utils import load_etf_list
+            return load_etf_list()
+        except ImportError:
+            try:
+                from utils import load_etf_list
+                return load_etf_list()
+            except Exception as e:
+                logger.error(f"加载ETF列表失败: {e}")
+                return {}
+    
+    def _get_valid_etf_codes(self) -> set:
+        """
+        获取有效的ETF代码集合
+        
+        Returns:
+            有效ETF代码集合
+        """
+        try:
+            monitored_etfs = self.etf_list.get('monitored_etfs', [])
+            valid_codes = set()
+            for etf_info in monitored_etfs:
+                code = etf_info.get('code')
+                if code and isinstance(code, str) and len(code) == 6 and code.isdigit():
+                    valid_codes.add(code)
+            return valid_codes
+        except Exception as e:
+            logger.error(f"获取有效ETF代码失败: {e}")
+            return set()
+    
+    def _create_etf_name_mapping(self) -> Dict[str, str]:
+        """
+        创建ETF名称到代码的映射
+        
+        Returns:
+            ETF名称到代码的映射字典
+        """
+        try:
+            monitored_etfs = self.etf_list.get('monitored_etfs', [])
+            name_mapping = {}
+            for etf_info in monitored_etfs:
+                code = etf_info.get('code')
+                name = etf_info.get('name')
+                if code and name:
+                    # 支持多种名称格式
+                    name_mapping[name] = code
+                    # 添加简短名称映射
+                    short_name = name.replace('ETF', '').replace('基金', '').strip()
+                    if short_name:
+                        name_mapping[short_name] = code
+            return name_mapping
+        except Exception as e:
+            logger.error(f"创建ETF名称映射失败: {e}")
+            return {}
+    
     def _get_headers(self) -> Dict[str, str]:
         """
         获取请求头（统一OpenAI兼容格式）
@@ -82,9 +151,9 @@ class LLMClient:
         
         return headers
     
-    def _build_request(self, prompt: str) -> Dict[str, Any]:
+    def _build_decision_request(self, prompt: str) -> Dict[str, Any]:
         """
-        构建请求（统一OpenAI兼容格式）
+        构建交易决策请求（统一OpenAI兼容格式）
         
         Args:
             prompt: 提示词
@@ -97,7 +166,7 @@ class LLMClient:
             'messages': [
                 {
                     'role': 'system',
-                    'content': '你是一个专业的ETF交易分析师，具有丰富的技术分析经验和市场洞察力。请基于提供的数据给出专业且详细的交易建议。'
+                    'content': '你是一个专业的ETF交易决策系统。基于提供的数据，直接输出具体的交易决策，严格按照JSON格式返回。你的决策将被系统直接执行，请确保决策的准确性和安全性。'
                 },
                 {
                     'role': 'user',
@@ -133,17 +202,19 @@ class LLMClient:
             logger.error(f"解析{self.active_llm}响应失败: {e}")
             return ""
     
-    def generate_trading_advice(self, prompt: str, 
-                              retry_times: int = 3) -> Optional[str]:
+    def generate_trading_decision(self, prompt: str, 
+                                retry_times: int = 3,
+                                account_data: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
         """
-        生成交易建议（统一OpenAI兼容格式）
+        生成交易决策（统一OpenAI兼容格式）
         
         Args:
             prompt: 提示词
             retry_times: 重试次数
+            account_data: 账户数据，用于风险控制验证
             
         Returns:
-            交易建议文本
+            交易决策字典
         """
         if not self.model_config:
             logger.error("LLM模型配置无效")
@@ -151,10 +222,10 @@ class LLMClient:
         
         for attempt in range(retry_times):
             try:
-                logger.info(f"调用{self.active_llm} API生成交易建议，尝试次数: {attempt + 1}")
+                logger.info(f"调用{self.active_llm} API生成AI自主交易决策，尝试次数: {attempt + 1}")
                 
                 # 构建请求
-                request_data = self._build_request(prompt)
+                request_data = self._build_decision_request(prompt)
                 api_url = self._get_api_url()
                 
                 # 发送请求
@@ -170,11 +241,23 @@ class LLMClient:
                 
                 # 解析响应
                 response_data = response.json()
-                advice = self._parse_response(response_data)
+                decision_text = self._parse_response(response_data)
                 
-                if advice:
-                    logger.info("交易建议生成成功")
-                    return advice
+                if decision_text:
+                    # 提取交易决策
+                    decision = self._extract_trading_decision(decision_text)
+                    
+                    if decision:
+                        # 验证交易决策
+                        validated_decision = self._validate_trading_decision(decision, account_data)
+                        
+                        if validated_decision:
+                            logger.info("AI自主交易决策生成并验证成功")
+                            return validated_decision
+                        else:
+                            logger.warning("AI自主交易决策验证失败")
+                    else:
+                        logger.warning("无法提取AI自主交易决策")
                 else:
                     logger.warning("LLM返回空响应")
                     
@@ -183,7 +266,7 @@ class LLMClient:
             except json.JSONDecodeError as e:
                 logger.error(f"{self.active_llm}响应解析失败 (尝试 {attempt + 1}): {e}")
             except Exception as e:
-                logger.error(f"生成交易建议失败 (尝试 {attempt + 1}): {e}")
+                logger.error(f"生成AI自主交易决策失败 (尝试 {attempt + 1}): {e}")
             
             # 重试前等待
             if attempt < retry_times - 1:
@@ -191,80 +274,300 @@ class LLMClient:
         
         return None
     
-    def generate_streaming_advice(self, prompt: str, 
-                                callback_func=None) -> Optional[str]:
+    def _extract_trading_decision(self, decision_text: str) -> Optional[Dict[str, Any]]:
         """
-        流式生成交易建议（统一OpenAI兼容格式）
+        从LLM返回的文本中提取交易决策
         
         Args:
-            prompt: 提示词
-            callback_func: 流式回调函数
+            decision_text: LLM返回的决策文本
             
         Returns:
-            交易建议文本
+            提取的交易决策字典
         """
-        if not self.model_config:
-            logger.error("LLM模型配置无效")
-            return None
-        
         try:
-            logger.info(f"开始流式生成交易建议，模型: {self.active_llm}")
+            import re
             
-            # 构建请求
-            request_data = self._build_request(prompt)
-            request_data['stream'] = True
+            # 尝试提取JSON格式的交易决策
+            json_pattern = r'```json\s*(.*?)\s*```'
+            json_matches = re.findall(json_pattern, decision_text, re.DOTALL)
             
-            api_url = self._get_api_url()
+            if json_matches:
+                # 使用第一个找到的JSON块
+                json_str = json_matches[0].strip()
+                try:
+                    decision_data = json.loads(json_str)
+                    logger.info("成功提取JSON格式的交易决策")
+                    return decision_data
+                except json.JSONDecodeError as e:
+                    logger.warning(f"JSON解析失败，尝试其他方法: {e}")
             
-            # 发送流式请求
-            response = requests.post(
-                api_url,
-                headers=self.headers,
-                json=request_data,
-                timeout=200,
-                stream=True
-            )
+            # 如果JSON解析失败，尝试直接解析整个文本
+            try:
+                decision_data = json.loads(decision_text.strip())
+                logger.info("成功解析整个文本为JSON格式的交易决策")
+                return decision_data
+            except json.JSONDecodeError:
+                logger.warning("整个文本JSON解析失败")
             
-            response.raise_for_status()
-            
-            full_response = ""
-            
-            # 处理流式响应
-            for line in response.iter_lines():
-                if line:
-                    line = line.decode('utf-8')
-                    if line.startswith('data: '):
-                        data_str = line[6:]  # 移除 'data: ' 前缀
-                        
-                        if data_str == '[DONE]':
-                            break
-                        
-                        try:
-                            data = json.loads(data_str)
-                            
-                            # 解析流式数据（OpenAI兼容格式）
-                            if 'choices' in data and len(data['choices']) > 0:
-                                delta = data['choices'][0].get('delta', {})
-                                content = delta.get('content', '')
-                            else:
-                                content = ''
-                            
-                            if content:
-                                full_response += content
-                                
-                                # 调用回调函数
-                                if callback_func:
-                                    callback_func(content)
-                                    
-                        except json.JSONDecodeError:
-                            continue
-            
-            logger.info("流式交易建议生成完成")
-            return full_response
+            # 如果JSON解析都失败，尝试正则表达式提取
+            return self._extract_decision_with_regex(decision_text)
             
         except Exception as e:
-            logger.error(f"流式生成交易建议失败: {e}")
+            logger.error(f"提取交易决策失败: {e}")
             return None
+    
+    def _extract_decision_with_regex(self, decision_text: str) -> Optional[Dict[str, Any]]:
+        """
+        使用正则表达式提取交易决策
+        
+        Args:
+            decision_text: LLM返回的决策文本
+            
+        Returns:
+            提取的交易决策字典
+        """
+        try:
+            import re
+            
+            # 初始化结果
+            decision_data = {}
+            
+            # 提取决策类型
+            decision_pattern = r'"decision"\s*:\s*"(BUY|SELL|HOLD)"'
+            decision_match = re.search(decision_pattern, decision_text, re.IGNORECASE)
+            if decision_match:
+                decision_data["decision"] = decision_match.group(1).upper()
+            
+            # 提取ETF代码
+            symbol_pattern = r'"symbol"\s*:\s*"(\d{6})"'
+            symbol_match = re.search(symbol_pattern, decision_text)
+            if symbol_match:
+                decision_data["symbol"] = symbol_match.group(1)
+            
+            # 提取交易金额
+            amount_pattern = r'"amount"\s*:\s*(\d+(?:\.\d+)?)'
+            amount_match = re.search(amount_pattern, decision_text)
+            if amount_match:
+                decision_data["amount"] = float(amount_match.group(1))
+            
+            # 提取交易数量
+            quantity_pattern = r'"quantity"\s*:\s*(\d+)'
+            quantity_match = re.search(quantity_pattern, decision_text)
+            if quantity_match:
+                decision_data["quantity"] = int(quantity_match.group(1))
+            
+            # 提取置信度
+            confidence_pattern = r'"confidence"\s*:\s*(\d+(?:\.\d+)?)'
+            confidence_match = re.search(confidence_pattern, decision_text)
+            if confidence_match:
+                decision_data["confidence"] = float(confidence_match.group(1))
+            
+            # 提取决策理由
+            reason_pattern = r'"reason"\s*:\s*"([^"]+)"'
+            reason_match = re.search(reason_pattern, decision_text)
+            if reason_match:
+                decision_data["reason"] = reason_match.group(1)
+            
+            # 检查是否提取到了必要字段
+            required_fields = ["decision", "symbol", "confidence", "reason"]
+            if all(field in decision_data for field in required_fields):
+                logger.info("使用正则表达式成功提取交易决策")
+                return decision_data
+            else:
+                logger.warning("正则表达式提取的交易决策缺少必要字段")
+                return None
+                
+        except Exception as e:
+            logger.error(f"正则表达式提取交易决策失败: {e}")
+            return None
+    
+    def _validate_trading_decision(self, decision: Dict[str, Any], 
+                                 account_data: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
+        """
+        验证交易决策的有效性和安全性
+        
+        Args:
+            decision: 交易决策字典
+            account_data: 账户数据
+            
+        Returns:
+            验证后的交易决策字典，如果验证失败返回None
+        """
+        try:
+            # 检查必要字段
+            required_fields = ["decision", "symbol", "confidence", "reason"]
+            for field in required_fields:
+                if field not in decision:
+                    logger.error(f"AI自主交易决策缺少必要字段: {field}")
+                    return None
+            
+            # 验证决策类型
+            valid_decisions = ["BUY", "SELL", "HOLD"]
+            if decision["decision"] not in valid_decisions:
+                logger.error(f"无效的决策类型: {decision['decision']}")
+                return None
+            
+            # 验证ETF代码格式和有效性
+            symbol = decision["symbol"]
+            logger.info(f"验证ETF代码: {symbol}, 类型: {type(symbol)}")
+            
+            # 标准化ETF代码
+            standardized_symbol = self._standardize_etf_symbol(symbol)
+            if not standardized_symbol:
+                logger.error(f"无法标准化ETF代码: {symbol}")
+                return None
+            
+            # 验证代码格式
+            if not re.match(r'^\d{6}$', standardized_symbol):
+                logger.error(f"无效的ETF代码格式: {standardized_symbol}")
+                return None
+            
+            # 验证代码是否在有效列表中
+            if standardized_symbol not in self.valid_etf_codes:
+                logger.error(f"ETF代码不在监控列表中: {standardized_symbol}")
+                logger.info(f"有效ETF代码列表: {sorted(list(self.valid_etf_codes))}")
+                return None
+            
+            # 更新决策中的标准化代码
+            decision["symbol"] = standardized_symbol
+            
+            # 验证置信度范围
+            confidence = decision["confidence"]
+            if not isinstance(confidence, (int, float)) or confidence < 0 or confidence > 1:
+                logger.error(f"无效的置信度: {confidence}")
+                return None
+            
+            # 风险控制验证
+            if account_data:
+                validated_decision = self._validate_risk_controls(decision, account_data)
+                if not validated_decision:
+                    return None
+                decision = validated_decision
+            
+            # 设置默认值
+            if "amount" not in decision:
+                decision["amount"] = 0
+            if "quantity" not in decision:
+                decision["quantity"] = 0
+            
+            # 验证金额和数量的合理性
+            if decision["decision"] != "HOLD":
+                if decision["amount"] <= 0 and decision["quantity"] <= 0:
+                    logger.error("非HOLD决策必须指定有效的金额或数量")
+                    return None
+            
+            logger.info("AI自主交易决策验证通过")
+            return decision
+            
+        except Exception as e:
+            logger.error(f"AI自主交易决策验证失败: {e}")
+            return None
+    
+    def _validate_risk_controls(self, decision: Dict[str, Any], 
+                              account_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        验证风险控制
+        
+        Args:
+            decision: 交易决策字典
+            account_data: 账户数据
+            
+        Returns:
+            验证后的交易决策字典，如果验证失败返回None
+        """
+        try:
+            account_info = account_data.get('account_info', {})
+            total_assets = account_info.get('total_assets', 0)
+            available_cash = account_info.get('available_cash', 0)
+            positions = account_data.get('positions', [])
+            
+            # 单次交易金额不超过总资产的10%
+            max_single_trade_amount = total_assets * 0.1
+            
+            if decision["decision"] == "BUY":
+                # 检查买入金额是否超过限制
+                if decision["amount"] > max_single_trade_amount:
+                    logger.warning(f"买入金额{decision['amount']}超过限制{max_single_trade_amount}，调整为最大限制")
+                    decision["amount"] = max_single_trade_amount
+                
+                # 检查现金是否充足
+                if decision["amount"] > available_cash:
+                    logger.warning(f"买入金额{decision['amount']}超过可用现金{available_cash}，调整为可用现金金额")
+                    decision["amount"] = available_cash
+                
+                # 如果没有指定金额但有数量，尝试估算金额
+                if decision["amount"] <= 0 and decision["quantity"] > 0:
+                    # 这里需要获取当前价格，暂时使用保守估算
+                    estimated_price = 2.0  # 保守估算价格
+                    estimated_amount = decision["quantity"] * estimated_price * 100  # ETF每手100股
+                    decision["amount"] = min(estimated_amount, available_cash, max_single_trade_amount)
+            
+            elif decision["decision"] == "SELL":
+                # 检查是否有足够的持仓可以卖出
+                current_position = None
+                for position in positions:
+                    if position.get('symbol') == decision["symbol"]:
+                        current_position = position
+                        break
+                
+                if not current_position:
+                    logger.error(f"没有找到ETF {decision['symbol']} 的持仓，无法卖出")
+                    return None
+                
+                available_quantity = current_position.get('available_quantity', 0)
+                
+                # 检查卖出数量是否超过可用持仓
+                if decision["quantity"] > available_quantity:
+                    logger.warning(f"卖出数量{decision['quantity']}超过可用持仓{available_quantity}，调整为可用持仓数量")
+                    decision["quantity"] = available_quantity
+                
+                # 如果没有指定数量但有金额，尝试估算数量
+                if decision["quantity"] <= 0 and decision["amount"] > 0:
+                    # 这里需要获取当前价格，暂时使用保守估算
+                    estimated_price = 2.0  # 保守估算价格
+                    estimated_quantity = decision["amount"] // (estimated_price * 100)
+                    decision["quantity"] = min(estimated_quantity, available_quantity)
+            
+            return decision
+            
+        except Exception as e:
+            logger.error(f"风险控制验证失败: {e}")
+            return None
+    
+    def save_trading_decision_to_file(self, decision: Dict[str, Any], filename: str = None) -> str:
+        """
+        保存AI自主交易决策到文件
+        
+        Args:
+            decision: 交易决策内容
+            filename: 文件名
+            
+        Returns:
+            保存的文件路径
+        """
+        try:
+            import os
+            from datetime import datetime
+            
+            if filename is None:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"trading_decision_{timestamp}.json"
+            
+            # 确保输出目录存在
+            output_dir = "outputs"
+            os.makedirs(output_dir, exist_ok=True)
+            
+            filepath = os.path.join(output_dir, filename)
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(decision, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"AI自主交易决策已保存到: {filepath}")
+            return filepath
+            
+        except Exception as e:
+            logger.error(f"保存AI自主交易决策失败: {e}")
+            return ""
     
     def test_connection(self) -> bool:
         """
@@ -279,9 +582,18 @@ class LLMClient:
         
         try:
             test_prompt = "请回复'连接成功'"
-            response = self.generate_trading_advice(test_prompt, retry_times=1)
+            test_decision = {
+                "decision": "HOLD",
+                "symbol": "000000",
+                "amount": 0,
+                "quantity": 0,
+                "confidence": 1.0,
+                "reason": "测试连接"
+            }
             
-            if response and "成功" in response:
+            response = self.generate_trading_decision(test_prompt, retry_times=1)
+            
+            if response:
                 logger.info(f"{self.active_llm} API连接测试成功")
                 return True
             else:
@@ -307,323 +619,47 @@ class LLMClient:
             'base_url': self.base_url
         }
     
-    def save_advice_to_file(self, advice: str, filename: str = None) -> str:
+    def _standardize_etf_symbol(self, symbol: str) -> Optional[str]:
         """
-        保存交易建议到文件
+        标准化ETF代码
         
         Args:
-            advice: 交易建议内容
-            filename: 文件名
+            symbol: 原始ETF代码或名称
             
         Returns:
-            保存的文件路径
+            标准化后的6位ETF代码，如果无法标准化返回None
         """
         try:
-            import os
-            from datetime import datetime
-            
-            if filename is None:
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"trading_advice_{timestamp}.md"
-            
-            # 确保输出目录存在
-            output_dir = "outputs"
-            os.makedirs(output_dir, exist_ok=True)
-            
-            filepath = os.path.join(output_dir, filename)
-            
-            with open(filepath, 'w', encoding='utf-8') as f:
-                f.write(f"# ETF交易建议\n\n")
-                f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-                f.write(f"使用模型: {self.active_llm} - {self.model}\n\n")
-                f.write("---\n\n")
-                
-                # 尝试提取JSON格式的交易建议
-                # 如果advice已经是JSON格式（测试模式），直接解析
-                try:
-                    trading_signals = json.loads(advice)
-                except:
-                    trading_signals = self.extract_trading_signals(advice)
-                
-                if trading_signals:
-                    # 格式化JSON输出
-                    json_output = json.dumps(trading_signals, ensure_ascii=False, indent=2)
-                    f.write("```json\n")
-                    f.write(json_output)
-                    f.write("\n```\n\n")
-                    
-                    # 添加详细分析部分
-                    analysis_summary = trading_signals.get('analysis_summary', '')
-                    if analysis_summary:
-                        f.write("### 详细分析\n\n")
-                        f.write(f"#### 市场概况\n{analysis_summary}\n\n")
-                    
-                    # 添加各个ETF的详细分析
-                    recommendations = trading_signals.get('recommendations', [])
-                    if recommendations:
-                        f.write("#### 1. 市场状况分析\n")
-                        for rec in recommendations:
-                            symbol = rec.get('symbol', '')
-                            name = rec.get('name', '')
-                            reason = rec.get('reason', '')
-                            f.write(f"**{name}({symbol})**：{reason}\n\n")
-                        
-                        f.write("#### 2. 持仓风险评估\n")
-                        f.write("当前持仓风险分析...\n\n")
-                        
-                        f.write("#### 3. 风险管理建议\n")
-                        for rec in recommendations:
-                            symbol = rec.get('symbol', '')
-                            name = rec.get('name', '')
-                            stop_loss = rec.get('stop_loss', '')
-                            take_profit = rec.get('take_profit', '')
-                            if stop_loss and take_profit:
-                                f.write(f"- **{name}**：止损{stop_loss}，目标{take_profit}\n")
-                        f.write("\n")
-                        
-                        f.write("#### 4. 资金管理建议\n")
-                        f.write("资金分配建议...\n\n")
-                        
-                        f.write("**总体策略**：基于技术分析和风险管理的综合建议。\n")
-                else:
-                    # 如果无法提取JSON格式，则直接保存原始建议
-                    f.write(advice)
-            
-            logger.info(f"交易建议已保存到: {filepath}")
-            return filepath
-            
-        except Exception as e:
-            logger.error(f"保存交易建议失败: {e}")
-            return ""
-    
-    def extract_trading_signals(self, advice: str) -> Optional[Dict[str, Any]]:
-        """
-        从LLM返回的建议中提取交易信号
-        
-        Args:
-            advice: LLM返回的交易建议文本
-            
-        Returns:
-            提取的交易信号字典
-        """
-        try:
-            import re
-            
-            # 尝试提取JSON格式的交易建议
-            json_pattern = r'```json\s*(.*?)\s*```'
-            json_matches = re.findall(json_pattern, advice, re.DOTALL)
-            
-            if json_matches:
-                # 使用第一个找到的JSON块
-                json_str = json_matches[0].strip()
-                try:
-                    trading_data = json.loads(json_str)
-                    logger.info("成功提取JSON格式的交易建议")
-                    return trading_data
-                except json.JSONDecodeError as e:
-                    logger.warning(f"JSON解析失败，尝试其他方法: {e}")
-            
-            # 如果JSON解析失败，尝试正则表达式提取
-            return self._extract_with_regex(advice)
-            
-        except Exception as e:
-            logger.error(f"提取交易信号失败: {e}")
-            return None
-    
-    def _extract_with_regex(self, advice: str) -> Optional[Dict[str, Any]]:
-        """
-        使用正则表达式提取交易信息
-        
-        Args:
-            advice: LLM返回的交易建议文本
-            
-        Returns:
-            提取的交易信号字典
-        """
-        try:
-            import re
-            
-            # 初始化结果
-            trading_data = {
-                "analysis_summary": "",
-                "recommendations": []
-            }
-            
-            # 提取分析总结
-            summary_patterns = [
-                r'分析总结[：:]\s*(.*?)(?=\n|$)',
-                r'总结[：:]\s*(.*?)(?=\n|$)',
-                r'总体分析[：:]\s*(.*?)(?=\n|$)'
-            ]
-            
-            for pattern in summary_patterns:
-                match = re.search(pattern, advice, re.IGNORECASE)
-                if match:
-                    trading_data["analysis_summary"] = match.group(1).strip()
-                    break
-            
-            # 提取交易建议
-            # 匹配ETF代码和操作
-            etf_pattern = r'(\d{6})[：:]?\s*([买入卖出持有]+)\s*(\d+股?|\d+手?)?'
-            etf_matches = re.findall(etf_pattern, advice)
-            
-            # 匹配止损止盈和买卖价格
-            stop_loss_pattern = r'止损[：:]?\s*(\d+\.?\d*)'
-            take_profit_pattern = r'止盈[：:]?\s*(\d+\.?\d*)'
-            buy_price_pattern = r'买入价格[：:]?\s*(\d+\.?\d*)|买入点位[：:]?\s*(\d+\.?\d*)|建议买入价[：:]?\s*(\d+\.?\d*)'
-            sell_price_pattern = r'卖出价格[：:]?\s*(\d+\.?\d*)|卖出点位[：:]?\s*(\d+\.?\d*)|建议卖出价[：:]?\s*(\d+\.?\d*)'
-            
-            stop_loss_matches = re.findall(stop_loss_pattern, advice)
-            take_profit_matches = re.findall(take_profit_pattern, advice)
-            buy_price_matches = re.findall(buy_price_pattern, advice)
-            sell_price_matches = re.findall(sell_price_pattern, advice)
-            
-            # 组合交易建议
-            for i, (symbol, action, quantity) in enumerate(etf_matches):
-                # 尝试从配置文件获取ETF名称
-                etf_name = self._get_etf_name_from_config(symbol)
-                
-                recommendation = {
-                    "symbol": symbol,
-                    "name": etf_name if etf_name else "",
-                    "action": action,
-                    "quantity": quantity if quantity else "建议数量",
-                    "buy_quantity": "" if action != "买入" else (quantity if quantity else "建议数量"),
-                    "sell_quantity": "" if action != "卖出" else (quantity if quantity else "建议数量"),
-                    "buy_price": buy_price_matches[i] if i < len(buy_price_matches) else "",
-                    "sell_price": sell_price_matches[i] if i < len(sell_price_matches) else "",
-                    "stop_loss": stop_loss_matches[i] if i < len(stop_loss_matches) else "",
-                    "take_profit": take_profit_matches[i] if i < len(take_profit_matches) else "",
-                    "reason": "基于技术分析"
-                }
-                trading_data["recommendations"].append(recommendation)
-            
-            if trading_data["recommendations"]:
-                logger.info("使用正则表达式成功提取交易建议")
-                return trading_data
-            else:
-                logger.warning("未能提取到有效的交易建议")
+            if not symbol or not isinstance(symbol, str):
                 return None
-                
-        except Exception as e:
-            logger.error(f"正则表达式提取交易信号失败: {e}")
+            
+            symbol = str(symbol).strip()
+            
+            # 如果已经是6位数字，直接返回
+            if re.match(r'^\d{6}$', symbol):
+                return symbol
+            
+            # 如果是6位数字但包含其他字符，提取数字部分
+            if re.search(r'\d{6}', symbol):
+                match = re.search(r'(\d{6})', symbol)
+                if match:
+                    code = match.group(1)
+                    if code in self.valid_etf_codes:
+                        return code
+            
+            # 尝试通过名称映射
+            if symbol in self.etf_name_to_code:
+                return self.etf_name_to_code[symbol]
+            
+            # 尝试模糊匹配名称
+            for name, code in self.etf_name_to_code.items():
+                if symbol in name or name in symbol:
+                    logger.info(f"通过模糊匹配将 '{symbol}' 映射到 '{code}'")
+                    return code
+            
+            logger.warning(f"无法标准化ETF代码: {symbol}")
             return None
-    
-    def _get_etf_name_from_config(self, etf_code: str) -> str:
-        """
-        从配置文件获取ETF标准名称
-        
-        Args:
-            etf_code: ETF代码
-            
-        Returns:
-            ETF标准名称，如果找不到返回None
-        """
-        try:
-            # 动态导入避免循环依赖
-            import sys
-            import os
-            sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-            
-            from src.utils import load_etf_list
-            etf_list = load_etf_list()
-            
-            monitored_etfs = etf_list.get('monitored_etfs', [])
-            for etf_info in monitored_etfs:
-                if etf_info.get('code') == etf_code:
-                    return etf_info.get('name')
-            return None
-        except Exception as e:
-            logger.error(f"从配置文件获取ETF名称失败: {e}")
-            return None
-    
-    def save_trading_analysis(self, trading_data: Dict[str, Any],
-                            market_data: Dict[str, Any],
-                            account_data: Dict[str, Any]) -> str:
-        """
-        保存交易分析数据到JSON文件，使用固定名称并只保留最近一次记录
-        
-        Args:
-            trading_data: 提取的交易数据
-            market_data: 市场数据
-            account_data: 账户数据
-            
-        Returns:
-            保存的文件路径
-        """
-        try:
-            import os
-            import glob
-            from datetime import datetime
-            
-            # 创建完整的分析记录
-            analysis_record = {
-                "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                "model_used": f"{self.active_llm} - {self.model}",
-                "analysis_summary": trading_data.get("analysis_summary", ""),
-                "recommendations": trading_data.get("recommendations", []),
-                "market_snapshot": {},
-                "account_snapshot": account_data.get("account_info", {}),
-                "current_positions": account_data.get("positions", [])
-            }
-            
-            # 添加市场快照
-            for symbol, data in market_data.items():
-                # 跳过市场情绪数据（以_开头）
-                if symbol.startswith('_'):
-                    continue
-                    
-                # 确保data是字典类型
-                if not isinstance(data, dict):
-                    logger.warning(f"跳过非字典类型的市场数据: {symbol}")
-                    continue
-                    
-                current_data = data.get("current_data", {})
-                analysis_record["market_snapshot"][symbol] = {
-                    "name": data.get("name", ""),
-                    "current_price": current_data.get("current_price", 0),
-                    "current_ema_long": current_data.get("current_ema_long", 0),
-                    "current_macd": current_data.get("current_macd", 0),
-                    "current_rsi_7": current_data.get("current_rsi_7", 0)
-                }
-            
-            # 确保data目录存在
-            os.makedirs("data", exist_ok=True)
-            
-            # 读取现有历史记录
-            history_file = os.path.join("data", "trading_analysis_history.json")
-            history_data = []
-            
-            if os.path.exists(history_file):
-                try:
-                    with open(history_file, 'r', encoding='utf-8') as f:
-                        history_data = json.load(f)
-                    if not isinstance(history_data, list):
-                        history_data = []
-                except Exception as e:
-                    logger.warning(f"读取历史记录文件失败，创建新文件: {e}")
-                    history_data = []
-            
-            # 添加新的分析记录到历史记录开头
-            history_data.insert(0, analysis_record)
-            
-            # 只保留最近一次记录
-            history_data = history_data[:1]
-            
-            # 保存历史记录文件
-            with open(history_file, 'w', encoding='utf-8') as f:
-                json.dump(history_data, f, ensure_ascii=False, indent=2)
-            
-            # 保存当前分析记录为固定名称文件
-            current_file = os.path.join("data", "trading_analysis.json")
-            with open(current_file, 'w', encoding='utf-8') as f:
-                json.dump(analysis_record, f, ensure_ascii=False, indent=2)
-            
-            logger.info(f"交易分析数据已保存到: {current_file}")
-            logger.info(f"历史记录已更新，只保留最近一次记录: {history_file}")
-            
-            return current_file
             
         except Exception as e:
-            logger.error(f"保存交易分析数据失败: {e}")
-            return ""
+            logger.error(f"标准化ETF代码失败: {e}")
+            return None

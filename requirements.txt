@@ -8,3 +8,4 @@ python-dotenv>=1.0.0
 loguru>=0.7.0
 efinance>=0.1.0
 akshare>=1.17.69
+schedule>=1.2.0
