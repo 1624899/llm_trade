@@ -488,24 +488,6 @@ class ETFTradingSystem:
         
         print("🎉 AI自主交易系统测试完成，所有功能正常！")
     
-    def show_status(self) -> None:
-        """显示系统状态"""
-        print("\n📊 AI自主交易系统状态")
-        print("="*50)
-        print(f"配置文件: {'✅ 已加载' if self.config else '❌ 未加载'}")
-        print(f"ETF列表: {'✅ 已加载' if self.etf_list else '❌ 未加载'}")
-        print(f"监控ETF数量: {len(self.monitored_etfs)}")
-        print(f"当前持仓数量: {len(self.account_manager.get_positions())}")
-        account_info = self.account_manager.get_account_info()
-        print(f"账户总价值: {account_info.get('total_assets', 0):.2f}")
-        print(f"总收益率: {account_info.get('total_return_pct', 0):.2f}%")
-        if self.test_mode:
-            print("🧪 系统处于测试模式，跳过LLM交互")
-        else:
-            print(f"LLM模型: {self.llm_client.get_model_info()['active_model']} - {self.llm_client.get_model_info()['model']}")
-        print(f"交易时间: {'✅ 是' if is_trading_time() else '❌ 否'}")
-        print("="*50)
-    
     def run_automatic_trading(self) -> None:
         """
         运行自动交易模式（分层定时任务系统）
@@ -522,10 +504,23 @@ class ETFTradingSystem:
             print("✅ 所有分层任务已启动")
             print("按 Ctrl+C 停止所有任务")
             
+            # 获取休眠配置
+            trading_config = self.layered_config.get('trading_hours', {})
+            sleep_interval = trading_config.get('sleep_interval', 60)  # 默认60秒休眠
+            
             # 主循环，等待停止信号
             self.is_running = True
             while self.is_running:
-                time.sleep(1)
+                # 检查是否为交易时间
+                if self.is_trading_time():
+                    # 交易时间内正常运行
+                    print(f"📈 当前为交易时间，系统正常运行...")
+                else:
+                    # 非交易时间显示休眠状态
+                    print(f"💤 当前非交易时间，系统休眠中...")
+                
+                # 休眠一段时间再检查
+                time.sleep(sleep_interval)
                 
         except KeyboardInterrupt:
             print("\n⏹️  用户停止AI自主交易自动模式")
@@ -922,7 +917,7 @@ class ETFTradingSystem:
                 etf_name = f"ETF_{symbol}"
             
             # 获取当前价格（带重试机制）
-            current_price = self._get_current_price_with_retry(symbol)
+            current_price = self._get_current_price_with_retry(symbol, etf_name)
             
             if current_price <= 0:
                 print(f"❌ 无法获取ETF {symbol} 的当前价格")
@@ -997,12 +992,13 @@ class ETFTradingSystem:
             print(f"❌ 执行交易决策失败: {e}")
             return None
     
-    def _get_current_price_with_retry(self, symbol: str, max_retries: int = 3) -> float:
+    def _get_current_price_with_retry(self, symbol: str, etf_name: str = "", max_retries: int = 3) -> float:
         """
         带重试机制获取当前价格
         
         Args:
             symbol: ETF代码
+            etf_name: ETF名称
             max_retries: 最大重试次数
             
         Returns:
@@ -1453,8 +1449,8 @@ class ETFTradingSystem:
 def main():
     """主函数"""
     parser = argparse.ArgumentParser(description='A股ETF交易分析系统 - AI自主交易模式')
-    parser.add_argument('--mode', choices=['decision', 'test', 'status', 'auto'],
-                       default='decision', help='运行模式：decision-单次AI决策，test-系统测试，status-显示状态，auto-自动交易')
+    parser.add_argument('--mode', choices=['test', 'auto'],
+                       default='auto', help='运行模式：test-系统测试，auto-自动交易')
     parser.add_argument('--config', type=str, default='config/config.yaml',
                        help='配置文件路径')
     
@@ -1464,17 +1460,9 @@ def main():
         # 初始化系统
         system = ETFTradingSystem(args.config)
         
-        if args.mode == 'decision':
-            # 单次AI决策
-            system.run_trading_decision()
-            
-        elif args.mode == 'test':
+        if args.mode == 'test':
             # 系统测试
             system.test_system()
-            
-        elif args.mode == 'status':
-            # 显示状态
-            system.show_status()
             
         elif args.mode == 'auto':
             # 自动交易模式（分层定时任务系统）

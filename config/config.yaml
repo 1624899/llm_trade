@@ -14,7 +14,7 @@ llm_models:
     max_tokens: 8192
     temperature: 0.7
   
-# 心流开放平台配置
+  # 心流开放平台配置
   xinliu:
     api_key: "sk-22c2c8f8ff09a3a8d9fd49c375d72bf2"  # 填入您的OpenAI API密钥
     base_url: "https://apis.iflow.cn/v1"
@@ -107,6 +107,7 @@ layered_tasks:
     afternoon_start: "13:00"
     afternoon_end: "15:00"
     weekdays_only: true  # 仅工作日交易
+    sleep_interval: 60   # 非交易时间休眠间隔（秒）
     
   # 任务状态监控配置
   monitoring:

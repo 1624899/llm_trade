@@ -28,31 +28,18 @@ llm:
 
 ```bash
 # AI自主交易模式（默认）
-python main.py
-
-# 单次交易决策
-python main.py --mode single
-
-# 连续自主交易（每30分钟）
-python main.py --mode continuous --interval 30
+python main.py --mode auto
 
 # 系统测试（不执行实际交易）
 python main.py --mode test
-
-# 查看系统状态
-python main.py --mode status
 ```
-# 查看账户状态
-python main.py --mode status
-
-# 单次AI决策
-python main.py --mode decision
-
-# 系统功能测试
-python main.py --mode test
 
 # 启动自动交易（分层定时任务）
 python main.py --mode auto
+
+# 系统功能测试
+python main.py --mode test
+```
 
 ## 功能说明
 
@@ -65,22 +52,8 @@ python main.py --mode auto
 - 记录交易结果
 - 更新账户持仓
 
-### 2. 单次交易决策模式
-执行一次完整的交易决策流程：
-- 获取市场数据
-- 计算技术指标
-- AI生成交易决策
-- 执行交易操作
-- 保存交易记录
-
-### 3. 连续自主交易模式
-按照设定间隔自动执行AI自主交易，适合长期自动化交易。
-
-### 4. 系统测试模式
+### 2. 系统测试模式
 测试各个模块是否正常工作，不执行实际交易操作。
-
-### 5. 状态查看
-显示当前系统状态和账户信息。
 
 ## 配置说明
 
