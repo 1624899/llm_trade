@@ -511,12 +511,23 @@ class PromptGenerator:
             daily_pnl = account_info.get('daily_pnl', 0)
             available_cash = account_info.get('available_cash', 0)
             
+            # 获取初始资金信息
+            initial_cash = account_info.get('initial_cash', 10000.0)
+            
+            # 获取佣金配置信息
+            commission_fee = 5.0  # 单边佣金费率
+            
             section = f"""### 您的ETF账户信息和表现
 
 - **总资产**：{total_assets:,.2f}
 - **总盈亏**：{total_pnl:,.2f}
 - **当日盈亏**：{daily_pnl:,.2f}
 - **可用现金**：{available_cash:,.2f}
+- **初始资金**：{initial_cash:,.2f}
+- **单边佣金**：{commission_fee:.2f}元（每次买入或卖出都需支付）
+- **完整交易佣金**：{commission_fee * 2:.2f}元（买入+卖出往返总成本）
+
+⚠️ **重要提示**：虽然显示总盈亏为正，但每次完整交易（买入+卖出）会产生{commission_fee * 2:.2f}元佣金成本。请在决策时充分考虑交易成本。
 
 #### 当前ETF持仓和表现（多股票持仓详情）："""
             
@@ -726,6 +737,7 @@ class PromptGenerator:
 - **置信度**：应基于技术指标的明确程度和市场状况的确定性
 - **决策理由**：应简明扼要，包含关键的技术指标和市场因素
 - **风险管理**：确保决策符合风险管理原则，避免过度集中或高风险操作
+- **交易成本**: 无明显上涨或下降趋势的不要进行交易，避免频繁操作
 """
         
         return request
