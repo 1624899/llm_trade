@@ -25,8 +25,8 @@ class AccountManager:
         self.account_data_path = account_data_path
         # 读取配置文件
         self.config = self._load_config()
-        # 初始化模拟交易账户数据
-        self.account_data = self._initialize_account_data()
+        # 加载或初始化账户数据
+        self.account_data = self._load_or_initialize_account_data()
         
         logger.info("模拟交易账户管理器初始化完成")
     
@@ -59,6 +59,37 @@ class AccountManager:
             "trade_history": trade_history
         }
     
+    def _load_or_initialize_account_data(self) -> Dict[str, Any]:
+        """
+        加载或初始化账户数据
+        优先从文件加载历史数据，如果文件不存在或加载失败则初始化新数据
+        
+        Returns:
+            账户数据字典
+        """
+        try:
+            # 尝试从文件加载历史数据
+            if os.path.exists(self.account_data_path):
+                with open(self.account_data_path, 'r', encoding='utf-8') as f:
+                    loaded_data = json.load(f)
+                
+                # 验证数据结构
+                if 'account_info' in loaded_data and 'positions' in loaded_data:
+                    logger.info(f"成功加载历史账户数据，文件: {self.account_data_path}")
+                    logger.info(f"加载的持仓数量: {len(loaded_data.get('positions', []))}")
+                    logger.info(f"加载的交易记录数量: {len(loaded_data.get('trade_history', []))}")
+                    return loaded_data
+                else:
+                    logger.warning(f"历史账户数据文件结构不正确，使用默认数据: {self.account_data_path}")
+            else:
+                logger.info(f"历史账户数据文件不存在，将创建新的账户数据: {self.account_data_path}")
+                
+        except Exception as e:
+            logger.warning(f"加载历史账户数据失败，将创建新账户数据: {e}")
+        
+        # 如果加载失败，创建新的账户数据
+        return self._initialize_account_data()
+
     def _load_config(self) -> Dict[str, Any]:
         """
         加载配置文件
@@ -178,9 +209,13 @@ class AccountManager:
                     # 黄金ETF，T+0交易
                     position['available_quantity'] = position.get('available_quantity', 0) + quantity
                 else:
-                    # 普通ETF，T+1交易
+                    # 普通ETF，T+1交易，新买入部分当日不可卖出
                     position['available_quantity'] = position.get('available_quantity', 0)
                 position['purchase_date'] = purchase_date
+                # 更新市值
+                position['market_value'] = new_quantity * position['current_price']
+                # 更新总盈亏（包含佣金）
+                position['total_pnl'] = (position['current_price'] - new_avg_price) * new_quantity
             else:
                 # 创建新持仓
                 new_position = {
@@ -190,6 +225,7 @@ class AccountManager:
                     'position_ratio': 0.0,  # 将在更新总资产时计算
                     'avg_price': price,
                     'current_price': price,
+                    'previous_close_price': price,  # 初始化前一日收盘价为当前价格
                     'daily_pnl': 0.0,
                     'total_pnl': 0.0,
                     'market_value': total_amount,
@@ -311,16 +347,17 @@ class AccountManager:
                 return False
             
             # 记录昨日收盘价（用于计算当日盈亏）
-            yesterday_price = position.get('current_price', position['avg_price'])
+            previous_price = position.get('previous_close_price', position['current_price'])
             
             # 更新当前价格
             position['current_price'] = current_price
+            position['previous_close_price'] = current_price  # 更新作为下次计算的基准
             
             # 计算市值
             position['market_value'] = position['quantity'] * current_price
             
             # 计算当日盈亏
-            position['daily_pnl'] = (current_price - yesterday_price) * position['quantity']
+            position['daily_pnl'] = (current_price - previous_price) * position['quantity']
             
             # 计算总盈亏
             position['total_pnl'] = (current_price - position['avg_price']) * position['quantity']
@@ -601,4 +638,117 @@ ETF持仓概览
         except Exception as e:
             logger.error(f"从文件加载账户数据失败: {e}")
             return False
+    
+    def fix_position_consistency(self) -> None:
+        """
+        修复持仓数据一致性，确保总持仓数量与可用数量正确
+        """
+        try:
+            logger.info("开始修复持仓数据一致性...")
+            
+            for position in self.get_positions():
+                symbol = position['symbol']
+                
+                # 重新计算实际持仓数量（从交易历史）
+                actual_quantity = 0
+                actual_available_quantity = 0
+                t1_config = self.config.get("trading", {}).get("t1_rule", {})
+                gold_etf_t0 = t1_config.get("gold_etf_t0", ["518880"])
+                is_gold_etf = symbol in gold_etf_t0
+                
+                # 分析交易历史
+                today = datetime.now().strftime("%Y-%m-%d")
+                
+                for trade in self.get_trade_history():
+                    if trade['symbol'] == symbol:
+                        if trade['type'] == 'buy':
+                            actual_quantity += trade['quantity']
+                            # T+1规则：黄金ETFT+0，普通ETF T+1
+                            if is_gold_etf or trade['time'] < f"{today} 00:00:00":
+                                actual_available_quantity += trade['quantity']
+                        elif trade['type'] == 'sell':
+                            actual_quantity -= trade['quantity']
+                            actual_available_quantity -= trade['quantity']
+                
+                # 更新持仓数据
+                old_quantity = position['quantity']
+                old_available = position.get('available_quantity', 0)
+                
+                position['quantity'] = actual_quantity
+                position['available_quantity'] = max(0, actual_available_quantity)
+                
+                logger.info(f"修复 {symbol}: 总持仓 {old_quantity}->{actual_quantity}, "
+                          f"可用 {old_available}->{position['available_quantity']}")
+            
+            # 更新账户数据
+            self._update_total_assets()
+            self._update_total_pnl()
+            self._update_daily_pnl()
+            self._save_account_data()
+            
+            logger.info("持仓数据一致性修复完成")
+            
+        except Exception as e:
+            logger.error(f"修复持仓数据一致性失败: {e}")
+    
+    def validate_account_calculations(self) -> Dict[str, Any]:
+        """
+        验证账户计算是否正确
+        
+        Returns:
+            验证结果字典
+        """
+        try:
+            account_info = self.get_account_info()
+            positions = self.get_positions()
+            trade_history = self.get_trade_history()
+            
+            # 验证总资产计算
+            cash_balance = account_info.get('available_cash', 0)
+            total_positions_value = sum(pos.get('market_value', 0) for pos in positions)
+            calculated_total_assets = cash_balance + total_positions_value
+            displayed_total_assets = account_info.get('total_assets', 0)
+            
+            # 验证总盈亏计算
+            calculated_total_pnl = sum(pos.get('total_pnl', 0) for pos in positions)
+            displayed_total_pnl = account_info.get('total_pnl', 0)
+            
+            # 验证当日盈亏计算
+            calculated_daily_pnl = sum(pos.get('daily_pnl', 0) for pos in positions)
+            displayed_daily_pnl = account_info.get('daily_pnl', 0)
+            
+            # 检查初始资金
+            initial_cash = account_info.get('initial_cash', 0)
+            
+            validation_result = {
+                'total_assets': {
+                    'calculated': calculated_total_assets,
+                    'displayed': displayed_total_assets,
+                    'difference': abs(calculated_total_assets - displayed_total_assets),
+                    'match': abs(calculated_total_assets - displayed_total_assets) < 0.01
+                },
+                'total_pnl': {
+                    'calculated': calculated_total_pnl,
+                    'displayed': displayed_total_pnl,
+                    'difference': abs(calculated_total_pnl - displayed_total_pnl),
+                    'match': abs(calculated_total_pnl - displayed_total_pnl) < 0.01
+                },
+                'daily_pnl': {
+                    'calculated': calculated_daily_pnl,
+                    'displayed': displayed_daily_pnl,
+                    'difference': abs(calculated_daily_pnl - displayed_daily_pnl),
+                    'match': abs(calculated_daily_pnl - displayed_daily_pnl) < 0.01
+                },
+                'initial_cash': initial_cash,
+                'available_cash': cash_balance,
+                'positions_count': len(positions),
+                'trade_history_count': len(trade_history)
+            }
+            
+            logger.info("账户计算验证完成")
+            return validation_result
+            
+        except Exception as e:
+            logger.error(f"验证账户计算失败: {e}")
+            return {}
     

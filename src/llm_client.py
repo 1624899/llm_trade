@@ -276,7 +276,7 @@ class LLMClient:
     
     def _extract_trading_decision(self, decision_text: str) -> Optional[Dict[str, Any]]:
         """
-        从LLM返回的文本中提取交易决策
+        从LLM返回的文本中提取交易决策（支持多股票格式）
         
         Args:
             decision_text: LLM返回的决策文本
@@ -297,7 +297,16 @@ class LLMClient:
                 try:
                     decision_data = json.loads(json_str)
                     logger.info("成功提取JSON格式的交易决策")
-                    return decision_data
+                    
+                    # 检查是否为新的多股票格式
+                    if "trading_decisions" in decision_data:
+                        logger.info("检测到多股票决策格式")
+                        return decision_data
+                    else:
+                        logger.info("检测到单股票决策格式，转换为多股票格式")
+                        # 将单股票格式转换为多股票格式
+                        return {"trading_decisions": [decision_data]}
+                        
                 except json.JSONDecodeError as e:
                     logger.warning(f"JSON解析失败，尝试其他方法: {e}")
             
@@ -305,12 +314,27 @@ class LLMClient:
             try:
                 decision_data = json.loads(decision_text.strip())
                 logger.info("成功解析整个文本为JSON格式的交易决策")
-                return decision_data
+                
+                # 检查是否为新的多股票格式
+                if "trading_decisions" in decision_data:
+                    logger.info("检测到多股票决策格式")
+                    return decision_data
+                else:
+                    logger.info("检测到单股票决策格式，转换为多股票格式")
+                    # 将单股票格式转换为多股票格式
+                    return {"trading_decisions": [decision_data]}
+                    
             except json.JSONDecodeError:
                 logger.warning("整个文本JSON解析失败")
             
             # 如果JSON解析都失败，尝试正则表达式提取
-            return self._extract_decision_with_regex(decision_text)
+            single_decision = self._extract_decision_with_regex(decision_text)
+            if single_decision:
+                logger.info("使用正则表达式提取单股票决策，转换为多股票格式")
+                return {"trading_decisions": [single_decision]}
+            
+            logger.warning("无法提取任何格式的交易决策")
+            return None
             
         except Exception as e:
             logger.error(f"提取交易决策失败: {e}")
@@ -381,13 +405,44 @@ class LLMClient:
             logger.error(f"正则表达式提取交易决策失败: {e}")
             return None
     
-    def _validate_trading_decision(self, decision: Dict[str, Any], 
+    def _validate_trading_decision(self, decision: Dict[str, Any],
                                  account_data: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
         """
-        验证交易决策的有效性和安全性
+        验证交易决策的有效性和安全性（支持多股票格式）
         
         Args:
-            decision: 交易决策字典
+            decision: 交易决策字典（可能是单股票或多股票格式）
+            account_data: 账户数据
+            
+        Returns:
+            验证后的交易决策字典，如果验证失败返回None
+        """
+        try:
+            # 检查是否为新的多股票格式
+            if "trading_decisions" in decision:
+                logger.info("验证多股票交易决策格式")
+                return self._validate_multi_stock_decisions(decision, account_data)
+            else:
+                logger.info("验证单股票交易决策格式，转换为多股票格式")
+                # 验证单股票决策
+                validated_single = self._validate_single_stock_decision(decision, account_data)
+                if validated_single:
+                    # 转换为多股票格式
+                    return {"trading_decisions": [validated_single]}
+                else:
+                    return None
+            
+        except Exception as e:
+            logger.error(f"AI自主交易决策验证失败: {e}")
+            return None
+    
+    def _validate_single_stock_decision(self, decision: Dict[str, Any],
+                                    account_data: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
+        """
+        验证单股票交易决策
+        
+        Args:
+            decision: 单股票交易决策字典
             account_data: 账户数据
             
         Returns:
@@ -456,11 +511,56 @@ class LLMClient:
                     logger.error("非HOLD决策必须指定有效的金额或数量")
                     return None
             
-            logger.info("AI自主交易决策验证通过")
+            logger.info("单股票AI自主交易决策验证通过")
             return decision
             
         except Exception as e:
-            logger.error(f"AI自主交易决策验证失败: {e}")
+            logger.error(f"单股票AI自主交易决策验证失败: {e}")
+            return None
+    
+    def _validate_multi_stock_decisions(self, decision: Dict[str, Any],
+                                   account_data: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
+        """
+        验证多股票交易决策
+        
+        Args:
+            decision: 多股票交易决策字典
+            account_data: 账户数据
+            
+        Returns:
+            验证后的交易决策字典，如果验证失败返回None
+        """
+        try:
+            trading_decisions = decision.get("trading_decisions", [])
+            
+            if not isinstance(trading_decisions, list):
+                logger.error("trading_decisions 必须是数组格式")
+                return None
+            
+            if not trading_decisions:
+                logger.info("多股票决策数组为空，返回HOLD决策")
+                return {"trading_decisions": []}
+            
+            validated_decisions = []
+            
+            for i, single_decision in enumerate(trading_decisions):
+                logger.info(f"验证第 {i+1} 个交易决策")
+                
+                validated_single = self._validate_single_stock_decision(single_decision, account_data)
+                if validated_single:
+                    validated_decisions.append(validated_single)
+                else:
+                    logger.warning(f"第 {i+1} 个交易决策验证失败，跳过")
+            
+            if not validated_decisions:
+                logger.warning("所有交易决策验证失败")
+                return None
+            
+            logger.info(f"多股票AI自主交易决策验证通过，有效决策数: {len(validated_decisions)}")
+            return {"trading_decisions": validated_decisions}
+            
+        except Exception as e:
+            logger.error(f"多股票AI自主交易决策验证失败: {e}")
             return None
     
     def _validate_risk_controls(self, decision: Dict[str, Any], 

@@ -18,7 +18,7 @@ llm_models:
   xinliu:
     api_key: "sk-22c2c8f8ff09a3a8d9fd49c375d72bf2"  # 填入您的OpenAI API密钥
     base_url: "https://apis.iflow.cn/v1"
-    model: "qwen3-max"
+    model: "deepseek-v3.1"
     max_tokens: 8192
     temperature: 0.7
   

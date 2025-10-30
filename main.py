@@ -395,16 +395,54 @@ class ETFTradingSystem:
     
     def _display_decision_results(self, decision: Dict[str, Any]) -> None:
         """
-        显示AI自主交易决策结果
+        显示AI自主交易决策结果（支持多股票格式）
         
         Args:
-            decision: 交易决策字典
+            decision: 交易决策字典（单股票或多股票格式）
         """
         print("\n" + "="*60)
         print("🎯 AI自主交易决策")
         print("="*60)
         
-        # 显示决策详情
+        # 检查是否为多股票格式
+        if "trading_decisions" in decision:
+            print("🔄 多股票交易决策:")
+            print("="*60)
+            
+            trading_decisions = decision.get("trading_decisions", [])
+            
+            if not trading_decisions:
+                print("📋 无交易决策，建议观望")
+            else:
+                for i, single_decision in enumerate(trading_decisions):
+                    print(f"\n📊 决策 {i+1}/{len(trading_decisions)}:")
+                    self._display_single_decision_info(single_decision)
+                    
+                    # 添加分隔线
+                    if i < len(trading_decisions) - 1:
+                        print("-" * 40)
+            
+            print("\n" + "="*60)
+            print(f"🎯 总计: {len(trading_decisions)} 个交易决策")
+        else:
+            # 单股票格式
+            print("🔄 单股票交易决策:")
+            print("="*60)
+            self._display_single_decision_info(decision)
+        
+        # 显示账户摘要
+        account_summary = self.account_manager.export_account_summary()
+        print("\n📊 账户摘要")
+        print("="*60)
+        print(account_summary)
+    
+    def _display_single_decision_info(self, decision: Dict[str, Any]) -> None:
+        """
+        显示单个决策的详细信息
+        
+        Args:
+            decision: 单个交易决策字典
+        """
         decision_type = decision.get('decision', 'UNKNOWN')
         symbol = decision.get('symbol', 'N/A')
         amount = decision.get('amount', 0)
@@ -426,14 +464,6 @@ class ETFTradingSystem:
             print("\n⚠️  风险提示: 卖出决策已验证持仓充足性")
         elif decision_type == "HOLD":
             print("\nℹ️  信息提示: 当前市场状况建议持有观望")
-        
-        print("="*60)
-        
-        # 显示账户摘要
-        account_summary = self.account_manager.export_account_summary()
-        print("\n📊 账户摘要")
-        print("="*60)
-        print(account_summary)
     
     def _generate_test_decision_response(self) -> Dict[str, Any]:
         """
@@ -758,7 +788,7 @@ class ETFTradingSystem:
     
     def execute_ai_decision_task(self, trading_decision: Dict[str, Any]) -> bool:
         """
-        执行AI决策任务
+        执行AI决策任务（支持多股票格式）
         
         Args:
             trading_decision: AI交易决策字典
@@ -769,6 +799,29 @@ class ETFTradingSystem:
         try:
             print(f"🎯 [{datetime.now().strftime('%H:%M:%S')}] 开始执行AI决策...")
             
+            # 检查是否为多股票格式
+            if "trading_decisions" in trading_decision:
+                print("🔄 检测到多股票交易决策格式")
+                return self._execute_multi_stock_trading_task(trading_decision)
+            else:
+                print("🔄 检测到单股票交易决策格式")
+                return self._execute_single_stock_trading_task(trading_decision)
+            
+        except Exception as e:
+            print(f"❌ AI决策执行过程中发生错误: {e}")
+            return False
+    
+    def _execute_single_stock_trading_task(self, trading_decision: Dict[str, Any]) -> bool:
+        """
+        执行单股票交易任务
+        
+        Args:
+            trading_decision: 单股票交易决策字典
+            
+        Returns:
+            是否执行成功
+        """
+        try:
             # 1. 验证交易决策
             validated_decision = self.validate_trading_decision(trading_decision)
             if not validated_decision:
@@ -784,19 +837,83 @@ class ETFTradingSystem:
             # 3. 处理交易结果
             self.handle_trading_result(validated_decision, execution_result)
             
-            print("✅ AI决策执行完成")
+            print("✅ 单股票AI决策执行完成")
             return True
             
         except Exception as e:
-            print(f"❌ AI决策执行过程中发生错误: {e}")
+            print(f"❌ 单股票AI决策执行失败: {e}")
+            return False
+    
+    def _execute_multi_stock_trading_task(self, trading_decision: Dict[str, Any]) -> bool:
+        """
+        执行多股票交易任务
+        
+        Args:
+            trading_decision: 多股票交易决策字典
+            
+        Returns:
+            是否执行成功
+        """
+        try:
+            trading_decisions = trading_decision.get("trading_decisions", [])
+            
+            if not trading_decisions:
+                print("📋 多股票决策数组为空，无需执行")
+                return True
+            
+            successful_executions = 0
+            total_executions = len(trading_decisions)
+            
+            print(f"🔄 开始执行 {total_executions} 个交易决策...")
+            
+            for i, single_decision in enumerate(trading_decisions):
+                print(f"\n🔄 执行第 {i+1}/{total_executions} 个交易决策")
+                print(f"   决策: {single_decision.get('decision', 'N/A')} {single_decision.get('symbol', 'N/A')}")
+                
+                if self._execute_single_stock_trading_task(single_decision):
+                    successful_executions += 1
+                    print(f"   ✅ 第 {i+1} 个交易决策执行成功")
+                else:
+                    print(f"   ⚠️  第 {i+1} 个交易决策执行失败，继续下一个")
+            
+            print(f"\n🎯 多股票交易执行完成: {successful_executions}/{total_executions} 个决策成功")
+            
+            # 如果至少有一个决策成功，就认为整体成功
+            return successful_executions > 0
+            
+        except Exception as e:
+            print(f"❌ 多股票AI决策执行失败: {e}")
             return False
     
     def validate_trading_decision(self, trading_decision: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
-        验证交易决策的可行性
+        验证交易决策的可行性（支持多股票格式）
         
         Args:
-            trading_decision: AI交易决策字典
+            trading_decision: AI交易决策字典（单股票或多股票格式）
+            
+        Returns:
+            验证后的交易决策字典，如果验证失败返回None
+        """
+        try:
+            # 检查是否为新的多股票格式
+            if "trading_decisions" in trading_decision:
+                print("🔄 检测到多股票交易决策格式")
+                return self._validate_multi_stock_trading_decision(trading_decision)
+            else:
+                print("🔄 检测到单股票交易决策格式")
+                return self._validate_single_stock_trading_decision(trading_decision)
+            
+        except Exception as e:
+            print(f"❌ 验证交易决策失败: {e}")
+            return None
+    
+    def _validate_single_stock_trading_decision(self, trading_decision: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        验证单股票交易决策
+        
+        Args:
+            trading_decision: 单股票交易决策字典
             
         Returns:
             验证后的交易决策字典，如果验证失败返回None
@@ -884,11 +1001,55 @@ class ETFTradingSystem:
                     print("❌ 卖出数量无效")
                     return None
             
-            print(f"✅ 交易决策验证通过: {decision_type} {symbol}")
+            print(f"✅ 单股票交易决策验证通过: {decision_type} {symbol}")
             return trading_decision
             
         except Exception as e:
-            print(f"❌ 验证交易决策失败: {e}")
+            print(f"❌ 验证单股票交易决策失败: {e}")
+            return None
+    
+    def _validate_multi_stock_trading_decision(self, trading_decision: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        验证多股票交易决策
+        
+        Args:
+            trading_decision: 多股票交易决策字典
+            
+        Returns:
+            验证后的交易决策字典，如果验证失败返回None
+        """
+        try:
+            trading_decisions = trading_decision.get("trading_decisions", [])
+            
+            if not isinstance(trading_decisions, list):
+                print("❌ trading_decisions 必须是数组格式")
+                return None
+            
+            if not trading_decisions:
+                print("📋 多股票决策数组为空，返回HOLD决策")
+                return {"trading_decisions": []}
+            
+            validated_decisions = []
+            
+            for i, single_decision in enumerate(trading_decisions):
+                print(f"🔍 验证第 {i+1} 个交易决策")
+                
+                validated_single = self._validate_single_stock_trading_decision(single_decision)
+                if validated_single:
+                    validated_decisions.append(validated_single)
+                    print(f"✅ 第 {i+1} 个交易决策验证通过")
+                else:
+                    print(f"⚠️  第 {i+1} 个交易决策验证失败，跳过")
+            
+            if not validated_decisions:
+                print("❌ 所有交易决策验证失败")
+                return None
+            
+            print(f"✅ 多股票交易决策验证通过，有效决策数: {len(validated_decisions)}")
+            return {"trading_decisions": validated_decisions}
+            
+        except Exception as e:
+            print(f"❌ 验证多股票交易决策失败: {e}")
             return None
     
     def execute_trading_decision(self, trading_decision: Dict[str, Any]) -> Optional[Dict[str, Any]]:

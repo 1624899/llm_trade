@@ -42,10 +42,8 @@ class PromptGenerator:
         Returns:
             头部字符串
         """
-        account_info = account_data.get('account_info', {})
-        call_count = account_info.get('call_count', 0)
         
-        header = f"""自您开始交易以来已经过去了 {self.trading_minutes} 分钟。当前时间是 {self.current_time}，您已被调用 {call_count} 次。接下来，我会为您提供各种状态数据、价格数据和预测信号。下面是您的当前账户信息、价值、表现、头寸等。
+        header = f"""自您开始交易以来已经过去了 {self.trading_minutes} 分钟。当前时间是 {self.current_time}。接下来，我会为您提供各种状态数据、价格数据和预测信号。下面是您的当前账户信息、价值、表现、头寸等。
 
 以下所有价格或信号数据均按顺序排列：最旧→最新"""
         
@@ -520,7 +518,7 @@ class PromptGenerator:
 - **当日盈亏**：{daily_pnl:,.2f}
 - **可用现金**：{available_cash:,.2f}
 
-#### 当前ETF持仓和表现："""
+#### 当前ETF持仓和表现（多股票持仓详情）："""
             
             # 添加持仓信息
             for position in positions:
@@ -536,10 +534,16 @@ class PromptGenerator:
                 total_pnl = position.get('total_pnl', 0)
                 market_value = position.get('market_value', 0)
                 
+                # 突出显示可用卖出数量（如果available_quantity为0，标红显示）
+                if available_quantity == 0:
+                    available_info = f"**可用卖出数量：{available_quantity}（不可卖出）**"
+                else:
+                    available_info = f"**可用卖出数量：{available_quantity}（可卖出）**"
+                
                 position_info = f"""
 **{symbol} - {name}**
-- 持仓数量: {quantity}
-- 可用持仓: {available_quantity}
+- 总持仓数量: {quantity}
+- {available_info}
 - 仓位占比: {position_ratio:.2f}%
 - 买入均价: {avg_price:.2f}
 - 当日盈亏: {daily_pnl:.2f}
@@ -547,6 +551,12 @@ class PromptGenerator:
 - 持仓市值: {market_value:.2f}"""
                 
                 section += position_info
+            
+            # 添加重要提示
+            section += f"\n\n### 🚨 卖出决策重要提示"
+            section += f"\n- **只能卖出 `available_quantity` 字段显示的数量**"
+            section += f"\n- **如果某只ETF的可用卖出数量为0，不能对该ETF做出卖出决策**"
+            section += f"\n- **卖出决策格式**：{{\"decision\": \"SELL\", \"quantity\": 最大不超过available_quantity}}"
             
             # 添加风险说明
             section += f"\n\n> 注：ETF投资为全额买入，无杠杆交易，风险以实际亏损金额计算。"
@@ -646,7 +656,7 @@ class PromptGenerator:
     
     def generate_trading_decision_request(self) -> str:
         """
-        生成自主交易决策请求
+        生成自主交易决策请求（支持多股票交易决策）
         
         Returns:
             交易决策请求字符串
@@ -655,16 +665,22 @@ class PromptGenerator:
 
 ---
 
-### AI自主交易决策请求
+### AI自主交易决策请求（多股票版本）
 
-基于以上提供的市场数据、技术指标和账户信息，请直接做出交易决策。您是一个专业的ETF交易决策系统，需要基于当前市场状况和账户状态，自主决定具体的交易操作。
+基于以上提供的市场数据、技术指标和账户信息，请直接做出多股票交易决策。您是一个专业的ETF交易决策系统，需要基于当前市场状况和账户状态，自主决定具体的交易操作。
 
 **决策要求：**
-1. **直接决策**：不要提供分析建议，直接输出具体的交易决策
-2. **风险控制**：单次交易金额不超过总资产的10%，确保风险可控
+1. **多股票决策**：可为0-7只股票做出交易决策，包括买入、卖出或持有
+2. **风险控制**：单只股票单次交易金额一般不超过总资产的10%，如若预期收益显著可放宽至25%
 3. **资金管理**：考虑当前现金余额和持仓情况，合理分配资金
 4. **技术分析**：基于趋势强度、EMA、MACD、RSI等技术指标做出决策
 5. **市场情绪**：结合资金流向和市场情绪做出判断
+6. **交易成本**：佣金费率为0.25%（单边），买入卖出往返总成本0.5%，仅当预期短期收益显著高于/低于0.5%时才建议买入/卖出，避免在无明确方向的震荡市中频繁交易。
+
+**卖出决策特别说明：**
+- **重要**：卖出决策必须基于 `available_quantity` 字段，即只能卖出可用数量
+- 如果某只股票的 `available_quantity` 为0，不能做出卖出决策
+- 卖出数量不能超过 `available_quantity`
 
 **决策考虑因素：**
 - 当前市场数据和技术指标
@@ -672,17 +688,22 @@ class PromptGenerator:
 - 风险管理原则
 - 历史交易表现
 - 市场情绪和资金流向
+- 决策交易成本
 
 **重要：请严格按照以下JSON格式输出交易决策，系统将直接执行：**
 
 ```json
 {
-  "decision": "BUY/SELL/HOLD",
-  "symbol": "6位数字ETF代码（必须是159599、512010、159637、159770、512710、515980、518880中的一个）",
-  "amount": 交易金额（数字）,
-  "quantity": 交易数量（整数）,
-  "confidence": 决策置信度（0-1之间的数字）,
-  "reason": "决策理由（简述技术指标、市场状况和风险考虑）"
+  "trading_decisions": [
+    {
+      "decision": "BUY/SELL/HOLD",
+      "symbol": "6位数字ETF代码",
+      "amount": 交易金额（数字）,
+      "quantity": 交易数量（整数）,
+      "confidence": 决策置信度（0-1之间的数字）,
+      "reason": "决策理由（简述技术指标、市场状况和风险考虑）"
+    }
+  ]
 }
 ```
 
@@ -696,14 +717,15 @@ class PromptGenerator:
   - 512710 (军工龙头ETF)
   - 515980 (人工智能ETF)
   - 512010 (医药ETF)
-- 系统将严格验证ETF代码的有效性，无效代码将导致决策被拒绝
 
 **注意事项：**
-- 如果决策为HOLD，则amount和quantity可以为0
-- 置信度应基于技术指标的明确程度和市场状况的确定性
-- 决策理由应简明扼要，包含关键的技术指标和市场因素
-- 确保决策符合风险管理原则，避免过度集中或高风险操作
-- 请仔细核对ETF代码，确保代码格式正确且在监控列表中
+- **trading_decisions数组**：可以包含0-7个决策对象，覆盖监控的所有ETF
+- **决策完整性**：如果决定不对某只ETF进行操作，可以不包含该ETF在数组中
+- **卖出数量限制**：卖出决策的quantity必须小于等于available_quantity
+- **HOLD决策**：对于不操作的ETF，可以设置为HOLD决策，amount和quantity为0
+- **置信度**：应基于技术指标的明确程度和市场状况的确定性
+- **决策理由**：应简明扼要，包含关键的技术指标和市场因素
+- **风险管理**：确保决策符合风险管理原则，避免过度集中或高风险操作
 """
         
         return request
