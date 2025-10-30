@@ -202,6 +202,14 @@ class AccountManager:
                 
                 position['quantity'] = new_quantity
                 position['avg_price'] = new_avg_price
+                
+                # 更新盈利/止损目标（基于新的均价）
+                if 'profit_target_price' not in position:
+                    position['profit_target_price'] = new_avg_price * 1.05  # 默认盈利目标5%
+                    position['stop_loss_price'] = new_avg_price * 0.97     # 默认止损3%
+                    position['profit_target_pct'] = 5.0
+                    position['stop_loss_pct'] = 3.0
+                
                 # T+1规则：普通ETF当日买入的份额不可卖出，黄金ETF可以随时卖出
                 t1_config = self.config.get("trading", {}).get("t1_rule", {})
                 gold_etf_t0 = t1_config.get("gold_etf_t0", ["518880"])
@@ -229,7 +237,12 @@ class AccountManager:
                     'daily_pnl': 0.0,
                     'total_pnl': 0.0,
                     'market_value': total_amount,
-                    'purchase_date': purchase_date
+                    'purchase_date': purchase_date,
+                    # 添加盈利/止损目标
+                    'profit_target_price': price * 1.05,  # 默认盈利目标5%
+                    'stop_loss_price': price * 0.97,     # 默认止损3%
+                    'profit_target_pct': 5.0,             # 盈利目标百分比
+                    'stop_loss_pct': 3.0                  # 止损百分比
                 }
                 
                 # T+1规则：普通ETF当日买入的份额不可卖出，黄金ETF可以随时卖出

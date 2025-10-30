@@ -517,6 +517,9 @@ class PromptGenerator:
             # 获取佣金配置信息
             commission_fee = 5.0  # 单边佣金费率
             
+            # 计算总回报率
+            total_return_rate = (total_assets / initial_cash * 100) if initial_cash > 0 else 0
+            
             section = f"""### 您的ETF账户信息和表现
 
 - **总资产**：{total_assets:,.2f}
@@ -524,10 +527,10 @@ class PromptGenerator:
 - **当日盈亏**：{daily_pnl:,.2f}
 - **可用现金**：{available_cash:,.2f}
 - **初始资金**：{initial_cash:,.2f}
+- **当前总回报率**：{total_return_rate:.2f}%
 - **单边佣金**：{commission_fee:.2f}元（每次买入或卖出都需支付）
 - **完整交易佣金**：{commission_fee * 2:.2f}元（买入+卖出往返总成本）
 
-⚠️ **重要提示**：虽然显示总盈亏为正，但每次完整交易（买入+卖出）会产生{commission_fee * 2:.2f}元佣金成本。请在决策时充分考虑交易成本。
 
 #### 当前ETF持仓和表现（多股票持仓详情）："""
             
@@ -541,9 +544,25 @@ class PromptGenerator:
                 available_quantity = position.get('available_quantity', 0)
                 position_ratio = position.get('position_ratio', 0)
                 avg_price = position.get('avg_price', 0)
+                current_price = position.get('current_price', 0)
                 daily_pnl = position.get('daily_pnl', 0)
                 total_pnl = position.get('total_pnl', 0)
                 market_value = position.get('market_value', 0)
+                
+                # 获取盈利止损计划
+                profit_target_price = position.get('profit_target_price', 0)
+                stop_loss_price = position.get('stop_loss_price', 0)
+                profit_target_pct = position.get('profit_target_pct', 0)
+                stop_loss_pct = position.get('stop_loss_pct', 0)
+                
+                # 如果没有设置盈利止损计划，计算默认值
+                if profit_target_price == 0 or stop_loss_price == 0:
+                    if avg_price > 0:
+                        # 默认盈利目标5%，止损3%
+                        profit_target_price = avg_price * 1.05
+                        stop_loss_price = avg_price * 0.97
+                        profit_target_pct = 5.0
+                        stop_loss_pct = 3.0
                 
                 # 突出显示可用卖出数量（如果available_quantity为0，标红显示）
                 if available_quantity == 0:
@@ -551,12 +570,21 @@ class PromptGenerator:
                 else:
                     available_info = f"**可用卖出数量：{available_quantity}（可卖出）**"
                 
+                # 格式化盈利止损信息
+                profit_info = ""
+                if profit_target_price > 0 and stop_loss_price > 0:
+                    profit_info = f"""
+- 盈利目标价: {profit_target_price:.3f} (+{profit_target_pct:.1f}%)
+- 止损价格: {stop_loss_price:.3f} (-{stop_loss_pct:.1f}%)
+- 当前价格: {current_price:.3f}"""
+                
                 position_info = f"""
 **{symbol} - {name}**
 - 总持仓数量: {quantity}
 - {available_info}
 - 仓位占比: {position_ratio:.2f}%
-- 买入均价: {avg_price:.2f}
+- 买入均价: {avg_price:.3f}
+{profit_info}
 - 当日盈亏: {daily_pnl:.2f}
 - 总盈亏: {total_pnl:.2f}
 - 持仓市值: {market_value:.2f}"""
@@ -686,7 +714,6 @@ class PromptGenerator:
 3. **资金管理**：考虑当前现金余额和持仓情况，合理分配资金
 4. **技术分析**：基于趋势强度、EMA、MACD、RSI等技术指标做出决策
 5. **市场情绪**：结合资金流向和市场情绪做出判断
-6. **交易成本**：佣金费率为0.25%（单边），买入卖出往返总成本0.5%，仅当预期短期收益显著高于/低于0.5%时才建议买入/卖出，避免在无明确方向的震荡市中频繁交易。
 
 **卖出决策特别说明：**
 - **重要**：卖出决策必须基于 `available_quantity` 字段，即只能卖出可用数量
@@ -712,11 +739,24 @@ class PromptGenerator:
       "amount": 交易金额（数字）,
       "quantity": 交易数量（整数）,
       "confidence": 决策置信度（0-1之间的数字）,
-      "reason": "决策理由（简述技术指标、市场状况和风险考虑）"
+      "reason": "决策理由（简述技术指标、市场状况和风险考虑）",
+      "profit_target": 盈利目标价格（数字）,
+      "stop_loss": 止损价格（数字）,
+      "profit_target_pct": 盈利目标百分比（数字）,
+      "stop_loss_pct": 止损百分比（数字）
     }
   ]
 }
 ```
+
+**盈利止损计划要求：**
+- **盈利目标（profit_target）**：基于当前价格和技术分析，设置合理的目标价格
+- **止损价格（stop_loss）**：设置风险控制价格，限制最大损失
+- **盈利目标百分比（profit_target_pct）**：相对于买入价格的预期收益百分比
+- **止损百分比（stop_loss_pct）**：相对于买入价格的最大损失百分比
+- **推荐设置**：盈利目标5-15%，止损3-5%
+- **风险管理**：每次交易都要明确设置盈亏控制点，确保风险可控
+- **决策连贯性**：下次决策时要参考之前的盈利止损计划执行情况
 
 **ETF代码验证要求：**
 - 必须是6位数字格式
@@ -737,7 +777,8 @@ class PromptGenerator:
 - **置信度**：应基于技术指标的明确程度和市场状况的确定性
 - **决策理由**：应简明扼要，包含关键的技术指标和市场因素
 - **风险管理**：确保决策符合风险管理原则，避免过度集中或高风险操作
-- **交易成本**: 无明显上涨或下降趋势的不要进行交易，避免频繁操作
+- **交易成本**: 佣金费率为0.25%（单边），买入卖出往返总成本0.5%，仅当预期短期收益显著高于/低于0.5%时才建议买入/卖出，避免在无明确方向的震荡市中频繁交易。
+
 """
         
         return request

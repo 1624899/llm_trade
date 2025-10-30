@@ -1118,6 +1118,32 @@ class ETFTradingSystem:
                     execution_result['amount'] = amount
                     execution_result['message'] = f"成功买入 {symbol} {quantity}股，价格 {current_price:.3f}"
                     print(f"✅ {execution_result['message']}")
+                    
+                    # 如果交易决策中包含盈利/止损信息，更新持仓
+                    if 'profit_target_price' in trading_decision or 'profit_target' in trading_decision:
+                        position = self.account_manager.get_position_by_symbol(symbol)
+                        if position:
+                            # 支持两种字段名：profit_target_price 和 profit_target
+                            profit_target_price = trading_decision.get('profit_target_price') or trading_decision.get('profit_target', 0)
+                            # 支持两种字段名：stop_loss_price 和 stop_loss
+                            stop_loss_price = trading_decision.get('stop_loss_price') or trading_decision.get('stop_loss', 0)
+                            profit_target_pct = trading_decision.get('profit_target_pct', 0)
+                            stop_loss_pct = trading_decision.get('stop_loss_pct', 0)
+                            
+                            # 更新持仓的盈利/止损目标
+                            if profit_target_price > 0:
+                                position['profit_target_price'] = profit_target_price
+                                if profit_target_pct > 0:
+                                    position['profit_target_pct'] = profit_target_pct
+                            
+                            if stop_loss_price > 0:
+                                position['stop_loss_price'] = stop_loss_price
+                                if stop_loss_pct > 0:
+                                    position['stop_loss_pct'] = stop_loss_pct
+                            
+                            # 保存账户数据
+                            self.account_manager._save_account_data()
+                            print(f"✅ 已更新 {symbol} 的盈利/止损目标")
                 else:
                     execution_result['message'] = f"买入 {symbol} 失败"
                     print(f"❌ {execution_result['message']}")

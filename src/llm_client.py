@@ -456,6 +456,13 @@ class LLMClient:
                     logger.error(f"AI自主交易决策缺少必要字段: {field}")
                     return None
             
+            # 检查盈利止损相关字段（新增要求）
+            profit_loss_fields = ["profit_target", "stop_loss", "profit_target_pct", "stop_loss_pct"]
+            for field in profit_loss_fields:
+                if field not in decision:
+                    logger.error(f"AI自主交易决策缺少盈利止损字段: {field}")
+                    return None
+            
             # 验证决策类型
             valid_decisions = ["BUY", "SELL", "HOLD"]
             if decision["decision"] not in valid_decisions:
@@ -492,18 +499,52 @@ class LLMClient:
                 logger.error(f"无效的置信度: {confidence}")
                 return None
             
+            # 验证盈利止损字段
+            # 支持两种字段名：profit_target 和 profit_target_price
+            profit_target = decision.get("profit_target") or decision.get("profit_target_price", 0)
+            # 支持两种字段名：stop_loss 和 stop_loss_price
+            stop_loss = decision.get("stop_loss") or decision.get("stop_loss_price", 0)
+            profit_target_pct = decision.get("profit_target_pct", 0)
+            stop_loss_pct = decision.get("stop_loss_pct", 0)
+            
+            # 检查数据类型
+            if not isinstance(profit_target, (int, float)) or profit_target <= 0:
+                logger.error(f"盈利目标价格必须为正数: {profit_target}")
+                return None
+            
+            if not isinstance(stop_loss, (int, float)) or stop_loss <= 0:
+                logger.error(f"止损价格必须为正数: {stop_loss}")
+                return None
+            
+            if not isinstance(profit_target_pct, (int, float)) or profit_target_pct <= 0:
+                logger.error(f"盈利目标百分比必须为正数: {profit_target_pct}")
+                return None
+            
+            if not isinstance(stop_loss_pct, (int, float)) or stop_loss_pct <= 0:
+                logger.error(f"止损百分比必须为正数: {stop_loss_pct}")
+                return None
+            
+            # 检查百分比范围（合理性检查）
+            if profit_target_pct > 50:  # 盈利目标不超过50%
+                logger.warning(f"盈利目标百分比过高: {profit_target_pct}%，调整为合理范围")
+                decision["profit_target_pct"] = min(profit_target_pct, 50)
+            
+            if stop_loss_pct > 20:  # 止损不超过20%
+                logger.warning(f"止损百分比过高: {stop_loss_pct}%，调整为合理范围")
+                decision["stop_loss_pct"] = min(stop_loss_pct, 20)
+            
+            # 设置默认值（如果未提供）
+            if "amount" not in decision:
+                decision["amount"] = 0
+            if "quantity" not in decision:
+                decision["quantity"] = 0
+            
             # 风险控制验证
             if account_data:
                 validated_decision = self._validate_risk_controls(decision, account_data)
                 if not validated_decision:
                     return None
                 decision = validated_decision
-            
-            # 设置默认值
-            if "amount" not in decision:
-                decision["amount"] = 0
-            if "quantity" not in decision:
-                decision["quantity"] = 0
             
             # 验证金额和数量的合理性
             if decision["decision"] != "HOLD":
