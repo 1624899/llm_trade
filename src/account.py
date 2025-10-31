@@ -5,10 +5,12 @@
 
 import json
 import os
+import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from loguru import logger
 from .utils import save_account_data
+from .indicators import TechnicalIndicators
 import yaml
 
 
@@ -27,6 +29,8 @@ class AccountManager:
         self.config = self._load_config()
         # 加载或初始化账户数据
         self.account_data = self._load_or_initialize_account_data()
+        # 初始化技术指标计算器
+        self.indicators = TechnicalIndicators(self.config)
         
         logger.info("模拟交易账户管理器初始化完成")
     
@@ -509,7 +513,7 @@ class AccountManager:
         try:
             account_info = self.get_account_info()
             positions = self.get_positions()
-            metrics = self.calculate_position_metrics()
+            metrics = self.get_performance_metrics()  # 使用包含夏普比率的方法
             
             summary = f"""
 模拟交易账户摘要
@@ -529,6 +533,12 @@ ETF持仓概览
 平均仓位: {metrics.get('avg_position_ratio', 0):.2f}%
 盈利持仓: {metrics.get('winning_positions', 0)}
 亏损持仓: {metrics.get('losing_positions', 0)}
+
+夏普比率指标
+=========
+投资组合夏普比率: {metrics.get('portfolio_sharpe_ratio', 0):.4f}
+平均ETF夏普比率: {metrics.get('avg_etf_sharpe_ratio', 0):.4f}
+夏普比率评级: {metrics.get('sharpe_rating', '未知')}
 """
             
             return summary
@@ -763,5 +773,244 @@ ETF持仓概览
             
         except Exception as e:
             logger.error(f"验证账户计算失败: {e}")
+            return {}
+    
+    def calculate_portfolio_sharpe_ratio(self, risk_free_rate: float = 0.0) -> float:
+        """
+        计算整个投资组合的夏普比率
+        
+        Args:
+            risk_free_rate: 无风险利率，默认为0.0
+            
+        Returns:
+            投资组合的夏普比率值
+        """
+        try:
+            # 获取账户信息
+            account_info = self.get_account_info()
+            initial_cash = account_info.get('initial_cash', 10000.0)
+            current_assets = account_info.get('total_assets', 0.0)
+            
+            # 计算投资组合的总收益率
+            total_return = (current_assets - initial_cash) / initial_cash
+            
+            # 获取交易历史，计算收益率序列
+            trade_history = self.get_trade_history()
+            if not trade_history:
+                logger.warning("无交易历史，无法计算夏普比率")
+                return 0.0
+            
+            # 按时间排序交易历史
+            sorted_trades = sorted(trade_history, key=lambda x: datetime.strptime(x['time'], "%Y-%m-%d %H:%M:%S"))
+            
+            # 计算每日收益率序列
+            daily_returns = []
+            portfolio_value = initial_cash
+            
+            # 按日期分组交易
+            daily_trades = {}
+            for trade in sorted_trades:
+                trade_date = trade['time'][:10]  # 提取日期部分
+                if trade_date not in daily_trades:
+                    daily_trades[trade_date] = []
+                daily_trades[trade_date].append(trade)
+            
+            # 计算每日投资组合价值和收益率
+            prev_value = portfolio_value
+            for date, trades in sorted(daily_trades.items()):
+                # 计算当日交易后的投资组合价值
+                daily_change = 0.0
+                for trade in trades:
+                    if trade['type'] == 'buy':
+                        daily_change -= trade['amount'] + trade.get('commission_fee', 0.0)
+                    elif trade['type'] == 'sell':
+                        daily_change += trade['amount'] - trade.get('commission_fee', 0.0)
+                
+                # 更新投资组合价值
+                portfolio_value += daily_change
+                
+                # 计算当日收益率
+                if prev_value > 0:
+                    daily_return = (portfolio_value - prev_value) / prev_value
+                    daily_returns.append(daily_return)
+                
+                prev_value = portfolio_value
+            
+            # 如果没有足够的收益率数据，使用总收益率和估算的波动率
+            if len(daily_returns) < 2:
+                # 使用简单的波动率估算
+                estimated_volatility = abs(total_return) * 2  # 简单估算
+                if estimated_volatility == 0:
+                    return 0.0
+                return total_return / estimated_volatility
+            
+            # 使用TechnicalIndicators计算夏普比率
+            returns_series = pd.Series(daily_returns)
+            sharpe_ratio = self.indicators.calculate_sharpe_ratio(returns_series, risk_free_rate, 'daily')
+            
+            # 如果计算失败，返回0
+            if pd.isna(sharpe_ratio):
+                logger.warning("投资组合夏普比率计算失败，返回0")
+                return 0.0
+                
+            logger.info(f"投资组合夏普比率计算完成: {sharpe_ratio:.4f}")
+            return float(sharpe_ratio)
+            
+        except Exception as e:
+            logger.error(f"计算投资组合夏普比率失败: {e}")
+            return 0.0
+    
+    def calculate_etf_sharpe_ratio(self, etf_code: str, risk_free_rate: float = 0.0) -> float:
+        """
+        计算单个ETF的夏普比率
+        
+        Args:
+            etf_code: ETF代码
+            risk_free_rate: 无风险利率，默认为0.0
+            
+        Returns:
+            单个ETF的夏普比率值
+        """
+        try:
+            # 获取持仓信息
+            position = self.get_position_by_symbol(etf_code)
+            if not position:
+                logger.warning(f"未找到ETF {etf_code} 的持仓，无法计算夏普比率")
+                return 0.0
+            
+            # 获取该ETF的交易历史
+            trade_history = self.get_trade_history()
+            etf_trades = [trade for trade in trade_history if trade['symbol'] == etf_code]
+            
+            if not etf_trades:
+                logger.warning(f"ETF {etf_code} 无交易历史，无法计算夏普比率")
+                return 0.0
+            
+            # 按时间排序交易历史
+            sorted_trades = sorted(etf_trades, key=lambda x: datetime.strptime(x['time'], "%Y-%m-%d %H:%M:%S"))
+            
+            # 计算持仓期间的收益率序列
+            returns = []
+            shares_held = 0
+            total_cost = 0.0
+            
+            for trade in sorted_trades:
+                if trade['type'] == 'buy':
+                    # 买入：增加持仓和成本
+                    buy_shares = trade['quantity']
+                    buy_price = trade['price']
+                    buy_cost = trade['amount'] + trade.get('commission_fee', 0.0)
+                    
+                    shares_held += buy_shares
+                    total_cost += buy_cost
+                    
+                elif trade['type'] == 'sell' and shares_held > 0:
+                    # 卖出：计算收益率
+                    sell_shares = min(trade['quantity'], shares_held)
+                    sell_price = trade['price']
+                    sell_revenue = trade['amount'] - trade.get('commission_fee', 0.0)
+                    
+                    # 计算这部分持仓的成本
+                    cost_ratio = sell_shares / shares_held
+                    sold_cost = total_cost * cost_ratio
+                    
+                    # 计算收益率
+                    if sold_cost > 0:
+                        trade_return = (sell_revenue - sold_cost) / sold_cost
+                        returns.append(trade_return)
+                    
+                    # 更新持仓和成本
+                    shares_held -= sell_shares
+                    total_cost -= sold_cost
+            
+            # 如果仍有持仓，计算当前收益
+            if shares_held > 0:
+                current_price = position.get('current_price', position.get('avg_price', 0))
+                current_value = shares_held * current_price
+                if total_cost > 0:
+                    current_return = (current_value - total_cost) / total_cost
+                    returns.append(current_return)
+            
+            # 如果没有足够的收益率数据，使用简单的收益率计算
+            if len(returns) < 2:
+                # 使用当前持仓的总收益率
+                total_pnl = position.get('total_pnl', 0.0)
+                market_value = position.get('market_value', 0.0)
+                cost_basis = market_value - total_pnl
+                
+                if cost_basis <= 0:
+                    return 0.0
+                
+                total_return = total_pnl / cost_basis
+                # 简单波动率估算
+                estimated_volatility = abs(total_return) * 2
+                if estimated_volatility == 0:
+                    return 0.0 if total_return <= 0 else 10.0  # 正收益无波动，给予高夏普比率
+                
+                return total_return / estimated_volatility
+            
+            # 使用TechnicalIndicators计算夏普比率
+            returns_series = pd.Series(returns)
+            sharpe_ratio = self.indicators.calculate_sharpe_ratio(returns_series, risk_free_rate, 'daily')
+            
+            # 如果计算失败，返回0
+            if pd.isna(sharpe_ratio):
+                logger.warning(f"ETF {etf_code} 夏普比率计算失败，返回0")
+                return 0.0
+                
+            logger.info(f"ETF {etf_code} 夏普比率计算完成: {sharpe_ratio:.4f}")
+            return float(sharpe_ratio)
+            
+        except Exception as e:
+            logger.error(f"计算ETF {etf_code} 夏普比率失败: {e}")
+            return 0.0
+    
+    def get_performance_metrics(self) -> Dict[str, Any]:
+        """
+        获取包含夏普比率的绩效指标
+        
+        Returns:
+            包含夏普比率的绩效指标字典
+        """
+        try:
+            # 获取基本绩效指标
+            metrics = self.calculate_position_metrics()
+            
+            # 计算投资组合夏普比率
+            portfolio_sharpe = self.calculate_portfolio_sharpe_ratio()
+            metrics['portfolio_sharpe_ratio'] = portfolio_sharpe
+            
+            # 计算各ETF的夏普比率
+            etf_sharpe_ratios = {}
+            positions = self.get_positions()
+            for position in positions:
+                etf_code = position['symbol']
+                etf_sharpe = self.calculate_etf_sharpe_ratio(etf_code)
+                etf_sharpe_ratios[etf_code] = etf_sharpe
+            
+            metrics['etf_sharpe_ratios'] = etf_sharpe_ratios
+            
+            # 计算平均ETF夏普比率
+            if etf_sharpe_ratios:
+                avg_etf_sharpe = sum(etf_sharpe_ratios.values()) / len(etf_sharpe_ratios)
+                metrics['avg_etf_sharpe_ratio'] = avg_etf_sharpe
+            else:
+                metrics['avg_etf_sharpe_ratio'] = 0.0
+            
+            # 添加夏普比率评级
+            if portfolio_sharpe > 1.0:
+                metrics['sharpe_rating'] = '优秀'
+            elif portfolio_sharpe > 0.5:
+                metrics['sharpe_rating'] = '良好'
+            elif portfolio_sharpe > 0.0:
+                metrics['sharpe_rating'] = '一般'
+            else:
+                metrics['sharpe_rating'] = '较差'
+            
+            logger.info("绩效指标（含夏普比率）计算完成")
+            return metrics
+            
+        except Exception as e:
+            logger.error(f"获取绩效指标失败: {e}")
             return {}
     

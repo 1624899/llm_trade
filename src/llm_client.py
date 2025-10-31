@@ -456,12 +456,13 @@ class LLMClient:
                     logger.error(f"AI自主交易决策缺少必要字段: {field}")
                     return None
             
-            # 检查盈利止损相关字段（新增要求）
+            # 检查盈利止损相关字段（可选要求）
+            # 注意：这些字段是可选的，不是必需的
             profit_loss_fields = ["profit_target", "stop_loss", "profit_target_pct", "stop_loss_pct"]
-            for field in profit_loss_fields:
-                if field not in decision:
-                    logger.error(f"AI自主交易决策缺少盈利止损字段: {field}")
-                    return None
+            missing_profit_loss_fields = [field for field in profit_loss_fields if field not in decision]
+            if missing_profit_loss_fields:
+                logger.info(f"AI自主交易决策缺少可选盈利止损字段: {missing_profit_loss_fields}")
+                # 不返回None，因为这些是可选字段
             
             # 验证决策类型
             valid_decisions = ["BUY", "SELL", "HOLD"]
@@ -499,37 +500,41 @@ class LLMClient:
                 logger.error(f"无效的置信度: {confidence}")
                 return None
             
-            # 验证盈利止损字段
+            # 验证盈利止损字段（可选字段）
             # 支持两种字段名：profit_target 和 profit_target_price
-            profit_target = decision.get("profit_target") or decision.get("profit_target_price", 0)
+            profit_target = decision.get("profit_target") or decision.get("profit_target_price")
             # 支持两种字段名：stop_loss 和 stop_loss_price
-            stop_loss = decision.get("stop_loss") or decision.get("stop_loss_price", 0)
-            profit_target_pct = decision.get("profit_target_pct", 0)
-            stop_loss_pct = decision.get("stop_loss_pct", 0)
+            stop_loss = decision.get("stop_loss") or decision.get("stop_loss_price")
+            profit_target_pct = decision.get("profit_target_pct")
+            stop_loss_pct = decision.get("stop_loss_pct")
             
-            # 检查数据类型
-            if not isinstance(profit_target, (int, float)) or profit_target <= 0:
-                logger.error(f"盈利目标价格必须为正数: {profit_target}")
-                return None
+            # 如果提供了盈利止损字段，则验证它们
+            if profit_target is not None:
+                if not isinstance(profit_target, (int, float)) or profit_target <= 0:
+                    logger.error(f"盈利目标价格必须为正数: {profit_target}")
+                    return None
             
-            if not isinstance(stop_loss, (int, float)) or stop_loss <= 0:
-                logger.error(f"止损价格必须为正数: {stop_loss}")
-                return None
+            if stop_loss is not None:
+                if not isinstance(stop_loss, (int, float)) or stop_loss <= 0:
+                    logger.error(f"止损价格必须为正数: {stop_loss}")
+                    return None
             
-            if not isinstance(profit_target_pct, (int, float)) or profit_target_pct <= 0:
-                logger.error(f"盈利目标百分比必须为正数: {profit_target_pct}")
-                return None
+            if profit_target_pct is not None:
+                if not isinstance(profit_target_pct, (int, float)) or profit_target_pct <= 0:
+                    logger.error(f"盈利目标百分比必须为正数: {profit_target_pct}")
+                    return None
             
-            if not isinstance(stop_loss_pct, (int, float)) or stop_loss_pct <= 0:
-                logger.error(f"止损百分比必须为正数: {stop_loss_pct}")
-                return None
+            if stop_loss_pct is not None:
+                if not isinstance(stop_loss_pct, (int, float)) or stop_loss_pct <= 0:
+                    logger.error(f"止损百分比必须为正数: {stop_loss_pct}")
+                    return None
             
             # 检查百分比范围（合理性检查）
-            if profit_target_pct > 50:  # 盈利目标不超过50%
+            if profit_target_pct is not None and profit_target_pct > 50:  # 盈利目标不超过50%
                 logger.warning(f"盈利目标百分比过高: {profit_target_pct}%，调整为合理范围")
                 decision["profit_target_pct"] = min(profit_target_pct, 50)
             
-            if stop_loss_pct > 20:  # 止损不超过20%
+            if stop_loss_pct is not None and stop_loss_pct > 20:  # 止损不超过20%
                 logger.warning(f"止损百分比过高: {stop_loss_pct}%，调整为合理范围")
                 decision["stop_loss_pct"] = min(stop_loss_pct, 20)
             
@@ -722,24 +727,45 @@ class LLMClient:
             return False
         
         try:
-            test_prompt = "请回复'连接成功'"
-            test_decision = {
-                "decision": "HOLD",
-                "symbol": "000000",
-                "amount": 0,
-                "quantity": 0,
-                "confidence": 1.0,
-                "reason": "测试连接"
+            # 简化测试：直接测试API连接而不生成完整决策
+            test_prompt = "测试连接"
+            
+            # 构建简单的测试请求
+            request_data = {
+                'model': self.model,
+                'messages': [
+                    {
+                        'role': 'user',
+                        'content': test_prompt
+                    }
+                ],
+                'max_tokens': 10,
+                'temperature': 0.1
             }
             
-            response = self.generate_trading_decision(test_prompt, retry_times=1)
+            api_url = self._get_api_url()
             
-            if response:
-                logger.info(f"{self.active_llm} API连接测试成功")
-                return True
-            else:
-                logger.error(f"{self.active_llm} API连接测试失败")
-                return False
+            # 发送请求
+            response = requests.post(
+                api_url,
+                headers=self.headers,
+                json=request_data,
+                timeout=10
+            )
+            
+            # 检查响应状态
+            response.raise_for_status()
+            
+            # 如果能收到响应就认为连接成功
+            logger.info(f"{self.active_llm} API连接测试成功")
+            return True
+                
+        except requests.exceptions.RequestException as e:
+            logger.error(f"{self.active_llm} API连接测试失败: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"{self.active_llm} API连接测试异常: {e}")
+            return False
                 
         except Exception as e:
             logger.error(f"{self.active_llm} API连接测试异常: {e}")

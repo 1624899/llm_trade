@@ -652,6 +652,73 @@ class PromptGenerator:
             logger.error(f"生成ETF绩效指标部分失败: {e}")
             return "ETF绩效指标获取失败"
     
+    def _generate_sharpe_ratio_section(self, account_data: Dict[str, Any]) -> str:
+        """
+        生成夏普比率指标部分
+        
+        Args:
+            account_data: 账户数据
+            
+        Returns:
+            夏普比率指标字符串
+        """
+        try:
+            positions = account_data.get('positions', [])
+            
+            if not positions:
+                return """### 夏普比率风险调整收益指标
+
+当前无持仓，无法计算夏普比率"""
+            
+            # 生成夏普比率部分
+            section = """### 夏普比率风险调整收益指标
+
+夏普比率是衡量投资组合风险调整后收益的重要指标，表示每承担一单位风险所能获得的超额收益。
+- **>1.0**: 优秀，风险调整后收益很好
+- **0.5-1.0**: 良好，风险调整后收益较好
+- **0-0.5**: 一般，风险调整后收益一般
+- **<0**: 较差，风险调整后收益为负
+
+#### 投资组合夏普比率分析：
+- **投资组合夏普比率**: 计算中...
+- **平均ETF夏普比率**: 计算中...
+- **夏普比率评级**: 计算中...
+
+#### 各ETF夏普比率详情："""
+            
+            # 为每个持仓添加夏普比率信息
+            for position in positions:
+                symbol = position.get('symbol', 'N/A')
+                name = position.get('name', 'N/A')
+                total_pnl = position.get('total_pnl', 0)
+                market_value = position.get('market_value', 0)
+                
+                # 计算简单的收益率
+                cost_basis = market_value - total_pnl
+                return_rate = (total_pnl / cost_basis * 100) if cost_basis > 0 else 0
+                
+                section += f"""
+- **{symbol} - {name}**: 夏普比率 计算中...，总收益率 {return_rate:.2f}%"""
+            
+            # 添加夏普比率在交易决策中的应用说明
+            section += """
+
+#### 夏普比率在交易决策中的应用：
+1. **投资组合管理**: 优先考虑夏普比率高的ETF，优化整体风险收益比
+2. **风险控制**: 夏普比率为负的ETF应考虑减仓或止损
+3. **资金分配**: 向夏普比率高的ETF分配更多资金
+4. **交易时机**: 在市场波动大时，更依赖夏普比率进行决策
+
+#### 基于夏普比率的交易建议：
+- **买入优先级**: 优先选择夏普比率>0.5的ETF
+- **卖出建议**: 夏普比率<0的ETF应考虑减仓
+- **仓位控制**: 夏普比率<0.5的ETF应控制仓位大小"""
+            
+            return section
+            
+        except Exception as e:
+            logger.error(f"生成夏普比率指标部分失败: {e}")
+            return "夏普比率指标获取失败"
     
     def _get_etf_name_from_config(self, etf_code: str) -> str:
         """
@@ -784,13 +851,15 @@ class PromptGenerator:
         return request
     
     def generate_trading_decision_prompt(self, market_data: Dict[str, Any],
-                                        account_data: Dict[str, Any]) -> str:
+                                        account_data: Dict[str, Any],
+                                        account_manager=None) -> str:
         """
         生成交易决策提示词
         
         Args:
             market_data: 市场数据字典
             account_data: 账户数据字典
+            account_manager: AccountManager实例，用于计算夏普比率
             
         Returns:
             标准化交易决策提示词
@@ -817,11 +886,86 @@ class PromptGenerator:
             # 生成绩效指标部分
             performance_section = self._generate_performance_section(account_data)
             
+            # 生成夏普比率部分
+            sharpe_ratio_section = self._generate_sharpe_ratio_section(account_data)
+            
+            # 如果提供了AccountManager实例，计算实际的夏普比率
+            if account_manager:
+                try:
+                    logger.info("开始计算实际的夏普比率数据")
+                    
+                    # 验证AccountManager实例
+                    if not hasattr(account_manager, 'get_performance_metrics'):
+                        logger.warning("AccountManager实例缺少get_performance_metrics方法")
+                        return sharpe_ratio_section
+                    
+                    performance_metrics = account_manager.get_performance_metrics()
+                    
+                    if not performance_metrics:
+                        logger.warning("无法获取绩效指标，使用默认夏普比率数据")
+                        return sharpe_ratio_section
+                    
+                    # 提取夏普比率数据
+                    portfolio_sharpe = performance_metrics.get('portfolio_sharpe_ratio', 0.0)
+                    avg_etf_sharpe = performance_metrics.get('avg_etf_sharpe_ratio', 0.0)
+                    sharpe_rating = performance_metrics.get('sharpe_rating', '未知')
+                    etf_sharpe_ratios = performance_metrics.get('etf_sharpe_ratios', {})
+                    
+                    # 验证数据类型
+                    if not isinstance(portfolio_sharpe, (int, float)):
+                        logger.warning(f"投资组合夏普比率数据类型异常: {type(portfolio_sharpe)}")
+                        portfolio_sharpe = 0.0
+                    
+                    if not isinstance(avg_etf_sharpe, (int, float)):
+                        logger.warning(f"平均ETF夏普比率数据类型异常: {type(avg_etf_sharpe)}")
+                        avg_etf_sharpe = 0.0
+                    
+                    if not isinstance(etf_sharpe_ratios, dict):
+                        logger.warning(f"ETF夏普比率数据类型异常: {type(etf_sharpe_ratios)}")
+                        etf_sharpe_ratios = {}
+                    
+                    logger.info(f"获取到夏普比率数据 - 投资组合: {portfolio_sharpe:.4f}, 平均: {avg_etf_sharpe:.4f}, 评级: {sharpe_rating}")
+                    logger.info(f"ETF夏普比率数据: {etf_sharpe_ratios}")
+                    
+                    # 替换模板中的占位符
+                    sharpe_ratio_section = sharpe_ratio_section.replace(
+                        "- **投资组合夏普比率**: 计算中...",
+                        f"- **投资组合夏普比率**: {portfolio_sharpe:.4f}"
+                    ).replace(
+                        "- **平均ETF夏普比率**: 计算中...",
+                        f"- **平均ETF夏普比率**: {avg_etf_sharpe:.4f}"
+                    ).replace(
+                        "- **夏普比率评级**: 计算中...",
+                        f"- **夏普比率评级**: {sharpe_rating}"
+                    )
+                    
+                    # 替换各ETF的夏普比率
+                    replaced_count = 0
+                    for etf_code, sharpe in etf_sharpe_ratios.items():
+                        try:
+                            etf_name = self._get_etf_name_from_config(etf_code) or 'ETF'
+                            old_text = f"- **{etf_code} - {etf_name}**: 夏普比率 计算中..."
+                            new_text = f"- **{etf_code} - {etf_name}**: 夏普比率 {sharpe:.4f}"
+                            
+                            if old_text in sharpe_ratio_section:
+                                sharpe_ratio_section = sharpe_ratio_section.replace(old_text, new_text)
+                                replaced_count += 1
+                            else:
+                                logger.warning(f"未找到ETF {etf_code} 的夏普比率占位符")
+                        except Exception as e:
+                            logger.error(f"替换ETF {etf_code} 夏普比率失败: {e}")
+                    
+                    logger.info(f"成功替换 {replaced_count} 个ETF的夏普比率数据")
+                        
+                except Exception as e:
+                    logger.error(f"计算实际夏普比率失败: {e}")
+                    logger.exception("夏普比率计算异常详情")
+            
             # 生成交易决策请求
             decision_request = self.generate_trading_decision_request()
             
             # 组合完整的提示词
-            prompt = f"{header}\n\n{etf_sections}\n\n{market_sentiment_section}\n\n{account_section}\n\n{performance_section}\n\n{decision_request}"
+            prompt = f"{header}\n\n{etf_sections}\n\n{market_sentiment_section}\n\n{account_section}\n\n{performance_section}\n\n{sharpe_ratio_section}\n\n{decision_request}"
             
             logger.info("AI自主交易决策提示词生成成功")
             return prompt

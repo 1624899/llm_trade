@@ -510,3 +510,64 @@ class TechnicalIndicators:
         except Exception as e:
             logger.error(f"相关性计算失败: {e}")
             return 0.0
+    
+    def calculate_sharpe_ratio(self, returns: pd.Series, risk_free_rate: float = 0.0,
+                              period: str = 'daily') -> float:
+        """
+        计算夏普比率
+        
+        Args:
+            returns: 收益率序列
+            risk_free_rate: 无风险利率，默认为0.0
+            period: 数据频率，支持 'daily', 'monthly', 'yearly'，默认为 'daily'
+            
+        Returns:
+            夏普比率值
+            
+        """
+        try:
+            # 输入验证
+            if returns.empty or len(returns) < 2:
+                logger.warning("收益率数据为空或不足，无法计算夏普比率")
+                return np.nan
+                
+            if not isinstance(risk_free_rate, (int, float)):
+                logger.error("无风险利率必须是数值类型")
+                return np.nan
+                
+            if period not in ['daily', 'monthly', 'yearly']:
+                logger.error("period参数必须是 'daily', 'monthly' 或 'yearly'")
+                return np.nan
+            
+            # 根据频率确定年化因子
+            period_factors = {
+                'daily': 252,    # 交易日年化因子
+                'monthly': 12,   # 月度年化因子
+                'yearly': 1      # 年度年化因子
+            }
+            period_factor = period_factors.get(period, 252)
+            
+            # 计算超额收益率
+            excess_returns = returns - risk_free_rate / period_factor
+            
+            # 计算夏普比率
+            mean_excess = excess_returns.mean()
+            std_returns = returns.std()
+            
+            # 处理零方差情况
+            if std_returns == 0 or np.isnan(std_returns):
+                logger.warning("收益率标准差为零或NaN，无法计算夏普比率")
+                return 0.0
+            
+            sharpe_ratio = (mean_excess * period_factor) / std_returns
+            
+            # 处理NaN和无穷大值
+            if np.isnan(sharpe_ratio) or np.isinf(sharpe_ratio):
+                logger.warning("夏普比率计算结果为NaN或无穷大")
+                return np.nan
+                
+            return float(sharpe_ratio)
+            
+        except Exception as e:
+            logger.error(f"夏普比率计算失败: {e}")
+            return np.nan
