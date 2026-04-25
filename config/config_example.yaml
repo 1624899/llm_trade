@@ -1,76 +1,65 @@
-# 统一OpenAI兼容格式配置示例文件
-# 所有LLM模型都使用相同的API格式，便于管理和切换
+# LLM-TRADE example runtime configuration.
+#
+# Copy this file to config/config.yaml for local use, then provide secrets via
+# environment variables or a root-level .env file. Do not commit real API keys.
 
-# 系统配置
 system:
-  test_mode: false  # 测试模式，跳过LLM交互
+  test_mode: false
 
-# LLM模型配置 - 所有模型都使用OpenAI兼容格式
 llm_models:
-  # DeepSeek配置
   deepseek:
-    api_key: "sk-your-deepseek-api-key"
+    api_key: "env:DEEPSEEK_API_KEY"
     base_url: "https://api.deepseek.com/v1"
-    model: "deepseek-chat"
-    max_tokens: 8000
+    model: "deepseek-v4-flash"
+    max_tokens: 8192
     temperature: 0.7
-  
-  # OpenAI官方配置
-  openai:
-    api_key: "sk-your-openai-api-key"
-    base_url: "https://api.openai.com/v1"
-    model: "gpt-4"  # 可选: gpt-3.5-turbo, gpt-4, gpt-4-turbo等
-    max_tokens: 8000
-    temperature: 0.7
-  
-  # 通义千问配置
+
   qwen:
-    api_key: "sk-your-qwen-api-key"
+    api_key: "env:QWEN_API_KEY"
     base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    model: "qwen-turbo"  # 可选: qwen-turbo, qwen-plus, qwen-max等
-    max_tokens: 8000
-    temperature: 0.7
-  
-  # 心流开放平台配置
-  xinliu:
-    api_key: "your-wenxin-api-key"
-    base_url: "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/eb-instant"
-    model: "ernie-bot"
-    max_tokens: 8000
-    temperature: 0.7
-  
-  # 本地Ollama配置
-  ollama:
-    api_key: "ollama"  # Ollama通常不需要真实密钥
-    base_url: "http://localhost:11434/v1"
-    model: "llama2"  # 可选: llama2, mistral, vicuna等
-    max_tokens: 8000
-    temperature: 0.7
-  
-  # 自定义API配置（适用于任何OpenAI兼容的服务）
-  custom:
-    api_key: "your-custom-api-key"
-    base_url: "https://your-custom-api.com/v1"
-    model: "your-custom-model"
+    model: "qwen-turbo"
     max_tokens: 8000
     temperature: 0.7
 
-# 当前激活的LLM模型
-# 修改此值即可切换使用的模型
 active_llm: "deepseek"
 
-# 数据获取配置
-data:
-  update_interval: 180  # 数据更新间隔（秒）
-  cache_duration: 3600  # 缓存持续时间（秒）
-  realtime_cache_duration: 60  # 实时数据缓存持续时间（秒）
-  retry_times: 3        # 重试次数
-  timeout: 30           # 请求超时时间（秒）
-  max_workers: 5        # 并发线程数
-  price_change_limit: 0.2  # 价格变动限制（20%）
-  volume_change_limit: 10.0  # 成交量变动限制（10倍）
+agent_workflow:
+  candidate_analysis_max_workers: 3
 
-# 技术指标参数
+web_search:
+  enabled: true
+  provider: "tavily"
+  fallback_provider: "duckduckgo"
+  api_key: "env:TAVILY_API_KEY"
+  endpoint: "https://api.tavily.com/search"
+  topic: "finance"
+  search_depth: "basic"
+  include_answer: false
+  cache_ttl_seconds: 21600
+  timeout: 30
+  max_results: 5
+
+alpha_vantage:
+  api_key: "env:ALPHA_VANTAGE_API_KEY"
+  daily_limit: 25
+  request_interval: 12.0
+
+data:
+  enable_cleanup: true
+  market_data_retention_days: 30
+  macro_events_retention_days: 30
+  output_retention_days: 30
+  trade_execution_retention_days: 365
+  daily_quotes_retention_days: 45
+  market_bars_daily_retention_days: 540
+  market_bars_weekly_retention_days: 1825
+  market_bars_monthly_retention_days: 3650
+  daily_lhb_retention_days: 180
+  paper_trades_retention_days: 365
+  retry_times: 3
+  timeout: 30
+  max_workers: 5
+
 indicators:
   ema:
     short: 12
@@ -92,9 +81,8 @@ indicators:
   wr:
     period: 14
 
-# 日志配置
 logging:
   level: "INFO"
-  file: "logs/etf_trading.log"
+  file: "logs/llm_trade.log"
   max_size: "10MB"
   backup_count: 5

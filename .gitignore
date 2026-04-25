@@ -28,10 +28,19 @@ logs/
 
 # Configuration files
 config\config.yaml
+.env
+.env.*
+!.env.example
 
 # Output files
 outputs/
 data\market_data
+data\web_search_cache.json
+data/web_search_cache.json
+data/*.db
+data/stock_lake.db
+data/trade_executions/
+.test_tmp/
 
 # IDE-specific files
 .vscode/

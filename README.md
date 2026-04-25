@@ -1,201 +1,227 @@
-# A股ETF AI自主交易系统
+# LLM-TRADE
 
-## 系统概述
+`LLM-TRADE` 是一个面向 A 股的多 Agent 选股、复盘与观察仓管理系统。它的核心思路是：
 
-本系统是一个基于AI的A股ETF自主交易系统，集成了多源行情数据获取、技术指标计算、账户管理和AI自主交易决策功能。系统采用AI自主交易模式，无需人工干预，直接基于实时市场数据做出交易决策并执行。
-
-## 功能特性
-
-1. **多源行情数据获取** - 使用AkShare和新浪财经API获取A股ETF实时和历史数据
-2. **技术指标计算** - 计算EMA、MACD、RSI、KDJ、BOLL、WR、ATR等技术指标
-3. **账户数据管理** - 自动更新和管理账户持仓信息
-4. **AI自主交易决策** - 基于实时市场数据和技术指标，AI直接做出交易决策
-5. **自动化交易执行** - 系统直接执行AI决策，无需人工确认
-6. **并发数据获取** - 支持多ETF并发数据获取，提高效率
-7. **市场情绪分析** - 获取行业资金流向等市场情绪数据
-8. **风险控制机制** - 内置风险控制规则，确保交易安全
-
-## 系统架构
-
-```
-etf_trading_system/
-├── config/
-│   ├── config.yaml          # 系统配置文件
-│   ├── config_example.yaml  # 配置文件示例
-│   └── etf_list.yaml        # ETF代码列表
-├── src/
-│   ├── __init__.py
-│   ├── data_fetcher.py      # 行情数据获取模块
-│   ├── indicators.py        # 技术指标计算模块
-│   ├── account.py          # 账户数据管理模块
-│   ├── prompt_generator.py  # AI交易决策语料生成模块
-│   ├── llm_client.py       # LLM API调用模块
-│   ├── sina_crawler.py     # 新浪财经数据爬取模块
-│   ├── global_macro_calendar.py  # 宏观日历数据模块
-│   └── utils.py            # 工具函数
-├── data/
-│   ├── account_data.json   # 账户持仓数据
-│   ├── trade_executions/   # 交易执行记录
-│   ├── market_data/        # 市场数据缓存
-│   └── Macro events/       # 宏观事件数据
-├── outputs/                # 输出文件目录
-├── logs/                   # 日志文件
-├── main.py                # 主程序入口
-├── requirements.txt       # 依赖包列表
-├── README.md             # 项目说明文档
-└── USAGE.md              # 详细使用说明
+```text
+数据入湖 -> 多策略规则雷达 -> 多 Agent 深度复核 -> 决策输出 -> 观察仓退出诊断 -> 亏损反思沉淀
 ```
 
-## 安装依赖
+系统不会把所有判断都交给大模型。确定性的行情、财务、技术和风控规则先由代码计算，LLM 负责做最后的综合解释、取舍和报告生成。
+
+## 核心能力
+
+### 1. 本地数据湖
+
+`DataPipeline` 会把基础股票信息、行情快照、多周期 K 线、指数 K 线和财务指标同步到本地 SQLite：
+
+- 数据库：`data/stock_lake.db`
+- 行情快照表：`daily_quotes`
+- 多周期 K 线表：`market_bars`
+- 财务指标表：`financial_metrics`
+- 观察仓表：`paper_trades`
+
+行情优先使用腾讯/新浪等免费接口，K 线和财务数据通过 AKShare 等源补充。
+
+### 2. 多策略选股雷达
+
+`StockScreener` 位于 `src/stock_screener.py`，是底层规则筛选器，不依赖 LLM。
+
+它已经从单一趋势过滤升级为多策略雷达。股票只要满足任意一种策略探测器，就可以进入候选池：
+
+- 经典趋势突破：右侧交易，均线多头，涨幅适中。
+- 优质股底部低吸：低估值、阶段低位、底部量能活跃。
+- 财报错杀/洗盘反转：短期急跌、估值有支撑、放量承接。
+- 强势主升浪：均线完美发散、动量极强、资金接力，但过滤放量滞涨。
+- 支撑回踩：趋势未坏，回踩关键均线或平台附近。
+
+候选股会带上 `strategy_tags`、`strategy_confidence` 和 `screen_reason`，方便后续 Agent 理解它为什么入选。
+
+### 3. 深度财务数据
+
+`FinancialDataProvider` 位于 `src/financial_data.py`。
+
+它通过 AKShare 的东方财富接口抓取并整理：
+
+- 利润表
+- 资产负债表
+- 现金流量表
+- 财务分析指标
+
+归一化后的核心字段包括：
+
+- 营收、营收同比
+- 归母净利、归母净利同比
+- 扣非归母净利、扣非同比
+- 毛利率、净利率、ROE、ROIC
+- 资产负债率、流动比率、速动比率、现金比率
+- 经营现金流、经营现金流同比
+- 经营现金流/归母净利
+
+`FundamentalAgent` 会把这些结构化财务摘要放进 Prompt，避免基本面分析退化成单纯的新闻阅读理解。
+
+### 4. 量化技术信号
+
+`TechnicalSignalProvider` 位于 `src/technical_indicators.py`。
+
+它从本地 `market_bars` 读取 OHLCV，并计算：
+
+- ATR14
+- MA5/10/20/60
+- 5 日/20 日涨跌幅
+- MA20 乖离率
+- 20 日/60 日支撑压力
+- 量比
+- 60 日量能分位
+
+同时生成形态和风险标签：
+
+- 箱体放量突破
+- 均线多头发散
+- 缩量回踩 MA20
+- 临近 20 日支撑/压力
+- 恐慌放量
+- 强动量延续
+- 跌破 20 日平台
+- 放量滞涨/上影派发
+
+`TechnicalAgent` 会优先使用这些确定性指标，再结合多周期 K 线摘要和宏观环境给出买点、止损和风险判断。
+
+### 5. 退出机制闭环
+
+`ExitAgent` 位于 `src/agent/exit_agent.py`。
+
+它不依赖 LLM，负责把“只管买，不管卖”的缺口补上第一版：
+
+- 跌破 ATR 动态止损：清仓退出。
+- 跌破 20 日平台：清仓退出。
+- 已有浮盈但跌回 MA20 下方：移动止盈保护。
+- 放量滞涨/上影派发：减仓观察。
+- 宏观风险偏好偏低且仍有浮盈：锁定部分利润。
+
+`PaperTrading` 会保留原有收益率止盈止损规则，并在 `ExitAgent` 给出更严重信号时自动升级动作。
+
+## Agent 工作流
+
+`AgentCoordinator` 统一调度完整选股流程：
+
+1. `StockScreener` 进行多策略规则海选，按主策略分组配额生成约 20 只候选池，避免单一策略霸榜。
+2. `MacroAgent` 判断市场状态、风险偏好和主线方向。
+3. `QuickFilterAgent` 读取宏观上下文和候选股极简快照，轻量精筛出最多 8 只进入深度复核；候选不足时直接放行。
+4. `FundamentalAgent` 结合财务数据和公告做基本面复核。
+5. `TechnicalAgent` 结合量化技术信号和 K 线摘要做技术复核。
+6. `NewsRiskAgent` 检查公告、新闻和重大风险词。
+7. `DecisionAgent` 综合排序，输出最终推荐报告。
+8. `PaperTrading` 记录观察仓。
+9. `ExitAgent` 和 `ReflectionAgent` 在盘后进行持仓诊断与亏损反思。
+
+## 快速开始
+
+### 1. 安装依赖
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## 使用方法
+### 2. 配置环境变量
 
-1. 配置系统参数（编辑 `config/config.yaml`）
-2. 配置ETF监控列表（编辑 `config/etf_list.yaml`）
-3. 录入账户持仓信息（编辑 `data/account_data.json`）
-4. 运行AI自主交易系统：`python main.py`
+不要把真实 API Key 写入仓库文件。推荐使用环境变量：
 
-## 配置说明
-
-### config.yaml
-- LLM API配置（支持多种LLM提供商）
-- 数据获取配置（更新频率、缓存设置、并发参数）
-- 技术指标参数（EMA、MACD、RSI等参数设置）
-- 日志配置
-- 系统设置（测试模式等）
-
-### etf_list.yaml
-- 监控的ETF代码列表（按类别分组）
-- ETF名称和分类信息
-- 支持黄金、芯片、新能源、医药、科创、军工等多个类别
-
-### account_data.json
-- 账户基本信息（总资产、现金、收益等）
-- 持仓明细（数量、成本价、当前价、盈亏等）
-- 系统会自动更新持仓数据
-
-## 运行模式
-
-```bash
-# AI自主交易模式（默认）
-python main.py
-
-# 单次交易决策模式
-python main.py --mode single
-
-# 连续自主交易模式（默认30分钟间隔）
-python main.py --mode continuous
-
-# 连续自主交易模式（自定义间隔）
-python main.py --mode continuous --interval 60
-
-# 系统测试模式（不执行实际交易）
-python main.py --mode test
-
-# 查看系统状态
-python main.py --mode status
+```powershell
+$env:DEEPSEEK_API_KEY="your-key"
+$env:TAVILY_API_KEY="your-key"
+$env:ALPHA_VANTAGE_API_KEY="your-key"
 ```
 
-## AI自主交易流程
-
-1. **数据获取** - 系统自动获取多源市场数据和技术指标
-2. **决策生成** - AI基于实时数据直接生成交易决策
-3. **风险验证** - 系统验证决策符合风险控制规则
-4. **交易执行** - 自动执行AI决策的交易操作
-5. **结果记录** - 记录交易执行结果和账户状态更新
-
-## 输出格式
-
-系统将生成符合要求的标准化语料，包含：
-- 当前时间和统计信息
-- 各ETF的实时价格和技术指标
-- 日内和长期数据序列
-- 账户持仓和表现信息
-- 市场情绪和资金流向数据
-- 买卖盘口和分钟级Tick数据
-- AI交易决策和执行结果
-
-## 注意事项
-
-- 需要配置有效的LLM API密钥
-- 确保网络连接正常以获取实时数据
-- 建议定期备份账户数据和交易记录
-- 系统会自动判断交易时间，非交易时间不会执行交易
-- 支持测试模式，可在不执行实际交易的情况下验证系统功能
-- AI自主交易模式会直接执行交易决策，请确保账户资金充足
-- 系统内置风险控制机制，单次交易金额不超过总资产的10%
-
-## 测试模式
-
-系统支持测试模式，可以在不执行实际交易的情况下运行，用于验证系统功能和数据获取是否正常。
-
-### 启用测试模式
-
-在 `config/config.yaml` 文件中设置：
+`config/config.yaml` 支持 `env:ENV_NAME` 写法：
 
 ```yaml
-system:
-  test_mode: true  # 设置为true启用测试模式，跳过实际交易执行
+llm_models:
+  deepseek:
+    api_key: "env:DEEPSEEK_API_KEY"
+
+web_search:
+  api_key: "env:TAVILY_API_KEY"
 ```
 
-### 测试模式功能
+### 3. 同步数据
 
-- 跳过实际交易执行
-- 仍会调用LLM API生成交易决策
-- 仍会获取实时市场数据
-- 仍会保存决策结果到文件
-- 不会更新账户持仓信息
-- 不会记录交易执行记录
-
-### 命令行运行测试模式
+盘后同步基础数据、行情快照和 K 线：
 
 ```bash
-# 单次交易决策测试模式
-python main.py --mode single
-
-# 连续交易决策测试模式
-python main.py --mode continuous
-
-# 系统测试（测试模式下会跳过实际交易）
-python main.py --mode test
-
-# 查看系统状态
-python main.py --mode status
+python main.py --sync
 ```
 
-## 数据源说明
+财务数据同步目前没有默认放进 `run_all()`，避免全市场请求过重。可以在 Python 中按候选股或指定列表同步：
 
-系统支持多数据源获取ETF数据：
+```bash
+python -c "from src.data_pipeline import DataPipeline; DataPipeline().sync_financial_metrics(codes=['600519'], periods=8)"
+```
 
-1. **AkShare API** - 主要数据源，提供实时和历史数据
-2. **新浪财经API** - 备用数据源，通过sina_crawler模块获取
-3. **eFinance API** - 补充数据源，用于获取特定数据
-4. **宏观日历数据** - 获取重要经济事件和宏观数据
+### 4. 执行选股
 
-系统会自动处理数据源的切换和异常情况，确保数据获取的稳定性。
+```bash
+python main.py --pick
+```
 
-## AI自主交易特点
+最新报告会写入：
 
-- **无需人工干预** - 系统完全基于AI决策，自动执行交易
-- **实时数据驱动** - 基于最新市场数据和技术指标做出决策
-- **风险控制优先** - 内置多层风险控制机制，确保交易安全
-- **多维度分析** - 综合技术指标、市场情绪、资金流向等因素
-- **持续学习优化** - AI模型不断学习市场模式，优化交易策略
+- `outputs/latest_report.md`
+- `outputs/latest_workflow_audit.json`
+- `outputs/screener_audit.json`
 
-## 详细使用说明
+### 5. 盘后观察仓诊断
 
-更多详细使用说明请参考 [USAGE.md](USAGE.md) 文件，包括：
-- 详细的配置参数说明
-- 账户数据格式说明
-- AI自主交易流程详解
-- 风险控制机制说明
-- 故障排除指南
-- 扩展功能开发指南
+```bash
+python main.py --post
+```
 
-## 免责声明
+该流程会：
 
-本系统仅供学习和研究使用，不构成投资建议。AI自主交易涉及风险，请在充分了解系统功能和风险控制机制的前提下使用。投资有风险，入市需谨慎。
+- 更新观察仓最新价格。
+- 计算浮动收益。
+- 调用宏观环境判断。
+- 通过 `ExitAgent` 评估是否减仓或清仓。
+- 对亏损案例生成反思并沉淀到规则本。
+
+## 配置文件
+
+- `config/config.yaml`：LLM、搜索、数据保留窗口、并发数等运行配置。
+- `config/stock_picking.yaml`：选股 profile、多策略筛选参数、主题加分和市场状态配置。
+
+## 主要输出
+
+- `outputs/latest_report.md`：最近一次选股报告。
+- `outputs/latest_workflow_audit.json`：最近一次完整工作流审计。
+- `outputs/screener_audit.json`：规则预筛审计。
+- `outputs/latest_agent_trace.jsonl`：Agent 调用轨迹。
+- `data/rules_book.txt`：亏损反思沉淀出的风控规则。
+
+## 常用测试
+
+```bash
+python -m unittest test.test_financial_data
+python -m unittest test.test_technical_indicators
+python -m unittest test.test_exit_agent
+python -m unittest test.test_database_and_screener.StockScreenerTests
+```
+
+完整测试：
+
+```bash
+python -m unittest discover -s test
+```
+
+## 最近已完成的工程升级
+
+- `src/agent/screener_agent.py` 已迁移为 `src/stock_screener.py`，定位为底层规则筛选器。
+- `StockScreener` 已升级为多策略雷达，不再用单一 MA20 趋势条件一刀切。
+- 新增 `QuickFilterAgent`，形成“规则分策略海选 → AI 轻量精筛 → Agent 深度复核”的三段式漏斗。
+- 新增东方财富财务报表接入和 `financial_metrics` 表。
+- `FundamentalAgent` 已接入近几期财务趋势摘要。
+- 新增量化技术信号层，`TechnicalAgent` 不再只看文本 K 线。
+- 新增 `ExitAgent`，观察仓具备第一版动态退出机制。
+- `PaperTrading` 已升级为收益率规则 + 技术退出 + 宏观防守的组合诊断。
+
+## 风险声明
+
+本项目仅用于研究、复盘和工程实验，不构成任何投资建议。股票市场有风险，真实交易前请自行验证数据质量、模型结论和个人风险承受能力。

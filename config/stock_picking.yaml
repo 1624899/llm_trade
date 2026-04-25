@@ -1,0 +1,181 @@
+# AI选股Agent配置文件
+
+default_profile: "balanced"
+
+market_regime:
+  enabled: true
+  allow_empty_on_extreme_risk: true
+  min_history_days: 60
+  lookback_days: 120
+  indices:
+    sh000001: "上证指数"
+    sh000300: "沪深300"
+    sz399006: "创业板指"
+  profile_map:
+    defensive: "conservative"
+    range_bound: "balanced"
+    offensive: "aggressive"
+    extreme_risk: "conservative"
+    unknown: "balanced"
+
+theme_scoring:
+  enabled: true
+  top_boards_per_kind: 8
+  max_bonus: 12.0
+
+profiles:
+  conservative:
+    min_price: 3.0
+    min_history_days: 60
+    max_annual_vol20: 0.60
+    max_volume_ratio: 3.5
+    min_volume_ratio_near_high60: 0.9
+    min_total_market_cap: 8000000000
+    min_avg_amount20: 80000000
+    ret20_min: -3.0
+    ret20_max: 22.0
+    ret5_min: -5.0
+    max_ma5_ma20_ratio: 1.10
+    turnover_rate_min: 0.8
+    turnover_rate_max: 12.0
+    max_per_industry: 2
+    limit_up_change_pct: 9.5
+    limit_down_change_pct: -9.5
+
+  balanced:
+    min_price: 2.0
+    min_history_days: 60
+    max_annual_vol20: 0.80
+    max_volume_ratio: 5.0
+    min_volume_ratio_near_high60: 0.8
+    min_total_market_cap: 3000000000
+    min_avg_amount20: 50000000
+    ret20_min: -5.0
+    ret20_max: 35.0
+    ret5_min: -8.0
+    max_ma5_ma20_ratio: 1.15
+    turnover_rate_min: 0.5
+    turnover_rate_max: 20.0
+    max_per_industry: 3
+    limit_up_change_pct: 9.5
+    limit_down_change_pct: -9.5
+
+  aggressive:
+    min_price: 2.0
+    min_history_days: 60
+    max_annual_vol20: 1.10
+    max_volume_ratio: 8.0
+    min_volume_ratio_near_high60: 0.6
+    min_total_market_cap: 1500000000
+    min_avg_amount20: 30000000
+    ret20_min: -10.0
+    ret20_max: 55.0
+    ret5_min: -12.0
+    max_ma5_ma20_ratio: 1.25
+    turnover_rate_min: 0.3
+    turnover_rate_max: 35.0
+    max_per_industry: 4
+    limit_up_change_pct: 9.8
+    limit_down_change_pct: -9.8
+
+# 股票池配置
+universe:
+  markets: ["A股"]
+  exclude_st: true            # 排除ST股
+  exclude_bse: true           # 排除北交所
+  exclude_suspended: true     # 排除停牌
+  min_market_cap: 50          # 最小总市值（亿元）
+  min_daily_volume: 5000000   # 最小日成交量（股）
+  min_daily_amount: 5000      # 最小日成交额（万元）
+
+# 量化筛选条件
+screening:
+  filters:
+    pe_range: [1, 100]          # PE范围（排除负PE和超高PE）
+    pb_range: [0.1, 15]         # PB范围
+    # turnover_rate_range: [0.5, 25]  # 换手率范围（%）
+    # change_pct_range: [-9.5, 9.5]   # 涨跌幅范围（排除涨跌停）
+    # min_volume_ratio: 0            # 最小量比
+
+# 选股策略配置
+strategies:
+  # 价值型策略
+  value:
+    description: "低估值蓝筹，适合稳健投资"
+    filters:
+      pe_range: [1, 25]
+      pb_range: [0, 3]
+    sort_by: "pe_ttm"
+    sort_ascending: true
+    top_n: 50
+
+  # 成长型策略
+  growth:
+    description: "高成长潜力，适合追求收益"
+    filters:
+      pe_range: [15, 80]
+      turnover_rate_range: [2, 30]
+    sort_by: "change_pct_60d"
+    sort_ascending: false
+    top_n: 50
+
+  # 动量型策略
+  momentum:
+    description: "近期强势股，顺势而为"
+    filters:
+      min_volume_ratio: 1.5
+      change_pct_range: [1, 9.5]
+    sort_by: "change_pct"
+    sort_ascending: false
+    top_n: 30
+
+  # 超跌反弹策略
+  oversold:
+    description: "近期大跌的股票，博反弹"
+    filters:
+      change_pct_range: [-9.5, -3]
+      min_volume_ratio: 1.2
+    sort_by: "change_pct_60d"
+    sort_ascending: true
+    top_n: 30
+
+  # 活跃股策略
+  active:
+    description: "市场最活跃的高换手股票"
+    filters:
+      turnover_rate_range: [5, 30]
+    sort_by: "amount"
+    sort_ascending: false
+    top_n: 30
+
+# 评分权重（用于后续综合选股）
+scoring_weights:
+  technical: 0.30       # 技术面权重
+  fundamental: 0.30     # 基本面权重
+  capital_flow: 0.20    # 资金面权重
+  sentiment: 0.20       # 情绪面权重
+
+# LLM选股分析配置
+llm_analysis:
+  max_stocks_per_analysis: 30    # 每次LLM分析最多多少只股票
+  include_technical: true         # 包含技术面数据
+  include_fundamental: true       # 包含基本面数据
+  include_capital_flow: true      # 包含资金流向数据
+
+# 输出配置
+output:
+  top_n: 20                    # 规则海选候选池数量
+  max_top_n: 20                # 技术初筛最多返回数量
+  quick_filter_top_n: 8        # AI轻量精筛后进入深度复核的数量
+  report_format: "markdown"    # 报告格式
+  include_reasoning: true      # 包含AI分析理由
+  save_history: true           # 保存历史推荐记录
+  save_audit: true             # 保存技术初筛审计摘要
+  audit_path: "outputs/screener_audit.json"
+  output_dir: "data/stock_picks"  # 输出目录
+
+# 缓存配置
+cache:
+  all_stocks_ttl: 300       # 全市场数据缓存（秒）
+  board_ttl: 3600           # 板块数据缓存（秒）
+  request_interval: 0.5     # API请求间隔（秒）

@@ -1,59 +1,68 @@
-# 系统配置文件
+﻿# LLM-TRADE runtime configuration.
+#
+# Do not store real API keys in this file. Use environment variables instead,
+# for example:
+#   set DEEPSEEK_API_KEY=...
+#   set TAVILY_API_KEY=...
+#   set ALPHA_VANTAGE_API_KEY=...
 
-# 系统配置
 system:
-  test_mode: false  # 测试模式，跳过LLM交互
+  test_mode: false
 
-
-# LLM模型配置 - 所有模型都使用OpenAI兼容格式
 llm_models:
   deepseek:
-    api_key: "sk-b62bc08f8fe6475b871c60bc22e979d1"
+    api_key: "env:DEEPSEEK_API_KEY"
     base_url: "https://api.deepseek.com/v1"
-    model: "deepseek-chat"
+    model: "deepseek-v4-flash"
     max_tokens: 8192
     temperature: 0.7
-  
-  # 心流开放平台配置
-  xinliu:
-    api_key: "sk-22c2c8f8ff09a3a8d9fd49c375d72bf2"  # 填入您的OpenAI API密钥
-    base_url: "https://apis.iflow.cn/v1"
-    model: "deepseek-v3.1"
-    max_tokens: 8192
-    temperature: 0.7
-  
+
   qwen:
-    api_key: ""  # 填入您的通义千问API密钥
+    api_key: "env:QWEN_API_KEY"
     base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
     model: "qwen-turbo"
     max_tokens: 8000
     temperature: 0.7
-  
-  ollama:
-    api_key: "ollama"  # Ollama通常不需要真实密钥
-    base_url: "http://localhost:11434/v1"
-    model: "llama2"
-    max_tokens: 8000
-    temperature: 0.7
 
-# 当前激活的LLM模型
-active_llm: "xinliu"
+active_llm: "deepseek"
 
+agent_workflow:
+  candidate_analysis_max_workers: 3
 
+web_search:
+  enabled: true
+  provider: "tavily"
+  fallback_provider: "duckduckgo"
+  api_key: "env:TAVILY_API_KEY"
+  endpoint: "https://api.tavily.com/search"
+  topic: "finance"
+  search_depth: "basic"
+  include_answer: false
+  cache_ttl_seconds: 21600
+  timeout: 30
+  max_results: 5
 
+alpha_vantage:
+  api_key: "env:ALPHA_VANTAGE_API_KEY"
+  daily_limit: 25
+  request_interval: 12.0
 
-# 数据获取配置
 data:
-  update_interval: 180  # 数据更新间隔（秒）
-  cache_duration: 3600  # 缓存持续时间（秒）
-  realtime_cache_duration: 60  # 实时数据缓存持续时间（秒）
-  retry_times: 3        # 重试次数
-  timeout: 30           # 请求超时时间（秒）
-  max_workers: 5        # 并发线程数
-  price_change_limit: 0.2  # 价格变动限制（20%）
-  volume_change_limit: 10.0  # 成交量变动限制（10倍）
+  enable_cleanup: true
+  market_data_retention_days: 30
+  macro_events_retention_days: 30
+  output_retention_days: 30
+  trade_execution_retention_days: 365
+  daily_quotes_retention_days: 45
+  market_bars_daily_retention_days: 540
+  market_bars_weekly_retention_days: 1825
+  market_bars_monthly_retention_days: 3650
+  daily_lhb_retention_days: 180
+  paper_trades_retention_days: 365
+  retry_times: 3
+  timeout: 30
+  max_workers: 5
 
-# 技术指标参数
 indicators:
   ema:
     short: 12
@@ -75,80 +84,8 @@ indicators:
   wr:
     period: 14
 
-# 分层定时任务配置
-layered_tasks:
-  # 价格获取层配置
-  price_monitoring:
-    enabled: true
-    interval_seconds: 60  # 1分钟
-    max_retries: 3
-    retry_delay: 5  # 重试延迟（秒）
-    cache_duration: 30  # 缓存持续时间（秒）
-    
-  # AI决策层配置
-  ai_decision:
-    enabled: true
-    interval_seconds: 600  # 10分钟
-    max_retries: 2
-    retry_delay: 10  # 重试延迟（秒）
-    decision_cache_duration: 300  # 决策缓存持续时间（秒）
-    
-  # 持仓更新层配置
-  position_update:
-    enabled: true
-    interval_seconds: 30  # 30秒
-    max_retries: 3
-    retry_delay: 3  # 重试延迟（秒）
-    
-  # 交易时间配置
-  trading_hours:
-    morning_start: "09:30"
-    morning_end: "11:30"
-    afternoon_start: "13:00"
-    afternoon_end: "15:00"
-    weekdays_only: true  # 仅工作日交易
-    sleep_interval: 60   # 非交易时间休眠间隔（秒）
-    
-  # 任务状态监控配置
-  monitoring:
-    health_check_interval: 60  # 健康检查间隔（秒）
-    max_task_failures: 5  # 最大任务失败次数
-    alert_on_failure: true  # 失败时是否告警
-
-# 数据接口配置
-data_api:
-  # 实时价格数据接口
-  realtime_prices:
-    enabled: true
-    update_interval: 30  # 更新间隔（秒）
-    max_history_points: 100  # 最大历史数据点数
-    
-  # 持仓历史数据接口
-  position_history:
-    enabled: true
-    max_records: 1000  # 最大记录数
-    
-  # 交易记录数据接口
-  trade_records:
-    enabled: true
-    max_records: 500  # 最大记录数
-
-# 日志配置
 logging:
   level: "INFO"
-  file: "logs/etf_trading.log"
+  file: "logs/llm_trade.log"
   max_size: "10MB"
   backup_count: 5
-
-# 交易配置
-trading:
-  # 佣金设置
-  commission:
-    enabled: true
-    fee: 5.0  # 每次交易佣金费用（元）
-  
-  # T+1交易规则
-  t1_rule:
-    enabled: true
-    # 黄金ETF特殊规则（T+0）
-    gold_etf_t0: ["518880"]
