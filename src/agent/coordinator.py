@@ -454,126 +454,24 @@ class AgentCoordinator:
         lines = [
             "## \u7efc\u5408\u7ed3\u8bba",
             "",
-            "| \u80a1\u7968 | \u7efc\u5408\u5206\u5c42 | \u64cd\u4f5c\u5efa\u8bae | \u89e6\u53d1\u6761\u4ef6 | \u5931\u6548/\u6b62\u635f | \u4ed3\u4f4d | \u4e3b\u8981\u98ce\u9669 |",
-            "| --- | --- | --- | --- | --- | --- | --- |",
+            "| \u80a1\u7968 | \u7efc\u5408\u503e\u5411 | \u6838\u5fc3\u77db\u76fe | \u8d44\u8baf\u98ce\u63a7 |",
+            "| --- | --- | --- | --- |",
         ]
         for item in detailed_reports:
             asset = item.get("asset_info", {})
-            advice = self._build_targeted_operation_advice(item)
+            risk = item.get("news_risk_analysis") if isinstance(item.get("news_risk_analysis"), dict) else {}
             lines.append(
-                "| {stock} | {view} | {action} | {trigger} | {stop} | {position} | {risk} |".format(
-                    stock=self._markdown_table_cell(f"{asset.get('name', '')}({asset.get('code', '')})"),
-                    view=self._markdown_table_cell(advice["view"]),
-                    action=self._markdown_table_cell(advice["action"]),
-                    trigger=self._markdown_table_cell(advice["trigger"]),
-                    stop=self._markdown_table_cell(advice["stop"]),
-                    position=self._markdown_table_cell(advice["position"]),
-                    risk=self._markdown_table_cell(advice["risk"]),
+                "| {name}({code}) | {view} | {reason} | {risk_level}/{action} |".format(
+                    name=asset.get("name", ""),
+                    code=asset.get("code", ""),
+                    view=self._infer_targeted_view(item),
+                    reason=self._build_targeted_reason(item),
+                    risk_level=risk.get("risk_level", "unknown"),
+                    action=risk.get("action", "unknown"),
                 )
             )
         lines.append("")
         return lines
-
-    def _build_targeted_operation_advice(self, report: Dict[str, Any]) -> Dict[str, str]:
-        """汇总单股基本面、技术面和资讯风控，生成可执行的操作建议。"""
-        view = self._infer_targeted_view(report)
-        fund_text = str(report.get("fundamental_analysis", ""))
-        tech_text = str(report.get("technical_analysis", ""))
-        risk = report.get("news_risk_analysis") if isinstance(report.get("news_risk_analysis"), dict) else {}
-
-        trigger = self._extract_labeled_section(tech_text, ["\u4e70\u70b9/\u89e6\u53d1", "\u4e70\u70b9", "\u89e6\u53d1"])
-        stop = self._extract_labeled_section(tech_text, ["\u6b62\u635f/\u5931\u6548", "\u6b62\u635f", "\u5931\u6548"])
-        tech_action = self._extract_labeled_section(tech_text, ["\u64cd\u4f5c\u5efa\u8bae"])
-        tech_risk = self._extract_labeled_section(tech_text, ["\u91cf\u80fd\u4e0e\u98ce\u9669", "\u98ce\u9669"])
-
-        if risk.get("hard_exclude"):
-            action = "\u56de\u907f\uff0c\u8d44\u8baf\u98ce\u63a7\u5df2\u786c\u6392\u9664\uff0c\u4e0d\u8fdb\u5165\u4ea4\u6613\u8ba1\u5212\u3002"
-            position = "0"
-        elif view == "\u5f3a\u63a8\u8350":
-            action = tech_action or "\u7b49\u5f85\u6280\u672f\u89e6\u53d1\u540e\u5206\u6279\u53c2\u4e0e\uff0c\u4e0d\u8ffd\u65e0\u91cf\u62c9\u5347\u3002"
-            position = "\u22642\u6210"
-        elif view == "\u914d\u7f6e/\u8f7b\u4ed3\u9a8c\u8bc1":
-            action = tech_action or "\u4ec5\u6309\u914d\u7f6e\u6216\u8f7b\u4ed3\u9a8c\u8bc1\u5904\u7406\uff0c\u7b49\u56de\u8e29\u652f\u6491\u6216\u7f29\u91cf\u4f01\u7a33\u540e\u518d\u8003\u8651\u3002"
-            position = "\u22641-1.5\u6210"
-        elif view in {"\u4e2d\u6027\u89c2\u5bdf", "\u8c28\u614e\u89c2\u671b"}:
-            action = tech_action or "\u6682\u4e0d\u4e3b\u52a8\u5efa\u4ed3\uff0c\u5148\u89c2\u5bdf\u8d8b\u52bf\u3001\u91cf\u80fd\u548c\u57fa\u672c\u9762\u9a8c\u8bc1\u4fe1\u53f7\u3002"
-            position = "\u89c2\u5bdf\u4ed3\u6216 0"
-        else:
-            action = tech_action or "\u6682\u4e0d\u53c2\u4e0e\u3002"
-            position = "0"
-
-        if not trigger:
-            trigger = "\u7b49\u5f85\u6280\u672f\u9762\u660e\u786e\u7684\u56de\u8e29\u4f01\u7a33\u3001\u653e\u91cf\u7a81\u7834\u6216\u8d8b\u52bf\u4fee\u590d\u4fe1\u53f7\u3002"
-        if not stop:
-            stop = "\u4ee5\u6280\u672f\u5f62\u6001\u5931\u6548\u3001\u8dcc\u7834\u5173\u952e\u652f\u6491\u6216\u8d44\u8baf\u98ce\u9669\u5347\u7ea7\u4e3a\u79bb\u573a\u6761\u4ef6\u3002"
-
-        risk_text = self._build_targeted_risk_text(risk, tech_risk, fund_text)
-        return {
-            "view": view,
-            "action": self._compact_summary_text(action, 120),
-            "trigger": self._compact_summary_text(trigger, 110),
-            "stop": self._compact_summary_text(stop, 100),
-            "position": position,
-            "risk": self._compact_summary_text(risk_text, 110),
-        }
-
-    def _build_targeted_risk_text(self, risk: Dict[str, Any], tech_risk: str, fund_text: str) -> str:
-        """生成综合风险描述，优先保留资讯风控，其次补技术和基本面短板。"""
-        parts = []
-        if risk:
-            parts.append(
-                "\u8d44\u8baf\u98ce\u63a7 {level}/{action}\uff0c\u786c\u6392\u9664={hard_exclude}".format(
-                    level=risk.get("risk_level", "unknown"),
-                    action=risk.get("action", "unknown"),
-                    hard_exclude=risk.get("hard_exclude", False),
-                )
-            )
-            summary = str(risk.get("summary") or "").strip()
-            if summary:
-                parts.append(summary)
-        if tech_risk:
-            parts.append(tech_risk)
-        if "\u5f31" in fund_text:
-            parts.append("\u57fa\u672c\u9762\u504f\u5f31\uff0c\u9700\u964d\u4f4e\u4f30\u503c\u548c\u4ed3\u4f4d\u5bb9\u9519\u3002")
-        elif "\u4e2d\u6027" in fund_text:
-            parts.append("\u57fa\u672c\u9762\u4e2d\u6027\uff0c\u66f4\u4f9d\u8d56\u4e70\u70b9\u548c\u98ce\u9669\u6536\u76ca\u6bd4\u3002")
-        return "\uff1b".join(part for part in parts if part) or "\u6682\u672a\u8bc6\u522b\u660e\u786e\u786c\u98ce\u9669\uff0c\u4f46\u9700\u7ed3\u5408\u4e70\u70b9\u63a7\u5236\u56de\u64a4\u3002"
-
-    def _extract_labeled_section(self, text: str, labels: List[str]) -> str:
-        """从 Agent 文本里抽取固定标签后的内容。"""
-        if not text:
-            return ""
-        normalized = re.sub(r"[*#`>\r]+", "", text)
-        stop_labels = [
-            "\u6280\u672f\u7ed3\u8bba",
-            "\u4e70\u70b9/\u89e6\u53d1",
-            "\u6b62\u635f/\u5931\u6548",
-            "\u91cf\u80fd\u4e0e\u98ce\u9669",
-            "\u64cd\u4f5c\u5efa\u8bae",
-            "\u57fa\u672c\u9762\u7ed3\u8bba",
-            "\u8d22\u52a1\u8d8b\u52bf",
-            "\u8d28\u91cf\u98ce\u9669",
-            "\u5b8f\u89c2\u9002\u914d",
-            "\u6700\u7ec8\u8bc4\u7ea7",
-        ]
-        for label in labels:
-            pattern = (
-                rf"(?:^|\n)\s*-?\s*{re.escape(label)}\s*[:\uff1a]\s*"
-                rf"(.*?)(?=\n\s*-?\s*(?:{'|'.join(re.escape(item) for item in stop_labels)})\s*[:\uff1a]|\Z)"
-            )
-            match = re.search(pattern, normalized, flags=re.S)
-            if match:
-                return self._compact_summary_text(match.group(1), 160)
-        return ""
-
-    def _compact_summary_text(self, text: str, max_len: int = 120) -> str:
-        text = re.sub(r"\s+", " ", str(text or "")).strip(" \n\t-;；")
-        if len(text) <= max_len:
-            return text
-        return text[:max_len].rstrip() + "..."
-
-    def _markdown_table_cell(self, text: Any) -> str:
-        return str(text or "").replace("|", "/").replace("\n", "<br>")
 
     def _infer_targeted_view(self, report: Dict[str, Any]) -> str:
         """按基本面、技术面和资讯风控给出保守的单股总评。"""
@@ -584,16 +482,8 @@ class AgentCoordinator:
             return "\u56de\u907f"
         if "\u5f31" in fund_text and any(word in tech_text for word in ["\u4e0d\u5b9c\u8ffd\u9ad8", "\u89c2\u671b", "\u5f31\u52bf"]):
             return "\u8c28\u614e\u89c2\u671b"
-        if (
-            risk.get("risk_level") == "low"
-            and any(word in fund_text for word in ["\u4e2d\u6027", "\u7a33\u5065", "\u624e\u5b9e", "\u9632\u5fa1"])
-            and any(word in tech_text for word in ["\u8f7b\u4ed3", "\u4f4e\u5438", "\u652f\u6491", "\u7f29\u91cf", "\u9632\u5fa1"])
-        ):
-            return "\u914d\u7f6e/\u8f7b\u4ed3\u9a8c\u8bc1"
         if "\u4e2d\u6027" in fund_text and any(word in tech_text for word in ["\u89c2\u671b", "\u8f7b\u4ed3", "\u4f4e\u5438"]):
-            return "\u914d\u7f6e/\u8f7b\u4ed3\u9a8c\u8bc1"
-        if "\u5f3a" in fund_text and risk.get("risk_level") == "low" and not any(word in tech_text for word in ["\u4e0d\u5b9c\u8ffd\u9ad8", "\u89c2\u671b", "\u9ad8\u4f4d"]):
-            return "\u5f3a\u63a8\u8350"
+            return "\u89c2\u5bdf/\u8f7b\u4ed3\u9a8c\u8bc1"
         if risk.get("risk_level") == "low":
             return "\u4e2d\u6027\u89c2\u5bdf"
         return "\u8c28\u614e\u89c2\u671b"
