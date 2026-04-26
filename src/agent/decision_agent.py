@@ -72,9 +72,20 @@ class DecisionAgent:
 历史反思记忆：
 {reflection_memory or "暂无"}
 
-请输出一份详细且专业的中文 Markdown 决策报告。报告结尾必须包含一个机器可解析的代码块，格式如下：
+请输出一份详细且专业的中文 Markdown 决策报告。
+必须使用统一推荐分层，不能把所有入选标的都笼统写成“推荐”：
+- 强推荐：基本面强、技术形态明确、资讯风控低，适合作为本轮核心候选。
+- 配置/轻仓验证：防御属性、回踩支撑、低风险配置或赔率一般但胜率较稳，只能轻仓或等触发条件。
+- 观察：单独看有亮点，但买点、趋势、成长性或风控仍不够清晰。
+- 不推荐：基本面、技术面或资讯风控存在明显短板。
+如果某只股票只是弱市防御、缩量回踩、基本面稳但成长一般，请标为“配置/轻仓验证”，不要写成“强推荐”。
+最终决策表必须包含“推荐分层”列，并在个股标题中使用对应分层，例如“长江电力(600900) —— 配置/轻仓验证”。
+每只股票的资讯风控不能只写“风险等级：低/中/高”，必须至少说明：风险等级、处理动作、是否硬排除、新闻质量或关键证据；如果没有命中负面，也要写明“未发现明确负面关键词/公告硬风险”等依据。
+
+报告结尾必须包含一个机器可解析的代码块，格式如下：
 [CODE_LIST] 000001, 600000 [/CODE_LIST]
-如果没有推荐标的，请输出：
+CODE_LIST 只放“强推荐”和“配置/轻仓验证”的代码，不放“观察”和“不推荐”的代码。
+如果没有强推荐或配置/轻仓验证标的，请输出：
 [CODE_LIST] [/CODE_LIST]
 """
         user_prompt = f"""
@@ -224,7 +235,36 @@ class DecisionAgent:
     def _format_news_risk_for_prompt(self, risk: Any) -> str:
         """统一资讯风险报告的显示格式。"""
         if isinstance(risk, dict):
-            return risk.get("summary") or json.dumps(risk, ensure_ascii=False)
+            parts = [
+                f"风险等级={risk.get('risk_level', 'unknown')}",
+                f"处理动作={risk.get('action', 'unknown')}",
+                f"硬排除={risk.get('hard_exclude', False)}",
+            ]
+            summary = str(risk.get("summary") or "").strip()
+            if summary:
+                parts.append(f"规则摘要={summary}")
+
+            news_quality = risk.get("news_quality") or {}
+            if isinstance(news_quality, dict) and news_quality:
+                parts.append(
+                    "新闻质量={quality}, raw={raw}, direct={direct}, mention={mention}".format(
+                        quality=news_quality.get("quality", "unknown"),
+                        raw=news_quality.get("raw_count", 0),
+                        direct=news_quality.get("direct_count", 0),
+                        mention=news_quality.get("mention_count", 0),
+                    )
+                )
+
+            evidence = risk.get("evidence") or []
+            if evidence:
+                parts.append("命中证据=" + "；".join(str(item) for item in evidence[:3]))
+
+            llm_report = str(risk.get("llm_report") or "").strip()
+            if llm_report:
+                compact_report = re.sub(r"\s+", " ", llm_report)
+                parts.append(f"LLM风控结论={compact_report[:500]}")
+
+            return "；".join(parts)
         return str(risk or "暂无")
 
     def _format_macro_context_for_prompt(self, macro_context: Dict[str, Any]) -> str:
@@ -298,14 +338,16 @@ class DecisionAgent:
             "注意：由于 LLM API 暂时不可用，本报告基于技术预筛分数和资讯风控硬门槛自动生成。",
             f"当前市场风险偏好：{risk_appetite}",
             "",
-            "## 推荐入选标的",
+            "## 入选标的分层",
         ]
         for profile in selected:
             asset = profile.get("asset_info", {})
+            tier = self._infer_fallback_tier(profile)
             lines.append(
-                "- {name}({code}) 技术得分={score}, 入选理由={reason}".format(
+                "- {name}({code}) —— {tier}；技术得分={score}, 入选理由={reason}".format(
                     name=asset.get("name", ""),
                     code=asset.get("code", ""),
+                    tier=tier,
                     score=asset.get("technical_score", "N/A"),
                     reason=asset.get("screen_reason", "N/A"),
                 )
@@ -315,6 +357,23 @@ class DecisionAgent:
         
         lines.extend(["", f"[CODE_LIST] {', '.join(selected_codes)} [/CODE_LIST]"])
         return "\n".join(lines), selected_codes
+
+    def _infer_fallback_tier(self, profile: Dict[str, Any]) -> str:
+        """LLM 不可用时，用保守规则给入选标的补充分层，避免报告口径过强。"""
+        asset = profile.get("asset_info", {})
+        fund_text = str(profile.get("fundamental_analysis", ""))
+        tech_text = str(profile.get("technical_analysis", ""))
+        risk = profile.get("news_risk_analysis") if isinstance(profile.get("news_risk_analysis"), dict) else {}
+        if risk.get("hard_exclude"):
+            return "不推荐"
+        if risk.get("risk_level") not in (None, "", "low") and risk.get("action") == "watch":
+            return "观察"
+        if "强" in fund_text and not any(word in tech_text for word in ["不宜追高", "观望", "高位"]):
+            return "强推荐"
+        primary_tags = asset.get("strategy_tags") or []
+        if any(tag in primary_tags for tag in ["support_pullback", "value_bottom"]) or any(word in tech_text for word in ["轻仓", "低吸", "支撑", "缩量"]):
+            return "配置/轻仓验证"
+        return "观察"
 
     def _build_all_blocked_report(self, blocked_reports: List[Dict[str, Any]]) -> str:
         """当所有候选股都被风控拦截时的特殊报告。"""

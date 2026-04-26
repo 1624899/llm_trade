@@ -62,7 +62,6 @@ def main():
         logger.info(f">>> 收到指定分析指令：{args.analyze}")
         coordinator = AgentCoordinator()
         report = coordinator.run_targeted_analysis(args.analyze)
-        print(report)
 
     if args.post:
         logger.info(">>> 收到指令：执行盘后仓位结算与 AI 错题反思...")

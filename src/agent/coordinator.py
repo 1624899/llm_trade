@@ -482,8 +482,16 @@ class AgentCoordinator:
             return "\u56de\u907f"
         if "\u5f31" in fund_text and any(word in tech_text for word in ["\u4e0d\u5b9c\u8ffd\u9ad8", "\u89c2\u671b", "\u5f31\u52bf"]):
             return "\u8c28\u614e\u89c2\u671b"
+        if (
+            risk.get("risk_level") == "low"
+            and any(word in fund_text for word in ["\u4e2d\u6027", "\u7a33\u5065", "\u624e\u5b9e", "\u9632\u5fa1"])
+            and any(word in tech_text for word in ["\u8f7b\u4ed3", "\u4f4e\u5438", "\u652f\u6491", "\u7f29\u91cf", "\u9632\u5fa1"])
+        ):
+            return "\u914d\u7f6e/\u8f7b\u4ed3\u9a8c\u8bc1"
         if "\u4e2d\u6027" in fund_text and any(word in tech_text for word in ["\u89c2\u671b", "\u8f7b\u4ed3", "\u4f4e\u5438"]):
-            return "\u89c2\u5bdf/\u8f7b\u4ed3\u9a8c\u8bc1"
+            return "\u914d\u7f6e/\u8f7b\u4ed3\u9a8c\u8bc1"
+        if "\u5f3a" in fund_text and risk.get("risk_level") == "low" and not any(word in tech_text for word in ["\u4e0d\u5b9c\u8ffd\u9ad8", "\u89c2\u671b", "\u9ad8\u4f4d"]):
+            return "\u5f3a\u63a8\u8350"
         if risk.get("risk_level") == "low":
             return "\u4e2d\u6027\u89c2\u5bdf"
         return "\u8c28\u614e\u89c2\u671b"
