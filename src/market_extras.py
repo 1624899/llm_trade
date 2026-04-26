@@ -243,16 +243,43 @@ def fetch_eastmoney_announcements(
     for item in items:
         columns = item.get("columns") or []
         col_names = [c.get("column_name", "") for c in columns if c.get("column_name")]
+        art_code = item.get("art_code", "")
         rows.append(
             {
                 "code": code,
+                "art_code": art_code,
                 "title": item.get("title", ""),
                 "date": str(item.get("notice_date", ""))[:10],
                 "categories": "、".join(col_names) if col_names else "",
+                "url": f"https://data.eastmoney.com/notices/detail/{code}/{art_code}.html" if art_code else "",
                 "source": "eastmoney",
             }
         )
     return pd.DataFrame(rows)
+
+
+def fetch_eastmoney_announcement_content(art_code: str, timeout: int = 10) -> Dict:
+    """根据东方财富 art_code 获取公告正文和附件链接。"""
+    art_code = str(art_code or "").strip()
+    if not art_code:
+        return {}
+
+    url = f"https://np-cnotice-stock.eastmoney.com/api/content/ann?client_source=web&art_code={art_code}"
+    try:
+        resp = requests.get(url, headers=_EM_HEADERS, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json().get("data") or {}
+    except Exception as exc:
+        logger.warning(f"[EastMoney] 公告正文拉取失败 {art_code}: {exc}")
+        return {}
+
+    return {
+        "art_code": data.get("art_code") or art_code,
+        "title": data.get("notice_title") or "",
+        "date": str(data.get("notice_date") or "")[:10],
+        "content": data.get("notice_content") or "",
+        "attach_url": data.get("attach_url") or data.get("attach_url_web") or "",
+    }
 
 
 def format_announcements_for_prompt(df: pd.DataFrame, limit: int = 8) -> str:
@@ -264,4 +291,3 @@ def format_announcements_for_prompt(df: pd.DataFrame, limit: int = 8) -> str:
         cat = f" [{row.get('categories')}]" if row.get("categories") else ""
         lines.append(f"  {row.get('date', '')} {row.get('title', '')}{cat}")
     return "\n".join(lines)
-

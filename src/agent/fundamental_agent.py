@@ -24,6 +24,18 @@ class FundamentalAgent:
         macro_text = json.dumps(macro_context or {}, ensure_ascii=False, indent=2)
         announcement_info = tools.fetch_stock_announcements(code, limit=10)
         financial_info = self.financial_provider.format_financial_summary(code, periods=8)
+        announcement_detail_info = tools.fetch_stock_announcement_details(
+            code,
+            limit=10,
+            max_announcements=3,
+            financial_reports_covered=bool(financial_info),
+        )
+        announcement_prompt_info = announcement_info
+        if announcement_detail_info:
+            announcement_prompt_info = (
+                f"{announcement_info}\n\n"
+                f"重点公告正文摘要：\n{announcement_detail_info}"
+            )
 
         system_prompt = """
 你是一名A股基本面分析师。请基于结构化财务数据、近期公告和宏观环境，判断公司质量、成长性、估值支撑和主要风险。
@@ -47,7 +59,7 @@ class FundamentalAgent:
 {financial_info or "未获取到东方财富财务报表数据，请降低确定性并明确数据缺口。"}
 
 近期公告：
-{announcement_info or "东方财富未获取到该股近期公告。"}
+{announcement_prompt_info or "东方财富未获取到该股近期公告。"}
 """
 
         report = tools.call_llm(system_prompt, user_prompt, temperature=0.2)

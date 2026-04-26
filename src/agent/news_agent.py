@@ -1,4 +1,4 @@
-"""
+﻿"""
 资讯防雷智能体 (News Risk Agent)
 
 职责：
@@ -19,7 +19,7 @@ from src.agent.tools import tools
 RISK_KEYWORDS = {
     "block": ["立案调查", "行政处罚", "重大诉讼", "业绩预告修正", "重组终止", "定增失败"],
     "high": ["减持", "大股东减持", "控股股东减持", "质押", "高比例质押", "问询函", "监管函", "解禁"],
-    "medium": ["留置", "被查", "诉讼", "仲裁", "处罚", "业绩预告", "商誉减值", "债务逾期"],
+    "medium": ["留置", "被查", "诉讼", "仲裁", "处罚", "业绩预亏", "业绩预减", "业绩下修", "业绩大幅下滑", "商誉减值", "债务逾期"],
 }
 
 
@@ -30,12 +30,32 @@ class NewsRiskAgent:
 
         # 数据源 1：新浪财经个股新闻
         news_info = tools.fetch_stock_news(code, limit=8)
+        direct_news_info, mention_news_info = self._split_relevant_news(news_info, code=code, name=name)
+        direct_news_headlines = direct_news_info
+        news_detail_info = tools.fetch_stock_news_details(direct_news_info, max_articles=3)
+        if news_detail_info:
+            direct_news_info = (
+                f"{direct_news_headlines}\n\n"
+                f"直接相关新闻正文摘要：\n{news_detail_info}"
+            )
         # 数据源 2：东方财富个股公告（免费结构化接口，替代 Tavily/DDG 搜索）
         announcement_info = tools.fetch_stock_announcements(code, limit=10)
+        announcement_detail_info = tools.fetch_stock_announcement_details(
+            code,
+            limit=10,
+            max_announcements=3,
+            financial_reports_covered=True,
+        )
+        announcement_prompt_info = announcement_info
+        if announcement_detail_info:
+            announcement_prompt_info = (
+                f"{announcement_info}\n\n"
+                f"重点公告正文摘要：\n{announcement_detail_info}"
+            )
 
         macro_text = json.dumps(macro_context or {}, ensure_ascii=False, indent=2)
         # 关键词排雷同时扫描新闻和公告
-        combined_text = f"{news_info}\n{announcement_info}"
+        combined_text = f"{direct_news_info}\n{announcement_prompt_info}"
         assessment = self.assess_keyword_risk(combined_text, code=code, name=name)
 
         system_prompt = """
@@ -65,10 +85,10 @@ class NewsRiskAgent:
 {macro_text}
 
 近期新闻资讯（新浪财经）：
-{news_info or "新浪财经未获取到该股近期新闻。"}
+{direct_news_info or "新浪财经未获取到该股近期新闻。"}
 
 近期公告（东方财富）：
-{announcement_info or "东方财富未获取到该股近期公告。"}
+{announcement_prompt_info or "东方财富未获取到该股近期公告。"}
 """
 
         report = tools.call_llm(system_prompt, user_prompt, temperature=0.1)
@@ -76,10 +96,48 @@ class NewsRiskAgent:
             report = "资讯防雷 LLM 检查暂不可用，已使用关键词规则结果。"
 
         assessment["llm_report"] = report
+        assessment = self._apply_llm_verdict(assessment, report)
         assessment["raw_news"] = news_info
+        assessment["relevant_news"] = direct_news_headlines
+        assessment["news_detail_info"] = news_detail_info
+        assessment["mention_news"] = mention_news_info
+        assessment["news_quality"] = self._assess_news_quality(news_info, direct_news_headlines, mention_news_info)
         assessment["announcement_info"] = announcement_info
+        assessment["announcement_detail_info"] = announcement_detail_info
         assessment["summary"] = self._format_structured_summary(assessment)
         return assessment
+
+    def _apply_llm_verdict(self, assessment: Dict[str, Any], report: str) -> Dict[str, Any]:
+        """把 LLM 风控等级同步到结构化字段，避免报告摘要和正文结论冲突。"""
+        text = report or ""
+        high_risk = ("高危" in text and "风险等级" in text) or ("禁止" in text and "建议" in text)
+        cautious = ("中性偏谨慎" in text) or ("谨慎" in text and "建议" in text)
+
+        if high_risk:
+            assessment["risk_level"] = "high"
+            assessment["action"] = "hard_exclude"
+            assessment["hard_exclude"] = True
+            matched = list(assessment.get("matched_keywords") or [])
+            if not any(item.get("keyword") == "LLM高危/禁止" for item in matched):
+                matched.append({"keyword": "LLM高危/禁止", "level": "high"})
+            assessment["matched_keywords"] = matched
+            evidence = list(assessment.get("evidence") or [])
+            if not evidence:
+                evidence.append(self._first_meaningful_line(text))
+            assessment["evidence"] = evidence[:5]
+        elif cautious and assessment.get("risk_level") == "low":
+            assessment["risk_level"] = "medium"
+            assessment["action"] = "watch"
+            assessment["hard_exclude"] = False
+        return assessment
+
+    def _first_meaningful_line(self, text: str) -> str:
+        """提取 LLM 报告中的第一条可读证据。"""
+        for raw_line in re.split(r"[\r\n]+", text or ""):
+            line = re.sub(r"[*#\s]+", " ", raw_line).strip()
+            if line:
+                return line[:260]
+        return "LLM 风控结论提示高风险。"
 
     def assess_keyword_risk(self, text: str, code: str = "", name: str = "") -> Dict[str, Any]:
         """Deterministic keyword-based risk gate used before any LLM decision."""
@@ -147,6 +205,67 @@ class NewsRiskAgent:
             if len(lines) >= limit:
                 break
         return lines
+
+    def _filter_relevant_news(self, text: str, code: str = "", name: str = "", limit: int = 5) -> str:
+        """保留直接提到当前股票代码或名称的新闻，降低原始个股页噪音。"""
+        direct_news, mention_news = self._split_relevant_news(text, code=code, name=name, limit=limit)
+        return direct_news or mention_news
+
+    def _split_relevant_news(self, text: str, code: str = "", name: str = "", limit: int = 5) -> tuple[str, str]:
+        """按标题主体位置区分公司直接新闻和仅提及新闻，避免把弱相关内容当成风控核心证据。"""
+        if not text:
+            return "", ""
+        code = str(code or "").zfill(6) if code else ""
+        name = str(name or "").strip()
+        direct = []
+        mentions = []
+        for raw_line in re.split(r"[\r\n]+", text):
+            line = re.sub(r"\s+", " ", raw_line).strip()
+            if not line or line.startswith("No recent stock news found"):
+                continue
+            if not ((code and code in line) or (name and name in line)):
+                continue
+            if self._is_direct_company_news(line, code=code, name=name):
+                direct.append(line)
+            else:
+                mentions.append(line)
+            if len(direct) >= limit and len(mentions) >= limit:
+                break
+        return "\n".join(direct[:limit]), "\n".join(mentions[:limit])
+
+    def _is_direct_company_news(self, line: str, code: str = "", name: str = "") -> bool:
+        """判断标题是否以当前公司为主体，而不是只在合作方、行业新闻里被顺带提到。"""
+        if code and code in line:
+            return True
+        if not name or name not in line:
+            return False
+        title = re.sub(r"^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+", "", line).strip()
+        title = re.sub(r"\s*\(https?://.*$", "", title).strip()
+        first_pos = title.find(name)
+        if first_pos < 0:
+            return False
+        prefix = title[:first_pos]
+        weak_mention_markers = ["联合", "完成", "适航", "合作", "供应", "客户"]
+        if any(marker in prefix for marker in weak_mention_markers):
+            return False
+        return len(prefix) <= 12
+
+    def _assess_news_quality(self, raw_news: str, direct_news: str, mention_news: str) -> Dict[str, Any]:
+        raw_count = len([line for line in re.split(r"[\r\n]+", raw_news or "") if line.strip()])
+        direct_count = len([line for line in re.split(r"[\r\n]+", direct_news or "") if line.strip()])
+        mention_count = len([line for line in re.split(r"[\r\n]+", mention_news or "") if line.strip()])
+        if direct_count >= 2:
+            level = "good"
+        elif direct_count == 1:
+            level = "limited"
+        else:
+            level = "weak"
+        return {
+            "raw_count": raw_count,
+            "direct_count": direct_count,
+            "mention_count": mention_count,
+            "quality": level,
+        }
 
     def _format_structured_summary(self, assessment: Dict[str, Any]) -> str:
         keywords = ", ".join(item["keyword"] for item in assessment.get("matched_keywords", [])) or "无"

@@ -24,9 +24,10 @@ def main():
     parser.add_argument("--pick", action="store_true", help="【自动选股】执行技术面预筛选 + 多 Agent 深度分析选股流程")
     parser.add_argument("--post", action="store_true", help="【盘后清算】运行盘后例行维护：虚拟观察仓结算 + 失败错题反思并沉淀风控规则")
     
+    parser.add_argument("--analyze", nargs="+", help="【指定分析】对指定 A 股代码做单独深度分析，例如：python main.py --analyze 600519 000001")
     args = parser.parse_args()
     
-    if not any([args.sync, args.pick, args.post]):
+    if not any([args.sync, args.pick, args.analyze, args.post]):
         parser.print_help()
         logger.info("\n没有输入任何指令。例如执行每日选股： python main.py --pick")
         return
@@ -56,6 +57,13 @@ def main():
             logger.error(f"保存研报失败: {e}")
 
     # 3. 闭环虚拟仓管理与大模型自我反思进化
+    # 3. 用户指定股票的单独深度分析
+    if args.analyze:
+        logger.info(f">>> 收到指定分析指令：{args.analyze}")
+        coordinator = AgentCoordinator()
+        report = coordinator.run_targeted_analysis(args.analyze)
+        print(report)
+
     if args.post:
         logger.info(">>> 收到指令：执行盘后仓位结算与 AI 错题反思...")
         coordinator = AgentCoordinator()

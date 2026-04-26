@@ -1,4 +1,4 @@
-"""
+﻿"""
 大模型多智能体选股协调器 (Coordinator)
 
 职责：
@@ -9,6 +9,7 @@
 
 import json
 import os
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -27,6 +28,7 @@ from src.agent.reflection_agent import ReflectionAgent
 from src.stock_screener import StockScreener
 from src.agent.technical_agent import TechnicalAgent
 from src.agent.trace_recorder import trace_recorder
+from src.database import StockDatabase
 from src.evaluation.paper_trading import PaperTrading
 
 
@@ -55,6 +57,7 @@ class AgentCoordinator:
         self.decision_agent = DecisionAgent()
         self.reflection_agent = ReflectionAgent()
         self.paper_trading = PaperTrading()
+        self.db = StockDatabase()
 
     def run_picking_workflow(self, max_candidates: int = 10) -> str:
         """
@@ -280,6 +283,316 @@ class AgentCoordinator:
         for item in errors:
             lines.append(f"- {item.get('name')}({item.get('code')}): {item.get('error')}")
         return report.rstrip() + "\n" + "\n".join(lines)
+
+    def run_targeted_analysis(self, codes: List[str]) -> str:
+        """对用户指定的股票做单独深度分析，不走海选，也不自动加入观察仓。"""
+        normalized_codes = self._normalize_target_codes(codes)
+        if not normalized_codes:
+            return "没有识别到有效的 6 位股票代码。"
+
+        logger.info(f"=== 开始指定股票单独分析：{', '.join(normalized_codes)} ===")
+        start_time = time.time()
+        trace_path = trace_recorder.start()
+
+        candidates = self._build_target_candidates(normalized_codes)
+        macro_context = self.macro_agent.analyze_macro_environment()
+        detailed_reports, analysis_errors = self._analyze_candidates_concurrently(candidates, macro_context)
+        report = self._format_targeted_analysis_report(detailed_reports, macro_context, analysis_errors)
+
+        elapsed = time.time() - start_time
+        self._save_targeted_analysis_audit(
+            requested_codes=normalized_codes,
+            candidates=candidates,
+            macro_context=macro_context,
+            detailed_reports=detailed_reports,
+            analysis_errors=analysis_errors,
+            final_report=report,
+            elapsed_seconds=elapsed,
+            trace_path=str(trace_path),
+        )
+        trace_recorder.finish()
+        logger.info(f"=== 指定股票单独分析结束，耗时 {elapsed:.1f} 秒 ===")
+        return report
+
+    def _normalize_target_codes(self, codes: List[str]) -> List[str]:
+        """清洗命令行输入的股票代码，保留原始顺序并去重。"""
+        normalized: List[str] = []
+        seen = set()
+        for raw_code in codes or []:
+            for part in str(raw_code).replace("，", ",").split(","):
+                code = part.strip()
+                if code.startswith(("sh", "sz", "SH", "SZ")):
+                    code = code[2:]
+                if len(code) == 6 and code.isdigit() and code not in seen:
+                    normalized.append(code)
+                    seen.add(code)
+        return normalized
+
+    def _build_target_candidates(self, codes: List[str]) -> List[Dict[str, Any]]:
+        """从本地数据湖补齐股票名称和最近行情，缺失时仍允许继续分析。"""
+        placeholders = ",".join(["?"] * len(codes))
+        basic_df = self.db.query_to_dataframe(
+            f"SELECT code, name FROM stock_basic WHERE code IN ({placeholders})",
+            tuple(codes),
+        )
+        quote_df = self.db.query_to_dataframe(
+            f"""
+            SELECT q.code, q.price, q.change_pct, q.volume, q.amount, q.turnover_rate,
+                   q.pe_ttm, q.pb, q.total_market_cap, q.trade_date
+            FROM daily_quotes q
+            JOIN (
+                SELECT code, MAX(trade_date) AS trade_date
+                FROM daily_quotes
+                WHERE code IN ({placeholders})
+                GROUP BY code
+            ) latest
+            ON q.code = latest.code AND q.trade_date = latest.trade_date
+            """,
+            tuple(codes),
+        )
+
+        basic_map = {row["code"]: row for _, row in basic_df.iterrows()} if not basic_df.empty else {}
+        quote_map = {row["code"]: row for _, row in quote_df.iterrows()} if not quote_df.empty else {}
+
+        candidates = []
+        for code in codes:
+            basic = basic_map.get(code, {})
+            quote = quote_map.get(code, {})
+            candidates.append(
+                {
+                    "code": code,
+                    "name": basic.get("name") or code,
+                    "industry": basic.get("industry", "") or "",
+                    "price": quote.get("price"),
+                    "change_pct": quote.get("change_pct"),
+                    "volume": quote.get("volume"),
+                    "amount": quote.get("amount"),
+                    "turnover_rate": quote.get("turnover_rate"),
+                    "pe_ttm": quote.get("pe_ttm"),
+                    "pb": quote.get("pb"),
+                    "total_market_cap": quote.get("total_market_cap"),
+                    "trade_date": quote.get("trade_date"),
+                    "analysis_mode": "targeted",
+                    "screen_reason": "用户指定股票，跳过规则海选。",
+                }
+            )
+        return candidates
+
+    def _format_targeted_analysis_report(
+        self,
+        detailed_reports: List[Dict[str, Any]],
+        macro_context: Dict[str, Any],
+        analysis_errors: List[Dict[str, str]],
+    ) -> str:
+        """生成指定股票单独分析 Markdown 报告。"""
+        now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        lines = [
+            "# 指定股票单独分析报告",
+            "",
+            f"- 生成时间：{now_text}",
+            f"- 分析股票数：{len(detailed_reports)}",
+            "- 流程说明：用户指定股票 -> 宏观环境 -> 基本面 Agent -> 技术面 Agent -> 资讯风控 Agent",
+            "",
+            "## 宏观环境摘要",
+            "",
+            f"- 市场情绪：{macro_context.get('market_sentiment', 'unknown')}",
+            f"- 风险偏好：{macro_context.get('risk_appetite', 'unknown')}",
+            f"- 流动性判断：{macro_context.get('liquidity_view', 'unknown')}",
+            f"- 分析重点：{macro_context.get('analysis_focus', 'unknown')}",
+            "",
+        ]
+
+        lines.extend(self._format_targeted_summary(detailed_reports))
+
+        for item in detailed_reports:
+            asset = item.get("asset_info", {})
+            code = asset.get("code", "")
+            name = asset.get("name", "")
+            lines.extend(
+                [
+                    f"## {name}({code})",
+                    "",
+                    "### 快照",
+                    "",
+                    f"- 行业：{asset.get('industry') or '未知'}",
+                    f"- 最新交易日：{asset.get('trade_date') or '本地行情缺失'}",
+                    f"- 最新价：{asset.get('price') if asset.get('price') is not None else '未知'}",
+                    f"- 涨跌幅：{asset.get('change_pct') if asset.get('change_pct') is not None else '未知'}",
+                    f"- 换手率：{asset.get('turnover_rate') if asset.get('turnover_rate') is not None else '未知'}",
+                    f"- PE(TTM)：{asset.get('pe_ttm') if asset.get('pe_ttm') is not None else '未知'}",
+                    f"- PB：{asset.get('pb') if asset.get('pb') is not None else '未知'}",
+                    "",
+                    "### 基本面 Agent",
+                    "",
+                    str(item.get("fundamental_analysis", "")),
+                    "",
+                    "### 技术面 Agent",
+                    "",
+                    str(item.get("technical_analysis", "")),
+                    "",
+                    "### 资讯风控 Agent",
+                    "",
+                    self._format_news_risk_section(item.get("news_risk_analysis")),
+                    "",
+                ]
+            )
+
+        if analysis_errors:
+            lines.append("## 分析异常")
+            lines.append("")
+            for error in analysis_errors:
+                lines.append(f"- {error.get('name')}({error.get('code')}): {error.get('error')}")
+            lines.append("")
+
+        lines.append("> 本报告仅用于研究、复盘和工程实验，不构成任何投资建议。")
+        return "\n".join(lines)
+
+    def _format_targeted_summary(self, detailed_reports: List[Dict[str, Any]]) -> List[str]:
+        """生成指定股票分析的总评表，避免报告只有明细没有结论。"""
+        if not detailed_reports:
+            return []
+        lines = [
+            "## \u7efc\u5408\u7ed3\u8bba",
+            "",
+            "| \u80a1\u7968 | \u7efc\u5408\u503e\u5411 | \u6838\u5fc3\u77db\u76fe | \u8d44\u8baf\u98ce\u63a7 |",
+            "| --- | --- | --- | --- |",
+        ]
+        for item in detailed_reports:
+            asset = item.get("asset_info", {})
+            risk = item.get("news_risk_analysis") if isinstance(item.get("news_risk_analysis"), dict) else {}
+            lines.append(
+                "| {name}({code}) | {view} | {reason} | {risk_level}/{action} |".format(
+                    name=asset.get("name", ""),
+                    code=asset.get("code", ""),
+                    view=self._infer_targeted_view(item),
+                    reason=self._build_targeted_reason(item),
+                    risk_level=risk.get("risk_level", "unknown"),
+                    action=risk.get("action", "unknown"),
+                )
+            )
+        lines.append("")
+        return lines
+
+    def _infer_targeted_view(self, report: Dict[str, Any]) -> str:
+        """按基本面、技术面和资讯风控给出保守的单股总评。"""
+        fund_text = str(report.get("fundamental_analysis", ""))
+        tech_text = str(report.get("technical_analysis", ""))
+        risk = report.get("news_risk_analysis") if isinstance(report.get("news_risk_analysis"), dict) else {}
+        if risk.get("hard_exclude"):
+            return "\u56de\u907f"
+        if "\u5f31" in fund_text and any(word in tech_text for word in ["\u4e0d\u5b9c\u8ffd\u9ad8", "\u89c2\u671b", "\u5f31\u52bf"]):
+            return "\u8c28\u614e\u89c2\u671b"
+        if "\u4e2d\u6027" in fund_text and any(word in tech_text for word in ["\u89c2\u671b", "\u8f7b\u4ed3", "\u4f4e\u5438"]):
+            return "\u89c2\u5bdf/\u8f7b\u4ed3\u9a8c\u8bc1"
+        if risk.get("risk_level") == "low":
+            return "\u4e2d\u6027\u89c2\u5bdf"
+        return "\u8c28\u614e\u89c2\u671b"
+
+    def _build_targeted_reason(self, report: Dict[str, Any]) -> str:
+        """抽取基本面和技术面的第一层结论，压缩成总评理由。"""
+        fund = self._first_meaningful_sentence(str(report.get("fundamental_analysis", "")))
+        tech = self._first_meaningful_sentence(str(report.get("technical_analysis", "")))
+        parts = [part for part in [fund, tech] if part]
+        return "\uff1b".join(parts)[:180] if parts else "\u6682\u65e0\u8db3\u591f\u7ed3\u8bba"
+
+    def _first_meaningful_sentence(self, text: str) -> str:
+        text = re.sub(r"[*#`>\r\n]+", " ", text or "")
+        text = re.sub(r"\s+", " ", text).strip()
+        if not text:
+            return ""
+        parts = re.split(r"[\u3002\uff1b;]", text)
+        return parts[0].strip()[:90] if parts else text[:90]
+
+    def _format_news_risk_section(self, risk: Any) -> str:
+        """把资讯风控结构化结果转成可读报告，不直接暴露 raw_news。"""
+        if not isinstance(risk, dict):
+            return str(risk or "")
+        news_quality = risk.get("news_quality") or {}
+        quality_text = ""
+        if isinstance(news_quality, dict) and news_quality:
+            quality_text = (
+                f"{news_quality.get('quality', 'unknown')} "
+                f"(raw={news_quality.get('raw_count', 0)}, "
+                f"direct={news_quality.get('direct_count', 0)}, "
+                f"mention={news_quality.get('mention_count', 0)})"
+            )
+        lines = [
+            f"- \u98ce\u9669\u7b49\u7ea7\uff1a{risk.get('risk_level', 'unknown')}",
+            f"- \u5904\u7406\u52a8\u4f5c\uff1a{risk.get('action', 'unknown')}",
+            f"- \u786c\u6392\u9664\uff1a{risk.get('hard_exclude', False)}",
+            f"- \u89c4\u5219\u6458\u8981\uff1a{risk.get('summary', '')}",
+            "",
+            "#### LLM \u98ce\u63a7\u7ed3\u8bba",
+            "",
+            str(risk.get("llm_report") or "\u65e0"),
+        ]
+        if quality_text:
+            lines.insert(4, f"- \u65b0\u95fb\u8d28\u91cf\uff1a{quality_text}")
+        evidence = risk.get("evidence") or []
+        if evidence:
+            lines.extend(["", "#### \u547d\u4e2d\u8bc1\u636e", ""])
+            lines.extend(f"- {item}" for item in evidence)
+        relevant_news = str(risk.get("relevant_news") or "").strip()
+        if relevant_news:
+            lines.extend(["", "#### \u76f4\u63a5\u76f8\u5173\u65b0\u95fb", "", relevant_news])
+        elif risk.get("raw_news"):
+            lines.extend([
+                "",
+                "#### \u76f4\u63a5\u76f8\u5173\u65b0\u95fb",
+                "",
+                "\u539f\u59cb\u65b0\u95fb\u6e90\u6709\u8fd4\u56de\u7ed3\u679c\uff0c\u4f46\u672a\u5339\u914d\u5230\u76f4\u63a5\u5305\u542b\u8be5\u80a1\u4ee3\u7801\u6216\u540d\u79f0\u7684\u6709\u6548\u6807\u9898\uff0c\u672a\u7eb3\u5165\u6838\u5fc3\u98ce\u63a7\u8bc1\u636e\u3002",
+            ])
+        news_detail_info = str(risk.get("news_detail_info") or "").strip()
+        if news_detail_info:
+            lines.extend(["", "#### \u76f4\u63a5\u65b0\u95fb\u6b63\u6587\u6458\u8981", "", news_detail_info])
+        mention_news = str(risk.get("mention_news") or "").strip()
+        if mention_news:
+            lines.extend(["", "#### \u5f31\u76f8\u5173\u63d0\u53ca\uff08\u4ec5\u4f5c\u80cc\u666f\uff09", "", mention_news])
+        announcement_info = str(risk.get("announcement_info") or "").strip()
+        if announcement_info:
+            lines.extend(["", "#### \u8fd1\u671f\u516c\u544a", "", announcement_info])
+        announcement_detail_info = str(risk.get("announcement_detail_info") or "").strip()
+        if announcement_detail_info:
+            lines.extend(["", "#### \u91cd\u70b9\u516c\u544a\u6b63\u6587\u6458\u8981", "", announcement_detail_info])
+        return "\n".join(lines)
+    def _save_targeted_analysis_audit(
+        self,
+        requested_codes: List[str],
+        candidates: List[Dict[str, Any]],
+        macro_context: Dict[str, Any],
+        detailed_reports: List[Dict[str, Any]],
+        analysis_errors: List[Dict[str, str]],
+        final_report: str,
+        elapsed_seconds: float,
+        trace_path: str,
+    ) -> None:
+        output_dir = Path("outputs")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        latest_report_path = output_dir / "latest_targeted_analysis.md"
+        latest_audit_path = output_dir / "latest_targeted_analysis_audit.json"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamped_report_path = output_dir / f"targeted_analysis_{timestamp}.md"
+        timestamped_audit_path = output_dir / f"targeted_analysis_audit_{timestamp}.json"
+        audit = {
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "elapsed_seconds": round(elapsed_seconds, 3),
+            "trace_path": trace_path,
+            "requested_codes": requested_codes,
+            "candidates": candidates,
+            "macro_context": macro_context,
+            "detailed_reports": detailed_reports,
+            "analysis_errors": analysis_errors,
+            "final_report": final_report,
+        }
+        try:
+            latest_report_path.write_text(final_report, encoding="utf-8")
+            timestamped_report_path.write_text(final_report, encoding="utf-8")
+            text = json.dumps(audit, ensure_ascii=False, indent=2, default=str)
+            latest_audit_path.write_text(text, encoding="utf-8")
+            timestamped_audit_path.write_text(text, encoding="utf-8")
+            logger.info(f"[TargetedAnalysis] report saved to {latest_report_path}")
+        except Exception as exc:
+            logger.warning(f"[TargetedAnalysis] failed to save report: {exc}")
 
     def _get_candidate_analysis_max_workers(self) -> int:
         workflow_cfg = self.config.get("agent_workflow", {}) if isinstance(self.config, dict) else {}

@@ -169,7 +169,34 @@ python main.py --pick
 - `outputs/latest_workflow_audit.json`
 - `outputs/screener_audit.json`
 
-### 5. 盘后观察仓诊断
+
+### 5. 指定股票单独分析
+
+如果已经有几只想重点看的股票，可以跳过规则海选和观察仓建仓，只复用现有 Agent 做逐只分析：
+
+```bash
+python main.py --analyze 600519 000001 300750
+```
+
+也支持逗号分隔和带市场前缀的写法：
+
+```bash
+python main.py --analyze sh600519,sz000001
+```
+
+该流程会执行：
+
+- `MacroAgent`：先给出当日宏观环境和风险偏好。
+- `FundamentalAgent`：读取财务数据、公告和搜索结果做基本面分析。
+- `TechnicalAgent`：读取本地 K 线和技术信号做走势分析。
+- `NewsRiskAgent`：检查近期新闻、公告和高风险关键词。
+
+指定分析不会调用 `StockScreener`，也不会把股票自动加入观察仓。报告会写入：
+
+- `outputs/latest_targeted_analysis.md`
+- `outputs/latest_targeted_analysis_audit.json`
+
+### 6. 盘后观察仓诊断
 
 ```bash
 python main.py --post

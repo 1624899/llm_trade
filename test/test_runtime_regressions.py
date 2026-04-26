@@ -49,6 +49,16 @@ class MainEntryTests(unittest.TestCase):
 
         mock_pipeline.run_all.assert_called_once_with()
 
+    @patch("main.AgentCoordinator")
+    def test_analyze_uses_targeted_analysis(self, mock_coordinator_cls):
+        mock_coordinator = mock_coordinator_cls.return_value
+        mock_coordinator.run_targeted_analysis.return_value = "targeted report"
+
+        with patch.object(sys, "argv", ["main.py", "--analyze", "600519", "000001"]):
+            main.main()
+
+        mock_coordinator.run_targeted_analysis.assert_called_once_with(["600519", "000001"])
+
 
 class LegacyCleanupTests(unittest.TestCase):
     def test_removed_legacy_etf_modules_are_absent(self):
@@ -358,11 +368,11 @@ class WebSearchTests(unittest.TestCase):
         with patch.object(tool, "_read_web_search_cache", return_value=""), patch.object(
             tool, "_write_web_search_cache"
         ) as mock_write, patch.object(tool, "_tavily_web_search", return_value="") as mock_tavily, patch.object(
-            tool, "_free_web_search", return_value="duckduckgo result"
+            tool, "_free_web_search", return_value="duckduckgo result with enough useful characters"
         ) as mock_duckduckgo:
             result = tool.web_search("risk query", purpose="risk check", max_results=2)
 
-        self.assertEqual(result, "duckduckgo result")
+        self.assertEqual(result, "duckduckgo result with enough useful characters")
         mock_tavily.assert_called_once()
         mock_duckduckgo.assert_called_once()
         mock_write.assert_called_once()
@@ -394,6 +404,74 @@ class WebSearchTests(unittest.TestCase):
         self.assertEqual(results[0]["title"], "Risk Headline")
         self.assertEqual(results[0]["url"], "https://example.com/news")
         self.assertEqual(results[0]["snippet"], "Important & recent disclosure.")
+
+    @patch("src.agent.tools.requests.get")
+    def test_stock_news_details_fetches_article_body(self, mock_get):
+        response = MagicMock()
+        response.text = """
+        <html><body>
+          <script>ignore()</script>
+          <div id="artibody">
+            <p>Company revenue improved.</p>
+            <p>No major risk event was disclosed.</p>
+          </div>
+        </body></html>
+        """
+        response.apparent_encoding = "utf-8"
+        response.encoding = "utf-8"
+        response.raise_for_status.return_value = None
+        mock_get.return_value = response
+        tool = self._build_tool()
+
+        details = tool.fetch_stock_news_details(
+            "2026-04-24 Direct headline (https://example.com/article.shtml)",
+            max_articles=1,
+        )
+
+        self.assertIn("https://example.com/article.shtml", details)
+        self.assertIn("Company revenue improved.", details)
+        self.assertNotIn("ignore()", details)
+
+    @patch("src.agent.tools.fetch_eastmoney_announcement_content")
+    @patch("src.agent.tools.fetch_eastmoney_announcements")
+    def test_stock_announcement_details_fetches_only_high_value_items(self, mock_announcements, mock_content):
+        mock_announcements.return_value = pd.DataFrame(
+            [
+                {
+                    "art_code": "AN_MONTH",
+                    "title": "春秋航空2026年3月份主要运营数据公告",
+                    "date": "2026-04-16",
+                    "categories": "月度经营情况",
+                },
+                {
+                    "art_code": "AN_POLICY",
+                    "title": "董事、高级管理人员薪酬管理制度",
+                    "date": "2026-04-11",
+                    "categories": "管理办法/制度",
+                },
+                {
+                    "art_code": "AN_REPORT",
+                    "title": "春秋航空2025年年度报告摘要",
+                    "date": "2026-04-11",
+                    "categories": "年度报告摘要",
+                },
+            ]
+        )
+        mock_content.return_value = {
+            "title": "春秋航空2026年3月份主要运营数据公告",
+            "date": "2026-04-16",
+            "content": "本月无新增飞机。\n截至本月末，公司共运营 134 架空客 A320 系列飞机。\n客座率同比提升。",
+            "attach_url": "https://pdf.example.com/month.pdf",
+        }
+        tool = self._build_tool()
+
+        details = tool.fetch_stock_announcement_details("601021", financial_reports_covered=True)
+
+        self.assertIn("主要运营数据公告", details)
+        self.assertIn("134 架", details)
+        self.assertNotIn("薪酬管理制度", details)
+        self.assertNotIn("年度报告摘要", details)
+        mock_content.assert_called_once_with("AN_MONTH")
 
 
 class MacroContextTests(unittest.TestCase):
@@ -505,6 +583,41 @@ class CoordinatorConcurrencyTests(unittest.TestCase):
         self.assertFalse(failed_report["news_risk_analysis"]["hard_exclude"])
 
 
+    def test_target_code_normalizer_keeps_order_and_dedupes(self):
+        coordinator = AgentCoordinator.__new__(AgentCoordinator)
+
+        result = coordinator._normalize_target_codes(["sh600519,000001", "000001", "bad", "SZ300750"])
+
+        self.assertEqual(result, ["600519", "000001", "300750"])
+
+    def test_targeted_report_has_summary_and_hides_raw_news_key(self):
+        coordinator = AgentCoordinator.__new__(AgentCoordinator)
+        reports = [
+            {
+                "asset_info": {"code": "600519", "name": "sample", "price": 10},
+                "fundamental_analysis": "最终评级：中性。基本面稳定。",
+                "technical_analysis": "操作建议：观望为主。",
+                "news_risk_analysis": {
+                    "risk_level": "low",
+                    "action": "pass",
+                    "hard_exclude": False,
+                    "summary": "未见明显雷点",
+                    "llm_report": "风控结论正常",
+                    "raw_news": "raw noisy item",
+                    "relevant_news": "2026-04-26 sample direct headline",
+                },
+            }
+        ]
+
+        text = coordinator._format_targeted_analysis_report(reports, {"market_sentiment": "neutral"}, [])
+
+        self.assertIn("|", text)
+        self.assertIn("sample(600519)", text)
+        self.assertIn("2026-04-26 sample direct headline", text)
+        self.assertNotIn("raw_news", text)
+        self.assertNotIn("raw noisy item", text)
+
+
 class QuickFilterAgentTests(unittest.TestCase):
     @patch("src.agent.quick_filter_agent.tools.call_llm")
     def test_quick_filter_selects_only_allowed_codes(self, mock_call_llm):
@@ -553,6 +666,33 @@ class NewsRiskDecisionTests(unittest.TestCase):
         self.assertEqual(result["action"], "hard_exclude")
         self.assertIn("减持", [item["keyword"] for item in result["matched_keywords"]])
 
+    def test_news_risk_does_not_flag_neutral_earnings_preview_phrase(self):
+        agent = NewsRiskAgent()
+
+        neutral = agent.assess_keyword_risk(
+            "归母净利润符合业绩预告区间，公告未披露下修或预亏。",
+            code="601016",
+            name="sample",
+        )
+        risky = agent.assess_keyword_risk("公司披露业绩预亏，经营压力上升。", code="601016", name="sample")
+
+        self.assertEqual(neutral["risk_level"], "low")
+        self.assertEqual(risky["risk_level"], "medium")
+
+    def test_news_risk_promotes_llm_high_risk_verdict(self):
+        agent = NewsRiskAgent()
+        assessment = agent.assess_keyword_risk("未命中规则关键词", code="601016", name="sample")
+
+        promoted = agent._apply_llm_verdict(
+            assessment,
+            "风险等级：【高危】\n建议：【禁止】。业绩大幅恶化且弱市放大风险。",
+        )
+
+        self.assertEqual(promoted["risk_level"], "high")
+        self.assertTrue(promoted["hard_exclude"])
+        self.assertEqual(promoted["action"], "hard_exclude")
+        self.assertIn("LLM高危/禁止", [item["keyword"] for item in promoted["matched_keywords"]])
+
     def test_news_risk_ignores_query_keywords_and_unrelated_results(self):
         agent = NewsRiskAgent()
 
@@ -571,6 +711,22 @@ class NewsRiskDecisionTests(unittest.TestCase):
         self.assertEqual(result["risk_level"], "low")
         self.assertFalse(result["hard_exclude"])
         self.assertEqual(result["matched_keywords"], [])
+
+    def test_news_risk_filters_direct_stock_news(self):
+        agent = NewsRiskAgent()
+        text = "\n".join(
+            [
+                "2026-04-25 同行业公司出现运营事件",
+                "2026-04-24 春秋航空完成客舱 Wi-Fi 适航试验",
+                "2026-04-23 601021 发布月度运营数据",
+            ]
+        )
+
+        result = agent._filter_relevant_news(text, code="601021", name="春秋航空")
+
+        self.assertIn("春秋航空", result)
+        self.assertIn("601021", result)
+        self.assertNotIn("同行业公司", result)
 
     @patch("src.agent.decision_agent.tools.call_llm")
     def test_decision_agent_filters_hard_excluded_news_risk(self, mock_call_llm):
