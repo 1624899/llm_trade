@@ -452,9 +452,9 @@ class AgentCoordinator:
         if not detailed_reports:
             return []
         lines = [
-            "## \u7efc\u5408\u7ed3\u8bba",
+            "## 综合结论",
             "",
-            "| \u80a1\u7968 | \u7efc\u5408\u503e\u5411 | \u6838\u5fc3\u77db\u76fe | \u8d44\u8baf\u98ce\u63a7 |",
+            "| 股票 | 综合倾向 | 核心矛盾 | 资讯风控 |",
             "| --- | --- | --- | --- |",
         ]
         for item in detailed_reports:
@@ -479,28 +479,28 @@ class AgentCoordinator:
         tech_text = str(report.get("technical_analysis", ""))
         risk = report.get("news_risk_analysis") if isinstance(report.get("news_risk_analysis"), dict) else {}
         if risk.get("hard_exclude"):
-            return "\u56de\u907f"
-        if "\u5f31" in fund_text and any(word in tech_text for word in ["\u4e0d\u5b9c\u8ffd\u9ad8", "\u89c2\u671b", "\u5f31\u52bf"]):
-            return "\u8c28\u614e\u89c2\u671b"
-        if "\u4e2d\u6027" in fund_text and any(word in tech_text for word in ["\u89c2\u671b", "\u8f7b\u4ed3", "\u4f4e\u5438"]):
-            return "\u89c2\u5bdf/\u8f7b\u4ed3\u9a8c\u8bc1"
+            return "回避"
+        if "弱" in fund_text and any(word in tech_text for word in ["不宜追高", "观望", "弱势"]):
+            return "谨慎观望"
+        if "中性" in fund_text and any(word in tech_text for word in ["观望", "轻仓", "低吸"]):
+            return "观察/轻仓验证"
         if risk.get("risk_level") == "low":
-            return "\u4e2d\u6027\u89c2\u5bdf"
-        return "\u8c28\u614e\u89c2\u671b"
+            return "中性观察"
+        return "谨慎观望"
 
     def _build_targeted_reason(self, report: Dict[str, Any]) -> str:
         """抽取基本面和技术面的第一层结论，压缩成总评理由。"""
         fund = self._first_meaningful_sentence(str(report.get("fundamental_analysis", "")))
         tech = self._first_meaningful_sentence(str(report.get("technical_analysis", "")))
         parts = [part for part in [fund, tech] if part]
-        return "\uff1b".join(parts)[:180] if parts else "\u6682\u65e0\u8db3\u591f\u7ed3\u8bba"
+        return "；".join(parts)[:180] if parts else "暂无足够结论"
 
     def _first_meaningful_sentence(self, text: str) -> str:
         text = re.sub(r"[*#`>\r\n]+", " ", text or "")
         text = re.sub(r"\s+", " ", text).strip()
         if not text:
             return ""
-        parts = re.split(r"[\u3002\uff1b;]", text)
+        parts = re.split(r"[。；;]", text)
         return parts[0].strip()[:90] if parts else text[:90]
 
     def _format_news_risk_section(self, risk: Any) -> str:
@@ -517,43 +517,43 @@ class AgentCoordinator:
                 f"mention={news_quality.get('mention_count', 0)})"
             )
         lines = [
-            f"- \u98ce\u9669\u7b49\u7ea7\uff1a{risk.get('risk_level', 'unknown')}",
-            f"- \u5904\u7406\u52a8\u4f5c\uff1a{risk.get('action', 'unknown')}",
-            f"- \u786c\u6392\u9664\uff1a{risk.get('hard_exclude', False)}",
-            f"- \u89c4\u5219\u6458\u8981\uff1a{risk.get('summary', '')}",
+            f"- 风险等级：{risk.get('risk_level', 'unknown')}",
+            f"- 处理动作：{risk.get('action', 'unknown')}",
+            f"- 硬排除：{risk.get('hard_exclude', False)}",
+            f"- 规则摘要：{risk.get('summary', '')}",
             "",
-            "#### LLM \u98ce\u63a7\u7ed3\u8bba",
+            "#### LLM 风控结论",
             "",
-            str(risk.get("llm_report") or "\u65e0"),
+            str(risk.get("llm_report") or "无"),
         ]
         if quality_text:
-            lines.insert(4, f"- \u65b0\u95fb\u8d28\u91cf\uff1a{quality_text}")
+            lines.insert(4, f"- 新闻质量：{quality_text}")
         evidence = risk.get("evidence") or []
         if evidence:
-            lines.extend(["", "#### \u547d\u4e2d\u8bc1\u636e", ""])
+            lines.extend(["", "#### 命中证据", ""])
             lines.extend(f"- {item}" for item in evidence)
         relevant_news = str(risk.get("relevant_news") or "").strip()
         if relevant_news:
-            lines.extend(["", "#### \u76f4\u63a5\u76f8\u5173\u65b0\u95fb", "", relevant_news])
+            lines.extend(["", "#### 直接相关新闻", "", relevant_news])
         elif risk.get("raw_news"):
             lines.extend([
                 "",
-                "#### \u76f4\u63a5\u76f8\u5173\u65b0\u95fb",
+                "#### 直接相关新闻",
                 "",
-                "\u539f\u59cb\u65b0\u95fb\u6e90\u6709\u8fd4\u56de\u7ed3\u679c\uff0c\u4f46\u672a\u5339\u914d\u5230\u76f4\u63a5\u5305\u542b\u8be5\u80a1\u4ee3\u7801\u6216\u540d\u79f0\u7684\u6709\u6548\u6807\u9898\uff0c\u672a\u7eb3\u5165\u6838\u5fc3\u98ce\u63a7\u8bc1\u636e\u3002",
+                "原始新闻源有返回结果，但未匹配到直接包含该股代码或名称的有效标题，未纳入核心风控证据。",
             ])
         news_detail_info = str(risk.get("news_detail_info") or "").strip()
         if news_detail_info:
-            lines.extend(["", "#### \u76f4\u63a5\u65b0\u95fb\u6b63\u6587\u6458\u8981", "", news_detail_info])
+            lines.extend(["", "#### 直接新闻正文摘要", "", news_detail_info])
         mention_news = str(risk.get("mention_news") or "").strip()
         if mention_news:
-            lines.extend(["", "#### \u5f31\u76f8\u5173\u63d0\u53ca\uff08\u4ec5\u4f5c\u80cc\u666f\uff09", "", mention_news])
+            lines.extend(["", "#### 弱相关提及（仅作背景）", "", mention_news])
         announcement_info = str(risk.get("announcement_info") or "").strip()
         if announcement_info:
-            lines.extend(["", "#### \u8fd1\u671f\u516c\u544a", "", announcement_info])
+            lines.extend(["", "#### 近期公告", "", announcement_info])
         announcement_detail_info = str(risk.get("announcement_detail_info") or "").strip()
         if announcement_detail_info:
-            lines.extend(["", "#### \u91cd\u70b9\u516c\u544a\u6b63\u6587\u6458\u8981", "", announcement_detail_info])
+            lines.extend(["", "#### 重点公告正文摘要", "", announcement_detail_info])
         return "\n".join(lines)
     def _save_targeted_analysis_audit(
         self,
