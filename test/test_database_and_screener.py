@@ -653,7 +653,7 @@ class TradingAccountLifecycleTests(unittest.TestCase):
     def test_account_initial_cash_is_persistent_and_orders_are_recorded(self, _mock_prices):
         account = TradingAccount(db=self.db)
         first = account.ensure_account()
-        self.assertEqual(float(first["cash"]), 10000.0)
+        self.assertEqual(float(first["cash"]), 16000.0)
 
         result = account.buy(
             {
@@ -668,7 +668,7 @@ class TradingAccountLifecycleTests(unittest.TestCase):
         second = TradingAccount(db=self.db).ensure_account()
 
         self.assertEqual(result["status"], "FILLED")
-        self.assertEqual(float(second["cash"]), 9000.0)
+        self.assertEqual(float(second["cash"]), 15000.0)
         orders = self.db.query_to_dataframe("SELECT action, code, quantity FROM trade_orders")
         self.assertEqual(orders[["action", "code", "quantity"]].values.tolist(), [["BUY", "000001", 100]])
 
@@ -750,6 +750,32 @@ class WatchlistTests(unittest.TestCase):
 
         self.assertEqual(len(active), 10)
         self.assertEqual(len(removed), 2)
+
+    @patch("src.evaluation.watchlist.fetch_latest_prices", return_value={})
+    def test_watchlist_applies_trading_remove_and_hard_exit(self, _mock_prices):
+        watchlist = Watchlist(db=self.db, max_items=10)
+        for code in ["000001", "000002", "000003"]:
+            watchlist.upsert_item(self._profile(code), final_report=f"{code} 强推荐 预期 18%")
+
+        removed = watchlist.apply_trading_decisions(
+            [
+                {"code": "000001", "action": "REMOVE", "reason": "交易 Agent 主动移出"},
+                {
+                    "code": "000002",
+                    "action": "SELL",
+                    "risk_override": True,
+                    "exit_signal": {"action_level": 3},
+                    "reason": "硬风险清仓",
+                },
+                {"code": "000003", "action": "SELL", "reason": "普通减仓"},
+            ]
+        )
+
+        active = self.db.query_to_dataframe("SELECT code FROM watchlist_items WHERE watch_status = 'ACTIVE'")
+        removed_rows = self.db.query_to_dataframe("SELECT code FROM watchlist_items WHERE watch_status = 'REMOVED'")
+        self.assertEqual(removed, 2)
+        self.assertEqual(active["code"].tolist(), ["000003"])
+        self.assertEqual(set(removed_rows["code"].tolist()), {"000001", "000002"})
 
 
 class StockScreenerTests(unittest.TestCase):

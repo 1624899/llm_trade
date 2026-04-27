@@ -28,6 +28,7 @@ class Watchlist:
         stock_profiles: Dict[str, Dict[str, Any]],
         final_report: str = "",
         macro_context: Optional[Dict[str, Any]] = None,
+        source: str = "pick",
     ) -> int:
         """Add or update selected recommendations in the watchlist."""
         count = 0
@@ -37,7 +38,7 @@ class Watchlist:
             if not profile:
                 logger.warning("[Watchlist] selected code {} not found in stock profiles", code)
                 continue
-            if self.upsert_item(profile, final_report=final_report, macro_context=macro_context):
+            if self.upsert_item(profile, final_report=final_report, macro_context=macro_context, source=source):
                 count += 1
         self.prune_to_limit()
         return count
@@ -155,6 +156,40 @@ class Watchlist:
             return {}
         return df.iloc[0].to_dict()
 
+    def apply_trading_decisions(self, decisions: Iterable[Dict[str, Any]]) -> int:
+        """同步 TradingAgent 对观察仓的维护动作，避免候选池只进不出。"""
+        removed = 0
+        for decision in decisions or []:
+            code = str(decision.get("code") or "").zfill(6)
+            if not re.fullmatch(r"\d{6}", code):
+                continue
+            action = str(decision.get("action") or "").upper()
+            if action == "REMOVE":
+                if self.remove_item(code, str(decision.get("reason") or "TradingAgent 移出观察仓")):
+                    removed += 1
+                continue
+            if action == "SELL" and self._is_hard_exit_decision(decision):
+                reason = str(decision.get("reason") or "交易仓触发硬风险卖出，观察仓同步移出")
+                if self.remove_item(code, reason):
+                    removed += 1
+        if removed:
+            logger.info("[Watchlist] 根据交易决策移出 {} 只观察标的", removed)
+        return removed
+
+    def remove_item(self, code: str, reason: str) -> bool:
+        existing = self.get_item(code)
+        if not existing or str(existing.get("watch_status") or "") != "ACTIVE":
+            return False
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        return self.db.execute_non_query(
+            """
+            UPDATE watchlist_items
+            SET watch_status = 'REMOVED', remove_reason = ?, updated_at = ?
+            WHERE code = ? AND watch_status = 'ACTIVE'
+            """,
+            (reason, now, str(code).zfill(6)),
+        )
+
     def prune_to_limit(self) -> None:
         active = self.list_active()
         overflow = active[self.max_items :]
@@ -241,6 +276,18 @@ class Watchlist:
         if not current_price or not entry_price:
             return None
         return round((float(current_price) / float(entry_price) - 1) * 100, 2)
+
+    @staticmethod
+    def _is_hard_exit_decision(decision: Dict[str, Any]) -> bool:
+        if bool(decision.get("risk_override")):
+            signal = decision.get("exit_signal") if isinstance(decision.get("exit_signal"), dict) else {}
+            try:
+                if int(signal.get("action_level", 0) or 0) >= 3:
+                    return True
+            except (TypeError, ValueError):
+                pass
+        reason = str(decision.get("reason") or "")
+        return any(word in reason for word in ("清仓", "回避", "硬风险", "风险恶化", "趋势失效", "基本面恶化"))
 
     @staticmethod
     def _to_float(value: Any) -> float | None:

@@ -22,7 +22,7 @@ class TradingAccount:
         db: Optional[StockDatabase] = None,
         *,
         account_name: str = "default",
-        initial_cash: float = 10000.0,
+        initial_cash: float = 16000.0,
         max_positions: int = 5,
         lot_size: int = 100,
         min_holding_days: int = 5,

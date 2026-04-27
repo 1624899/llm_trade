@@ -282,8 +282,14 @@ class AgentCoordinator:
             lines.append(f"- {item.get('name')}({item.get('code')}): {item.get('error')}")
         return report.rstrip() + "\n" + "\n".join(lines)
 
-    def run_targeted_analysis(self, codes: List[str]) -> str:
-        """对用户指定的股票做单独深度分析，不走海选，也不自动加入观察仓。"""
+    def run_targeted_analysis(
+        self,
+        codes: List[str],
+        *,
+        update_watchlist: bool = False,
+        watchlist_source: str = "targeted_analysis",
+    ) -> str:
+        """对用户指定的股票做单独深度分析；默认不自动加入观察仓。"""
         normalized_codes = self._normalize_target_codes(codes)
         if not normalized_codes:
             return "没有识别到有效的 6 位股票代码。"
@@ -296,6 +302,16 @@ class AgentCoordinator:
         macro_context = self.macro_agent.analyze_macro_environment()
         detailed_reports, analysis_errors = self._analyze_candidates_concurrently(candidates, macro_context)
         report = self._format_targeted_analysis_report(detailed_reports, macro_context, analysis_errors)
+        if update_watchlist and detailed_reports:
+            stock_profiles_map = {item["asset_info"]["code"]: item for item in detailed_reports}
+            updated = self.watchlist.upsert_recommendations(
+                normalized_codes,
+                stock_profiles_map,
+                final_report=report,
+                macro_context=macro_context,
+                source=watchlist_source,
+            )
+            logger.info("[Watchlist] 指定分析写回观察仓 {} 只标的", updated)
 
         elapsed = time.time() - start_time
         self._save_targeted_analysis_audit(
@@ -645,6 +661,10 @@ class AgentCoordinator:
         account = self.trading_account.refresh_positions()
         positions = self.trading_account.list_open_positions()
         watch_items = self.watchlist.list_active()
+        if not watch_items:
+            watch_items = self._ensure_watchlist_for_trade(positions)
+            self.watchlist.refresh_prices()
+            watch_items = self.watchlist.list_active()
         macro_context = self.macro_agent.analyze_macro_environment()
         exit_signals = self._build_exit_signals(positions, macro_context)
 
@@ -655,11 +675,31 @@ class AgentCoordinator:
             exit_signals=exit_signals,
             macro_context=macro_context,
         )
+        self.watchlist.apply_trading_decisions(decisions)
         results = self.trading_account.execute_decisions(decisions)
         report = self.trading_account.format_report(results)
         print(report)
         logger.info("=== 交易 Agent 模拟调仓结束 ===")
         return report
+
+    def _ensure_watchlist_for_trade(self, positions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """交易前维护观察仓：空仓时先补候选，避免 TradingAgent 无标的可判断。"""
+        position_codes = [str(item.get("code") or "").zfill(6) for item in positions if item.get("code")]
+        position_codes = [code for code in position_codes if len(code) == 6 and code.isdigit()]
+        if position_codes:
+            logger.warning(
+                "[Watchlist] 观察仓为空，先对当前交易持仓执行指定分析并写回观察仓: {}",
+                position_codes,
+            )
+            self.run_targeted_analysis(
+                position_codes,
+                update_watchlist=True,
+                watchlist_source="trade_position_refresh",
+            )
+        else:
+            logger.warning("[Watchlist] 观察仓和交易仓均为空，先运行一轮选股流程生成交易候选池。")
+            self.run_picking_workflow(max_candidates=10)
+        return self.watchlist.list_active()
 
     def _build_exit_signals(
         self,
