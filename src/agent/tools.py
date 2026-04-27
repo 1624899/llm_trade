@@ -208,7 +208,7 @@ class AgentTools:
         if provider == "tavily":
             text = self._tavily_web_search(query, purpose, max_results, domains)
             if not text and fallback_provider == "duckduckgo":
-                logger.info("Tavily 搜索不可用，降级使用 DuckDuckGo。")
+                logger.info("Tavily 搜索未返回可用结果，降级使用 DuckDuckGo。")
                 text = self._free_web_search(query, purpose, max_results, domains)
         elif provider == "duckduckgo":
             text = self._free_web_search(query, purpose, max_results, domains)
@@ -291,14 +291,30 @@ class AgentTools:
         try:
             response = requests.post(endpoint, headers=headers, json=payload, timeout=timeout)
             response.raise_for_status()
-            return self._format_tavily_results(
-                response.json(),
+            result = response.json()
+            text = self._format_tavily_results(
+                result,
                 query=query,
                 purpose=purpose,
                 max_results=max_results,
             )
+            if not text:
+                logger.warning(
+                    "Tavily 搜索成功但结果为空: status={} query_chars={} domains={}",
+                    response.status_code,
+                    len(query or ""),
+                    ",".join(domains or []) or "-",
+                )
+            return text
         except requests.exceptions.RequestException as e:
-            logger.warning(f"Tavily 搜索请求失败: {e}")
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            body = getattr(getattr(e, "response", None), "text", "") or ""
+            logger.warning(
+                "Tavily 搜索请求失败: status={} error={} body={}",
+                status or "-",
+                e,
+                body[:300],
+            )
             return ""
         except Exception as e:
             logger.warning(f"Tavily 搜索响应解析失败: {e}")

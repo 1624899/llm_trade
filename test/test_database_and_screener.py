@@ -390,6 +390,26 @@ class DataPipelineNormalizationTests(unittest.TestCase):
 
         self.assertTrue(pipeline._stock_basic_is_fresh())
 
+    def test_sync_stock_basic_writes_fetched_codes(self):
+        db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))
+        pipeline = DataPipeline.__new__(DataPipeline)
+        pipeline.db = db
+        pipeline._safe_fetch = MagicMock(
+            return_value=pd.DataFrame(
+                [
+                    {"code": "1", "name": "Ping An Bank"},
+                    {"code": "600519", "name": "Kweichow Moutai"},
+                ]
+            )
+        )
+
+        self.assertTrue(pipeline.sync_stock_basic())
+
+        result = db.query_to_dataframe("SELECT code, name, update_date FROM stock_basic ORDER BY code")
+        self.assertEqual(result["code"].tolist(), ["000001", "600519"])
+        self.assertEqual(result["name"].tolist(), ["Ping An Bank", "Kweichow Moutai"])
+        self.assertTrue((result["update_date"] == pd.Timestamp.now().strftime("%Y-%m-%d")).all())
+
     @patch.object(DataPipeline, "_fetch_ak_bars", return_value=None)
     @patch.object(DataPipeline, "_fetch_alpha_vantage_bars", return_value=None)
     @patch.object(DataPipeline, "_fetch_yahoo_bars", return_value=None)

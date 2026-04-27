@@ -999,6 +999,39 @@ class DataPipeline:
         if code_df is None or code_df.empty:
             return False
 
+        try:
+            code_df = code_df.rename(
+                columns={
+                    "\u4ee3\u7801": "code",
+                    "\u540d\u79f0": "name",
+                    "symbol": "code",
+                    "stock_code": "code",
+                    "stock_name": "name",
+                }
+            )
+            if "code" not in code_df.columns:
+                logger.error("stock_basic sync failed: missing code column, columns={}", list(code_df.columns))
+                return False
+
+            clean_df = pd.DataFrame()
+            clean_df["code"] = code_df["code"].astype(str).str.zfill(6)
+            clean_df["name"] = code_df["name"].astype(str) if "name" in code_df.columns else clean_df["code"]
+            clean_df["industry"] = code_df["industry"].astype(str) if "industry" in code_df.columns else None
+            clean_df["update_date"] = datetime.now().strftime("%Y-%m-%d")
+            clean_df = clean_df.drop_duplicates(subset=["code"], keep="last")
+
+            ok = self.db.upsert_dataframe(
+                "stock_basic",
+                clean_df,
+                key_columns=["code"]
+            )
+            if ok:
+                logger.info("stock_basic sync completed: {} rows", len(clean_df))
+            return ok
+        except Exception as e:
+            logger.error(f"stock_basic sync failed: {e}")
+            return False
+
     def _stock_basic_is_fresh(self) -> bool:
         df = self.db.query_to_dataframe("SELECT MAX(update_date) AS latest_update_date FROM stock_basic")
         if df is None or df.empty:
@@ -1030,27 +1063,6 @@ class DataPipeline:
             logger.info("daily_quotes 日期已最新，但估值字段覆盖不足，需要重新同步补齐")
             return False
         return True
-            
-        try:
-            code_df = code_df.rename(columns={'代码': 'code', '名称': 'name'})
-            if "code" not in code_df.columns and "代码" in code_df.columns:
-                code_df = code_df.rename(columns={"代码": "code"})
-            if "name" not in code_df.columns and "名称" in code_df.columns:
-                code_df = code_df.rename(columns={"名称": "name"})
-            code_df['code'] = code_df['code'].astype(str).str.zfill(6)
-            code_df['update_date'] = datetime.now().strftime('%Y-%m-%d')
-            
-            # (可选升级: 这里可以叠加所属行业的 join 操作)
-            
-            self.db.upsert_dataframe(
-                "stock_basic",
-                code_df,
-                key_columns=["code"]
-            )
-            return True
-        except Exception as e:
-            logger.error(f"股票基础列表清洗入库失败: {e}")
-            return False
 
     def run_all(self):
         """执行所有同步任务"""
