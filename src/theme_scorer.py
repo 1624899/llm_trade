@@ -50,12 +50,15 @@ class ThemeScorer:
             theme_info = self._score_board_matches(matched_boards)
             
             scored_item["theme_score"] = 0.0  # 不再进行分数累加，保留字段兼容
+            theme_score = float(theme_info["score"])
+            scored_item["theme_score"] = round(theme_score, 2)
+            scored_item["technical_score"] = round(float(scored_item.get("technical_score") or 0) + theme_score, 2)
             scored_item["theme_reason"] = theme_info["reason"]
             scored_item["matched_themes"] = theme_info["matched_themes"]
             
             if scored_item.get("key_metrics") is None:
                 scored_item["key_metrics"] = {}
-            scored_item["key_metrics"]["theme_score"] = 0.0
+            scored_item["key_metrics"]["theme_score"] = round(theme_score, 2)
             scored.append(scored_item)
         return scored
 
@@ -175,10 +178,18 @@ class ThemeScorer:
         unique_boards = sorted(by_name.values(), key=lambda item: float(item.get("change_pct") or 0), reverse=True)
 
         matched_themes = []
+        score = 0.0
         # 提取前 3 个最强板块的信息
-        for board in unique_boards[:3]:
+        for idx, board in enumerate(unique_boards[:3]):
             change_pct = float(board.get("change_pct") or 0.0)
             up_ratio = float(board.get("up_ratio") or 0.0)
+            leader_change_pct = float(board.get("leader_change_pct") or 0.0)
+            weight = [1.0, 0.6, 0.4][idx]
+            score += weight * (
+                max(0.0, change_pct) * 0.8
+                + max(0.0, leader_change_pct) * 0.25
+                + max(0.0, up_ratio) * 4.0
+            )
             
             matched_themes.append(
                 {
@@ -193,7 +204,7 @@ class ThemeScorer:
 
         theme_names = "、".join(str(item["name"]) for item in matched_themes)
         reason = f"当前处于热门主题概念内：{theme_names}。"
-        return {"score": 0.0, "reason": reason, "matched_themes": matched_themes}
+        return {"score": min(self.max_bonus, round(score, 2)), "reason": reason, "matched_themes": matched_themes}
 
     def _attach_empty_theme_score(self, item: Dict[str, Any]) -> Dict[str, Any]:
         """无法获取主题数据时的回退处理。"""

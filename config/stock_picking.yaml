@@ -180,9 +180,9 @@ llm_analysis:
 
 # 输出配置
 output:
-  top_n: 20                    # 规则海选候选池数量
-  max_top_n: 20                # 技术初筛最多返回数量
-  quick_filter_top_n: 8        # AI轻量精筛后进入深度复核的数量
+  top_n: 40                    # 规则海选候选池数量
+  max_top_n: 40                # 技术初筛最多返回数量
+  quick_filter_top_n: 10       # AI轻量精筛后进入深度复核的数量
   report_format: "markdown"    # 报告格式
   include_reasoning: true      # 包含AI分析理由
   save_history: true           # 保存历史推荐记录

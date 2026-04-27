@@ -1006,10 +1006,12 @@ class StockScreenerTests(unittest.TestCase):
 
         candidates = self.screener._apply_strategy_quota(ranked, top_n=6, max_per_industry=10)
         tags = [item["strategy_tags"][0] for item in candidates]
+        scores = [item["technical_score"] for item in candidates]
 
         self.assertIn("value_bottom", tags)
         self.assertIn("panic_reversal", tags)
         self.assertLess(tags.count("trend_breakout"), 6)
+        self.assertEqual(scores, sorted(scores, reverse=True))
 
     def test_screener_backfills_valuation_from_previous_quote_snapshot(self):
         temp_dir = os.path.join(PROJECT_ROOT, ".test_tmp", f"valuation_backfill_{uuid.uuid4().hex}")
@@ -1387,6 +1389,58 @@ class StockScreenerTests(unittest.TestCase):
         )
 
         self.assertNotIn("momentum_leader", [item["tag"] for item in matches])
+
+    def test_medium_term_score_penalizes_overheated_momentum(self):
+        stable_score = self.screener._score_strategy_candidate(
+            strategy_matches=[{"tag": "momentum_leader", "confidence": 0.86}],
+            ret1=2.0,
+            ret5=8.0,
+            ret10=18.0,
+            ret20=32.0,
+            change_pct=2.0,
+            high60_distance=-5.0,
+            low60_distance=35.0,
+            avg_amount20=300_000_000,
+            vol_ratio=1.6,
+            turnover_rate=5.0,
+            annual_vol20=0.42,
+            recent_limit_up_count=0,
+            intraday_position=0.72,
+            bias20_ratio=1.12,
+            pe_ttm=None,
+            pb=None,
+            close=15.0,
+            ma5=14.8,
+            ma10=14.0,
+            ma20=13.4,
+            ma60=12.0,
+        )
+        overheated_score = self.screener._score_strategy_candidate(
+            strategy_matches=[{"tag": "momentum_leader", "confidence": 0.96}],
+            ret1=8.5,
+            ret5=24.0,
+            ret10=42.0,
+            ret20=68.0,
+            change_pct=7.5,
+            high60_distance=-1.0,
+            low60_distance=80.0,
+            avg_amount20=900_000_000,
+            vol_ratio=3.2,
+            turnover_rate=12.0,
+            annual_vol20=0.86,
+            recent_limit_up_count=2,
+            intraday_position=0.88,
+            bias20_ratio=1.35,
+            pe_ttm=None,
+            pb=None,
+            close=18.0,
+            ma5=17.2,
+            ma10=15.6,
+            ma20=13.3,
+            ma60=11.8,
+        )
+
+        self.assertGreater(stable_score, overheated_score)
 
 
 if __name__ == "__main__":

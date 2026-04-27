@@ -67,7 +67,7 @@ class AgentCoordinator:
         self.exit_agent = ExitAgent(db=self.db)
         self.trading_agent = TradingAgent()
 
-    def run_picking_workflow(self, max_candidates: int = 10) -> str:
+    def run_picking_workflow(self, max_candidates: Optional[int] = None) -> str:
         """
         端到端全链路自动化选股流程。
 
@@ -77,8 +77,7 @@ class AgentCoordinator:
         start_time = time.time()
         trace_path = trace_recorder.start()
 
-        deep_review_n = max(1, min(int(max_candidates or 8), 8))
-        prefilter_n = max(20, deep_review_n)
+        prefilter_n, deep_review_n = self._get_picking_candidate_limits(max_candidates)
         logger.info(f"[Step 1] 多策略规则海选，目标 Top {prefilter_n} ...")
         prefilter_candidates = self.screener.run_technical_screening(top_n=prefilter_n)
 
@@ -637,6 +636,32 @@ class AgentCoordinator:
             workers = DEFAULT_CANDIDATE_ANALYSIS_MAX_WORKERS
         return max(1, min(workers, 5))
 
+    def _get_picking_candidate_limits(self, max_candidates: Optional[int] = None) -> Tuple[int, int]:
+        """读取选股数量配置：规则海选放宽，深度复核保持成本可控。"""
+        output_cfg = getattr(self.screener, "stock_picking_config", {}).get("output", {}) or {}
+        try:
+            configured_prefilter = int(output_cfg.get("top_n") or 40)
+        except (TypeError, ValueError):
+            configured_prefilter = 40
+        try:
+            configured_max_prefilter = int(output_cfg.get("max_top_n") or configured_prefilter)
+        except (TypeError, ValueError):
+            configured_max_prefilter = configured_prefilter
+        try:
+            configured_deep_review = int(output_cfg.get("quick_filter_top_n") or 10)
+        except (TypeError, ValueError):
+            configured_deep_review = 10
+
+        prefilter_n = max(10, min(configured_prefilter, max(configured_max_prefilter, 10)))
+        deep_review_n = max(1, min(configured_deep_review, prefilter_n, 20))
+        if max_candidates is not None:
+            try:
+                requested = int(max_candidates)
+                deep_review_n = max(1, min(requested, prefilter_n, 20))
+            except (TypeError, ValueError):
+                pass
+        return prefilter_n, deep_review_n
+
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         try:
             if not os.path.exists(config_path):
@@ -716,7 +741,7 @@ class AgentCoordinator:
             )
         elif not watch_items:
             logger.warning("[Watchlist] 观察仓和交易仓均为空，先运行一轮选股流程生成交易候选池。")
-            self.run_picking_workflow(max_candidates=10)
+            self.run_picking_workflow()
         return self.watchlist.list_active()
 
     def _build_exit_signals(

@@ -93,7 +93,7 @@ class MainEntryTests(unittest.TestCase):
         result = coordinator.run_trading_workflow()
 
         self.assertEqual(result, "report")
-        coordinator.run_picking_workflow.assert_called_once_with(max_candidates=10)
+        coordinator.run_picking_workflow.assert_called_once_with()
         coordinator.watchlist.apply_trading_decisions.assert_called_once_with([])
 
     def test_trade_replenishes_empty_watchlist_from_position_analysis(self):
@@ -642,6 +642,20 @@ class CoordinatorConcurrencyTests(unittest.TestCase):
         coordinator.config = {"agent_workflow": {"candidate_analysis_max_workers": 99}}
 
         self.assertEqual(coordinator._get_candidate_analysis_max_workers(), 5)
+
+    def test_picking_candidate_limits_read_stock_picking_output_config(self):
+        coordinator = AgentCoordinator.__new__(AgentCoordinator)
+        coordinator.screener = MagicMock()
+        coordinator.screener.stock_picking_config = {
+            "output": {
+                "top_n": 40,
+                "max_top_n": 40,
+                "quick_filter_top_n": 10,
+            }
+        }
+
+        self.assertEqual(coordinator._get_picking_candidate_limits(), (40, 10))
+        self.assertEqual(coordinator._get_picking_candidate_limits(max_candidates=12), (40, 12))
 
     def test_candidate_analysis_runs_concurrently_and_isolates_failures(self):
         coordinator = self._build_coordinator(max_workers=3)

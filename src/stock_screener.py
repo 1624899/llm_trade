@@ -450,12 +450,20 @@ class StockScreener:
 
             technical_score = self._score_strategy_candidate(
                 strategy_matches=strategy_matches,
+                ret1=ret1,
                 ret5=ret5,
+                ret10=ret10,
                 ret20=ret20,
+                change_pct=change_pct,
                 high60_distance=high60_distance,
                 low60_distance=low60_distance,
                 avg_amount20=avg_amount20,
                 vol_ratio=vol_ratio,
+                turnover_rate=turnover_rate,
+                annual_vol20=annual_vol20,
+                recent_limit_up_count=recent_limit_up_count,
+                intraday_position=intraday_position,
+                bias20_ratio=bias20_ratio,
                 pe_ttm=pe_ttm,
                 pb=pb,
                 close=close,
@@ -810,12 +818,20 @@ class StockScreener:
         self,
         *,
         strategy_matches: List[Dict[str, Any]],
+        ret1: float,
         ret5: float,
+        ret10: float,
         ret20: float,
+        change_pct: float,
         high60_distance: float,
         low60_distance: float,
         avg_amount20: float,
         vol_ratio: float,
+        turnover_rate: float | None,
+        annual_vol20: float | None,
+        recent_limit_up_count: int,
+        intraday_position: float,
+        bias20_ratio: float | None,
         pe_ttm: float | None,
         pb: float | None,
         close: float,
@@ -827,8 +843,11 @@ class StockScreener:
         """根据策略匹配度和技术指标对候选股票进行综合打分。"""
         primary = strategy_matches[0]["tag"]
         score = max(match["confidence"] for match in strategy_matches) * 40
-        score += min(12, max(0, np.log10(avg_amount20 / 50_000_000 + 1) * 8))
-        score += min(6, max(0, (float(vol_ratio) - 1) * 3)) if pd.notna(vol_ratio) else 0
+
+        liquidity_bonus = min(12, max(0, np.log10(avg_amount20 / 50_000_000 + 1) * 8))
+        volume_confirmation_bonus = min(5, max(0, (float(vol_ratio) - 1) * 2.5)) if pd.notna(vol_ratio) else 0
+        turnover_bonus = min(4, max(0, (float(turnover_rate or 0) - 1.0) * 0.8))
+        score += liquidity_bonus + volume_confirmation_bonus + turnover_bonus
         score += 3 * max(0, len(strategy_matches) - 1)
 
         if primary == "trend_breakout":
@@ -863,7 +882,43 @@ class StockScreener:
             score += 10 if ma20 >= ma60 else 0
             score += max(0, 8 - abs(close / ma20 - 1) * 100)
 
-        return score
+        risk_penalty = 0.0
+        vol = float(annual_vol20) if annual_vol20 is not None and pd.notna(annual_vol20) else 0.0
+        if vol > 0.45:
+            risk_penalty += min(12.0, (vol - 0.45) * 28.0)
+
+        bias20 = float(bias20_ratio) if bias20_ratio is not None and pd.notna(bias20_ratio) else 1.0
+        if bias20 > 1.20:
+            risk_penalty += min(12.0, (bias20 - 1.20) * 55.0)
+
+        if ret5 > 18:
+            risk_penalty += min(10.0, (ret5 - 18) * 0.8)
+        if ret10 > 32:
+            risk_penalty += min(10.0, (ret10 - 32) * 0.5)
+        if ret20 > 45:
+            risk_penalty += min(14.0, (ret20 - 45) * 0.45)
+        if recent_limit_up_count > 0:
+            risk_penalty += min(10.0, recent_limit_up_count * 3.0)
+
+        high_volume_stall = (
+            pd.notna(vol_ratio)
+            and float(vol_ratio) >= 2.5
+            and (change_pct <= 0 or intraday_position < 0.45)
+        )
+        if high_volume_stall:
+            risk_penalty += 10.0
+
+        if primary in {"momentum_leader", "first_limit_up_breakout"}:
+            if ret5 > 12:
+                risk_penalty += min(10.0, (ret5 - 12) * 0.9)
+            if ret20 > 35:
+                risk_penalty += min(14.0, (ret20 - 35) * 0.7)
+            if pd.notna(vol_ratio) and float(vol_ratio) > 2.8:
+                risk_penalty += min(8.0, (float(vol_ratio) - 2.8) * 4.0)
+            if ret1 > 7:
+                risk_penalty += min(6.0, (ret1 - 7) * 1.0)
+
+        return max(0.0, score - risk_penalty)
 
     def _format_screen_reason(
         self,
@@ -1158,7 +1213,7 @@ class StockScreener:
                 break
             try_add(item, count_reject=False)
 
-        return selected
+        return sorted(selected, key=lambda item: float(item.get("technical_score") or 0), reverse=True)
 
     def _get_primary_strategy_tag(self, item: Dict[str, Any]) -> str:
         """读取候选股主策略标签。"""
