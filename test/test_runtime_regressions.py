@@ -125,6 +125,35 @@ class MainEntryTests(unittest.TestCase):
             watchlist_source="trade_position_refresh",
         )
 
+    def test_trade_replenishes_missing_position_analysis_even_when_watchlist_not_empty(self):
+        coordinator = AgentCoordinator.__new__(AgentCoordinator)
+        coordinator.watchlist = MagicMock()
+        coordinator.trading_account = MagicMock()
+        coordinator.macro_agent = MagicMock()
+        coordinator.trading_agent = MagicMock()
+        coordinator.run_targeted_analysis = MagicMock()
+        coordinator.watchlist.list_active.side_effect = [
+            [{"code": "002142", "name": "watch only"}],
+            [{"code": "002142", "name": "watch only"}, {"code": "601021", "name": "held"}],
+            [{"code": "002142", "name": "watch only"}, {"code": "601021", "name": "held"}],
+        ]
+        coordinator.watchlist.refresh_prices = MagicMock()
+        coordinator.trading_account.refresh_positions.return_value = {"cash": 1136}
+        coordinator.trading_account.list_open_positions.return_value = [{"code": "601021", "name": "held"}]
+        coordinator.macro_agent.analyze_macro_environment.return_value = {}
+        coordinator._build_exit_signals = MagicMock(return_value={})
+        coordinator.trading_agent.decide.return_value = []
+        coordinator.trading_account.execute_decisions.return_value = []
+        coordinator.trading_account.format_report.return_value = "report"
+
+        coordinator.run_trading_workflow()
+
+        coordinator.run_targeted_analysis.assert_called_once_with(
+            ["601021"],
+            update_watchlist=True,
+            watchlist_source="trade_position_refresh",
+        )
+
 
 class LegacyCleanupTests(unittest.TestCase):
     def test_removed_legacy_etf_modules_are_absent(self):

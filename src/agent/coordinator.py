@@ -661,8 +661,8 @@ class AgentCoordinator:
         account = self.trading_account.refresh_positions()
         positions = self.trading_account.list_open_positions()
         watch_items = self.watchlist.list_active()
-        if not watch_items:
-            watch_items = self._ensure_watchlist_for_trade(positions)
+        if self._watchlist_needs_trade_refresh(watch_items, positions):
+            watch_items = self._ensure_watchlist_for_trade(watch_items, positions)
             self.watchlist.refresh_prices()
             watch_items = self.watchlist.list_active()
         macro_context = self.macro_agent.analyze_macro_environment()
@@ -682,21 +682,39 @@ class AgentCoordinator:
         logger.info("=== 交易 Agent 模拟调仓结束 ===")
         return report
 
-    def _ensure_watchlist_for_trade(self, positions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """交易前维护观察仓：空仓时先补候选，避免 TradingAgent 无标的可判断。"""
+    def _watchlist_needs_trade_refresh(
+        self,
+        watch_items: List[Dict[str, Any]],
+        positions: List[Dict[str, Any]],
+    ) -> bool:
+        """观察仓为空，或缺少当前持仓分析时，都需要先维护候选池。"""
+        if not watch_items:
+            return True
+        watch_codes = {str(item.get("code") or "").zfill(6) for item in watch_items}
+        position_codes = {str(item.get("code") or "").zfill(6) for item in positions if item.get("code")}
+        return bool(position_codes - watch_codes)
+
+    def _ensure_watchlist_for_trade(
+        self,
+        watch_items: List[Dict[str, Any]],
+        positions: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """交易前维护观察仓：空仓或缺少持仓分析时先补候选。"""
+        watch_codes = {str(item.get("code") or "").zfill(6) for item in watch_items}
         position_codes = [str(item.get("code") or "").zfill(6) for item in positions if item.get("code")]
         position_codes = [code for code in position_codes if len(code) == 6 and code.isdigit()]
-        if position_codes:
+        missing_position_codes = [code for code in position_codes if code not in watch_codes]
+        if missing_position_codes:
             logger.warning(
-                "[Watchlist] 观察仓为空，先对当前交易持仓执行指定分析并写回观察仓: {}",
-                position_codes,
+                "[Watchlist] 观察仓缺少当前交易持仓分析，先执行指定分析并写回观察仓: {}",
+                missing_position_codes,
             )
             self.run_targeted_analysis(
-                position_codes,
+                missing_position_codes,
                 update_watchlist=True,
                 watchlist_source="trade_position_refresh",
             )
-        else:
+        elif not watch_items:
             logger.warning("[Watchlist] 观察仓和交易仓均为空，先运行一轮选股流程生成交易候选池。")
             self.run_picking_workflow(max_candidates=10)
         return self.watchlist.list_active()

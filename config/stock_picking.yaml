@@ -7,6 +7,10 @@ market_regime:
   allow_empty_on_extreme_risk: true
   min_history_days: 60
   lookback_days: 120
+  limit_up_change_pct: 9.5
+  limit_down_change_pct: -9.5
+  hot_limit_streak: 7
+  cold_limit_streak: 2
   indices:
     sh000001: "上证指数"
     sh000300: "沪深300"
@@ -36,6 +40,10 @@ profiles:
     ret20_max: 22.0
     ret5_min: -5.0
     max_ma5_ma20_ratio: 1.10
+    max_momentum_bias20: 1.24
+    max_trend_bias20: 1.18
+    min_new_stock_history_days: 30
+    allow_new_stock_channel: false
     turnover_rate_min: 0.8
     turnover_rate_max: 12.0
     max_per_industry: 2
@@ -54,6 +62,10 @@ profiles:
     ret20_max: 35.0
     ret5_min: -8.0
     max_ma5_ma20_ratio: 1.15
+    max_momentum_bias20: 1.30
+    max_trend_bias20: 1.22
+    min_new_stock_history_days: 30
+    allow_new_stock_channel: false
     turnover_rate_min: 0.5
     turnover_rate_max: 20.0
     max_per_industry: 3
@@ -72,6 +84,10 @@ profiles:
     ret20_max: 55.0
     ret5_min: -12.0
     max_ma5_ma20_ratio: 1.25
+    max_momentum_bias20: 1.38
+    max_trend_bias20: 1.28
+    min_new_stock_history_days: 30
+    allow_new_stock_channel: true
     turnover_rate_min: 0.3
     turnover_rate_max: 35.0
     max_per_industry: 4

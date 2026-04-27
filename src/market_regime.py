@@ -23,6 +23,10 @@ DEFAULT_MARKET_REGIME_CONFIG: Dict[str, Any] = {
     "allow_empty_on_extreme_risk": True,  # 极端风险下是否允许空仓（不选股）
     "min_history_days": 60,          # 计算信号所需的最小历史天数
     "lookback_days": 120,            # 从数据库读取的回溯天数
+    "limit_up_change_pct": 9.5,
+    "limit_down_change_pct": -9.5,
+    "hot_limit_streak": 7,
+    "cold_limit_streak": 2,
     "indices": {                     # 监控的指数列表
         "sh000001": "上证指数",
         "sh000300": "沪深300",
@@ -91,6 +95,7 @@ class MarketRegimeDetector:
         above_ma60_ratio = sum(signal.close >= signal.ma60 for signal in signals) / len(signals)
         weak_count = sum(signal.ret20 <= -6 or signal.drawdown60 <= -10 for signal in signals)
         strong_count = sum(signal.ret20 >= 4 and signal.close >= signal.ma20 >= signal.ma60 for signal in signals)
+        limit_stats = self._load_limit_streak_stats()
 
         # 核心分类逻辑
         if weak_count >= 2 and (avg_ret20 <= -7 or avg_drawdown60 <= -12 or avg_vol20 >= 0.35):
@@ -111,6 +116,20 @@ class MarketRegimeDetector:
             reason = "宽基指数表现分化或处于震荡区间"
 
         # 映射到筛选 Profile
+        max_limit_streak = int(limit_stats.get("max_limit_up_streak", 0) or 0)
+        limit_up_count = int(limit_stats.get("limit_up_count", 0) or 0)
+        limit_down_count = int(limit_stats.get("limit_down_count", 0) or 0)
+        if max_limit_streak >= int(self.config.get("hot_limit_streak", 7) or 7) and regime != "extreme_risk":
+            regime = "offensive"
+            reason = f"{reason}; limit-up height hot={max_limit_streak}"
+        elif (
+            max_limit_streak <= int(self.config.get("cold_limit_streak", 2) or 2)
+            and limit_down_count >= max(3, limit_up_count * 2)
+            and regime == "range_bound"
+        ):
+            regime = "defensive"
+            reason = f"{reason}; limit-up height cold={max_limit_streak}, limit-down pressure={limit_down_count}"
+
         profile = self._profile_for_regime(regime)
         # 判断是否允许空仓（仅在极端风险下根据配置决定）
         allow_empty = bool(self.config.get("allow_empty_on_extreme_risk", True)) and regime == "extreme_risk"
@@ -129,6 +148,7 @@ class MarketRegimeDetector:
                 "above_ma60_ratio": round(above_ma60_ratio, 2),
                 "weak_index_count": weak_count,
                 "strong_index_count": strong_count,
+                **limit_stats,
             },
             "signals": [signal.__dict__ for signal in signals],
         }
@@ -174,6 +194,73 @@ class MarketRegimeDetector:
             """.format(placeholders),
             tuple(codes + [min_trade_date]),
         )
+
+    def _load_limit_streak_stats(self) -> Dict[str, int]:
+        """Estimate market emotion from limit-up height and daily limit balance."""
+        try:
+            latest_dates = self.db.query_to_dataframe(
+                """
+                    SELECT DISTINCT trade_date
+                    FROM market_bars
+                    WHERE period = 'daily'
+                      AND code NOT LIKE 'sh%'
+                      AND code NOT LIKE 'sz399%'
+                    ORDER BY trade_date DESC
+                    LIMIT 12
+                """
+            )
+            if latest_dates is None or latest_dates.empty:
+                return {}
+            min_trade_date = str(latest_dates["trade_date"].min())
+            latest_trade_date = str(latest_dates["trade_date"].max())
+            bars = self.db.query_to_dataframe(
+                """
+                    SELECT code, trade_date, close
+                    FROM market_bars
+                    WHERE period = 'daily'
+                      AND trade_date >= ?
+                      AND code NOT LIKE 'sh%'
+                      AND code NOT LIKE 'sz399%'
+                    ORDER BY code, trade_date
+                """,
+                (min_trade_date,),
+            )
+            if bars is None or bars.empty:
+                return {}
+
+            threshold_up = float(self.config.get("limit_up_change_pct", 9.5) or 9.5)
+            threshold_down = float(self.config.get("limit_down_change_pct", -9.5) or -9.5)
+            max_streak = 0
+            limit_up_count = 0
+            limit_down_count = 0
+            for _code, group in bars.groupby("code", sort=False):
+                closes = pd.to_numeric(group.sort_values("trade_date")["close"], errors="coerce")
+                pct = closes.pct_change() * 100
+                dates = group.sort_values("trade_date")["trade_date"].astype(str).reset_index(drop=True)
+                pct = pct.reset_index(drop=True)
+                latest_mask = dates == latest_trade_date
+                if latest_mask.any():
+                    latest_pct = pct[latest_mask].iloc[-1]
+                    if pd.notna(latest_pct) and latest_pct >= threshold_up:
+                        limit_up_count += 1
+                    if pd.notna(latest_pct) and latest_pct <= threshold_down:
+                        limit_down_count += 1
+                streak = 0
+                for value in reversed(pct.dropna().tail(10).tolist()):
+                    if value >= threshold_up:
+                        streak += 1
+                    else:
+                        break
+                max_streak = max(max_streak, streak)
+
+            return {
+                "max_limit_up_streak": int(max_streak),
+                "limit_up_count": int(limit_up_count),
+                "limit_down_count": int(limit_down_count),
+            }
+        except Exception as exc:
+            logger.warning("[MarketRegime] failed to load limit streak stats: {}", exc)
+            return {}
 
     def _build_signals(self, bars: pd.DataFrame) -> List[IndexSignal]:
         """根据 K 线数据计算各维度的技术信号指标。"""

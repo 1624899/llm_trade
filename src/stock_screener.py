@@ -36,6 +36,10 @@ DEFAULT_SCREENING_PROFILES: Dict[str, Dict[str, Any]] = {
         "ret20_max": 22.0,
         "ret5_min": -5.0,
         "max_ma5_ma20_ratio": 1.10,
+        "max_momentum_bias20": 1.24,
+        "max_trend_bias20": 1.18,
+        "min_new_stock_history_days": 30,
+        "allow_new_stock_channel": False,
         "turnover_rate_min": 0.8,
         "turnover_rate_max": 12.0,
         "max_per_industry": 2,
@@ -54,6 +58,10 @@ DEFAULT_SCREENING_PROFILES: Dict[str, Dict[str, Any]] = {
         "ret20_max": 35.0,
         "ret5_min": -8.0,
         "max_ma5_ma20_ratio": 1.15,
+        "max_momentum_bias20": 1.30,
+        "max_trend_bias20": 1.22,
+        "min_new_stock_history_days": 30,
+        "allow_new_stock_channel": False,
         "turnover_rate_min": 0.5,
         "turnover_rate_max": 20.0,
         "max_per_industry": 3,
@@ -72,6 +80,10 @@ DEFAULT_SCREENING_PROFILES: Dict[str, Dict[str, Any]] = {
         "ret20_max": 55.0,
         "ret5_min": -12.0,
         "max_ma5_ma20_ratio": 1.25,
+        "max_momentum_bias20": 1.38,
+        "max_trend_bias20": 1.28,
+        "min_new_stock_history_days": 30,
+        "allow_new_stock_channel": True,
         "turnover_rate_min": 0.3,
         "turnover_rate_max": 35.0,
         "max_per_industry": 4,
@@ -240,7 +252,9 @@ class StockScreener:
             bars = bars.sort_values("trade_date").copy()
             # 1. 历史长度检查
             min_history_days = int(profile["min_history_days"])
-            if len(bars) < min_history_days:
+            min_new_stock_history_days = int(profile.get("min_new_stock_history_days", 30) or 30)
+            is_new_stock_channel = bool(profile.get("allow_new_stock_channel")) and len(bars) >= min_new_stock_history_days
+            if len(bars) < min_history_days and not is_new_stock_channel:
                 reject("history_too_short", code, metrics={"bar_count": len(bars), "min_history_days": min_history_days})
                 continue
 
@@ -262,7 +276,8 @@ class StockScreener:
                 continue
 
             closes = bars["close"].dropna()
-            if len(closes) < min_history_days:
+            is_new_stock_channel = bool(profile.get("allow_new_stock_channel")) and len(closes) >= min_new_stock_history_days
+            if len(closes) < min_history_days and not is_new_stock_channel:
                 reject("valid_close_history_too_short", code, name, {"close_count": len(closes), "min_history_days": min_history_days})
                 continue
 
@@ -271,11 +286,19 @@ class StockScreener:
             ma20 = closes.tail(20).mean()
             ma60 = closes.tail(60).mean()
             ma5_ma20_ratio = ma5 / ma20 if ma20 else np.nan
+            bias20_ratio = close / ma20 if ma20 else np.nan
 
+            ret1 = (close / closes.iloc[-2] - 1) * 100 if len(closes) >= 2 and closes.iloc[-2] else 0
             ret3 = (close / closes.iloc[-4] - 1) * 100 if len(closes) >= 4 and closes.iloc[-4] else 0
             ret5 = (close / closes.iloc[-6] - 1) * 100 if len(closes) >= 6 and closes.iloc[-6] else 0
             ret10 = (close / closes.iloc[-11] - 1) * 100 if len(closes) >= 11 and closes.iloc[-11] else 0
             ret20 = (close / closes.iloc[-21] - 1) * 100 if len(closes) >= 21 and closes.iloc[-21] else 0
+            rsi14 = self._calculate_rsi(closes, 14)
+            macd_hist = self._calculate_macd_histogram(closes)
+            macd_hist_latest = float(macd_hist.iloc[-1]) if len(macd_hist) and pd.notna(macd_hist.iloc[-1]) else None
+            macd_hist_prev = float(macd_hist.iloc[-2]) if len(macd_hist) >= 2 and pd.notna(macd_hist.iloc[-2]) else None
+            macd_hist_rising = macd_hist_latest is not None and macd_hist_prev is not None and macd_hist_latest > macd_hist_prev
+            macd_bullish_divergence = self._has_macd_bullish_divergence(closes, macd_hist)
 
             # 4. 波动率检查
             daily_returns = closes.pct_change()
@@ -315,7 +338,16 @@ class StockScreener:
                 reject("recent_zero_volume", code, name)
                 continue
             recent_pct = closes.pct_change().tail(5) * 100
-            if (recent_pct <= float(profile["limit_down_change_pct"])).any():
+            limit_up_threshold = float(profile["limit_up_change_pct"])
+            limit_down_threshold = float(profile["limit_down_change_pct"])
+            past_10_pct = closes.pct_change().tail(11).iloc[:-1] * 100
+            recent_limit_up_count = int((past_10_pct >= limit_up_threshold).sum()) if not past_10_pct.empty else 0
+            potential_dragon_pullback = (
+                recent_limit_up_count >= 2
+                and ret1 <= -5
+                and (abs(close / ma5 - 1) <= 0.04 or abs(close / ma10 - 1) <= 0.05)
+            )
+            if (recent_pct <= limit_down_threshold).any() and not potential_dragon_pullback:
                 reject("recent_limit_down", code, name, {"limit_down_change_pct": profile["limit_down_change_pct"]})
                 continue
 
@@ -353,6 +385,14 @@ class StockScreener:
             latest_high = float(latest.get("high") or close)
             latest_low = float(latest.get("low") or close)
             intraday_position = (close - latest_low) / (latest_high - latest_low) if latest_high > latest_low else 0.5
+            first_limit_up_breakout = change_pct >= limit_up_threshold and recent_limit_up_count == 0
+            bullish_pullback_candle = self._is_bullish_pullback_candle(
+                latest_open=latest_open,
+                latest_high=latest_high,
+                latest_low=latest_low,
+                close=close,
+                intraday_position=intraday_position,
+            )
 
             strategy_matches = self._detect_strategy_matches(
                 profile=profile,
@@ -362,6 +402,7 @@ class StockScreener:
                 ma20=ma20,
                 ma60=ma60,
                 ret3=ret3,
+                ret1=ret1,
                 ret5=ret5,
                 ret10=ret10,
                 ret20=ret20,
@@ -375,6 +416,15 @@ class StockScreener:
                 pb=pb,
                 latest_open=latest_open,
                 intraday_position=intraday_position,
+                bias20_ratio=bias20_ratio,
+                rsi14=rsi14,
+                macd_hist_rising=macd_hist_rising,
+                macd_bullish_divergence=macd_bullish_divergence,
+                bullish_pullback_candle=bullish_pullback_candle,
+                recent_limit_up_count=recent_limit_up_count,
+                first_limit_up_breakout=first_limit_up_breakout,
+                potential_dragon_pullback=potential_dragon_pullback,
+                is_new_stock_channel=is_new_stock_channel,
             )
             if not strategy_matches:
                 reject(
@@ -385,8 +435,10 @@ class StockScreener:
                         "close": close,
                         "ma20": round(float(ma20), 3),
                         "ma60": round(float(ma60), 3),
+                        "ret1": round(float(ret1), 2),
                         "ret5": round(float(ret5), 2),
                         "ret20": round(float(ret20), 2),
+                        "rsi14": round(float(rsi14), 2) if rsi14 is not None else None,
                         "pe_ttm": pe_ttm,
                         "pb": pb,
                         "volume_ratio": round(float(vol_ratio), 2) if pd.notna(vol_ratio) else None,
@@ -415,6 +467,7 @@ class StockScreener:
 
             key_metrics = {
                 "ret3": round(float(ret3), 2),
+                "ret1": round(float(ret1), 2),
                 "ret5": round(float(ret5), 2),
                 "ret10": round(float(ret10), 2),
                 "ret20": round(float(ret20), 2),
@@ -425,6 +478,12 @@ class StockScreener:
                 "turnover_rate": turnover_rate,
                 "total_market_cap": total_market_cap,
                 "ma5_ma20_ratio": round(float(ma5_ma20_ratio), 4) if pd.notna(ma5_ma20_ratio) else None,
+                "bias20_ratio": round(float(bias20_ratio), 4) if pd.notna(bias20_ratio) else None,
+                "rsi14": round(float(rsi14), 2) if rsi14 is not None else None,
+                "macd_hist_rising": macd_hist_rising,
+                "macd_bullish_divergence": macd_bullish_divergence,
+                "recent_limit_up_count": recent_limit_up_count,
+                "is_new_stock_channel": is_new_stock_channel,
                 "low60_distance": round(float(low60_distance), 2),
                 "strategy_tags": [match["tag"] for match in strategy_matches],
                 "strategy_confidence": round(float(max(match["confidence"] for match in strategy_matches)), 2),
@@ -444,6 +503,7 @@ class StockScreener:
                     "ma60": round(float(ma60), 3),
                     "ret5": round(float(ret5), 2),
                     "ret20": round(float(ret20), 2),
+                    "rsi14": round(float(rsi14), 2) if rsi14 is not None else None,
                     "annual_vol20": round(float(annual_vol20), 4) if pd.notna(annual_vol20) else None,
                     "volume_ratio": round(float(vol_ratio), 2) if pd.notna(vol_ratio) else None,
                     "avg_amount20": round(float(avg_amount20), 2),
@@ -501,12 +561,30 @@ class StockScreener:
         pb: float | None,
         latest_open: float,
         intraday_position: float,
+        ret1: float = 0.0,
+        bias20_ratio: float | None = None,
+        rsi14: float | None = None,
+        macd_hist_rising: bool = False,
+        macd_bullish_divergence: bool = False,
+        bullish_pullback_candle: bool = False,
+        recent_limit_up_count: int = 0,
+        first_limit_up_breakout: bool = False,
+        potential_dragon_pullback: bool = False,
+        is_new_stock_channel: bool = False,
     ) -> List[Dict[str, Any]]:
         """检测股票是否符合预设的多样化交易策略。"""
         matches: List[Dict[str, Any]] = []
         turnover = turnover_rate or 0.0
         volume_ratio = float(vol_ratio) if pd.notna(vol_ratio) else 1.0
         volume5_ratio = float(vol5_ratio) if pd.notna(vol5_ratio) else 1.0
+        bias20 = float(bias20_ratio) if bias20_ratio is not None and pd.notna(bias20_ratio) else 1.0
+        reversal_indicators_available = rsi14 is not None
+        reversal_confirmed = (
+            not reversal_indicators_available
+            or (rsi14 is not None and rsi14 <= 20)
+            or macd_hist_rising
+            or macd_bullish_divergence
+        )
 
         # 1. 经典趋势突破策略 (Trend Breakout)
         # 条件：站上20日线，20日线向上，20日跌幅在可控范围内，且非缩量接近新高
@@ -516,6 +594,7 @@ class StockScreener:
             and float(profile["ret20_min"]) <= ret20 <= float(profile["ret20_max"])
             and ret5 >= float(profile["ret5_min"])
             and change_pct < float(profile["limit_up_change_pct"])
+            and bias20 <= float(profile.get("max_trend_bias20", 1.22))
             and (high60_distance < -3 or volume_ratio >= float(profile["min_volume_ratio_near_high60"]))
         ):
             confidence = 0.62
@@ -540,6 +619,7 @@ class StockScreener:
         if (
             close > ma5 > ma10 > ma20 > ma60
             and abs(close / ma5 - 1) <= 0.06
+            and bias20 <= float(profile.get("max_momentum_bias20", 1.30))
             and ret20 >= 20
             and ret5 >= 3
             and change_pct < float(profile["limit_up_change_pct"])
@@ -570,6 +650,7 @@ class StockScreener:
             and low60_distance <= 12
             and ret3 > -5
             and (volume_ratio >= 1.5 or turnover >= max(1.5, float(profile["turnover_rate_min"])))
+            and reversal_confirmed
         ):
             confidence = 0.58
             confidence += 0.10 if close < ma20 else 0.04
@@ -591,6 +672,7 @@ class StockScreener:
             and 0 < pe_ttm <= 20
             and (volume_ratio >= 1.8 or turnover >= 3.0)
             and intraday_position >= 0.45
+            and reversal_confirmed
         ):
             confidence = 0.60
             confidence += 0.10 if intraday_position >= 0.6 else 0.0
@@ -612,6 +694,7 @@ class StockScreener:
             and (abs(close / ma20 - 1) <= 0.03 or abs(close / ma60 - 1) <= 0.04)
             and volume_ratio <= 0.85
             and change_pct > float(profile["limit_down_change_pct"]) / 2
+            and bullish_pullback_candle
         ):
             matches.append(
                 {
@@ -621,7 +704,107 @@ class StockScreener:
                 }
             )
 
+        # 6. Dragon Pullback: a recent limit-up leader's first sharp pullback near MA5/MA10.
+        if (
+            potential_dragon_pullback
+            and recent_limit_up_count >= 2
+            and ret1 <= -5
+            and volume_ratio >= 0.7
+            and volume5_ratio >= 0.9
+        ):
+            confidence = 0.64
+            confidence += 0.08 if abs(close / ma5 - 1) <= 0.025 else 0.0
+            confidence += 0.06 if intraday_position >= 0.35 else 0.0
+            matches.append(
+                {
+                    "tag": "dragon_pullback",
+                    "label": "Dragon Pullback",
+                    "confidence": min(0.90, confidence),
+                }
+            )
+
+        # 7. First Limit-up Breakout: first board from a controlled low/mid position.
+        if (
+            first_limit_up_breakout
+            and close >= ma20
+            and ret20 <= float(profile["ret20_max"])
+            and bias20 <= float(profile.get("max_momentum_bias20", 1.30))
+            and volume_ratio >= 1.2
+        ):
+            confidence = 0.63
+            confidence += 0.08 if ret20 <= 20 else 0.0
+            confidence += 0.06 if ma20 >= ma60 * 0.98 else 0.0
+            matches.append(
+                {
+                    "tag": "first_limit_up_breakout",
+                    "label": "First Limit-up Breakout",
+                    "confidence": min(0.91, confidence),
+                }
+            )
+
+        if is_new_stock_channel and matches:
+            for match in matches:
+                if match["tag"] in {"momentum_leader", "first_limit_up_breakout", "dragon_pullback"}:
+                    match["confidence"] = min(0.96, match["confidence"] + 0.04)
+
         return sorted(matches, key=lambda item: item["confidence"], reverse=True)
+
+    @staticmethod
+    def _calculate_rsi(closes: pd.Series, period: int = 14) -> float | None:
+        if len(closes) <= period:
+            return None
+        delta = closes.diff()
+        gain = delta.clip(lower=0).rolling(period).mean()
+        loss = (-delta.clip(upper=0)).rolling(period).mean()
+        latest_loss = loss.iloc[-1]
+        latest_gain = gain.iloc[-1]
+        if pd.isna(latest_gain) or pd.isna(latest_loss):
+            return None
+        if latest_loss == 0:
+            return 100.0
+        rs = latest_gain / latest_loss
+        return float(100 - (100 / (1 + rs)))
+
+    @staticmethod
+    def _calculate_macd_histogram(closes: pd.Series) -> pd.Series:
+        ema12 = closes.ewm(span=12, adjust=False).mean()
+        ema26 = closes.ewm(span=26, adjust=False).mean()
+        dif = ema12 - ema26
+        dea = dif.ewm(span=9, adjust=False).mean()
+        return (dif - dea) * 2
+
+    @staticmethod
+    def _has_macd_bullish_divergence(closes: pd.Series, macd_hist: pd.Series) -> bool:
+        if len(closes) < 12 or len(macd_hist) < 12:
+            return False
+        recent = closes.tail(6)
+        prior = closes.iloc[:-6].tail(6)
+        recent_hist = macd_hist.tail(6)
+        prior_hist = macd_hist.iloc[:-6].tail(6)
+        if recent.empty or prior.empty or recent_hist.empty or prior_hist.empty:
+            return False
+        return bool(
+            recent.min() < prior.min()
+            and recent_hist.min() > prior_hist.min()
+        )
+
+    @staticmethod
+    def _is_bullish_pullback_candle(
+        *,
+        latest_open: float,
+        latest_high: float,
+        latest_low: float,
+        close: float,
+        intraday_position: float,
+    ) -> bool:
+        candle_range = latest_high - latest_low
+        if candle_range <= 0:
+            return close >= latest_open
+        lower_shadow = min(latest_open, close) - latest_low
+        real_body = abs(close - latest_open)
+        hammer_like = lower_shadow >= max(real_body * 1.5, candle_range * 0.25)
+        doji_like = real_body <= candle_range * 0.2 and intraday_position >= 0.45
+        return bool(close >= latest_open or intraday_position >= 0.5 or hammer_like or doji_like)
 
     def _score_strategy_candidate(
         self,
@@ -668,6 +851,14 @@ class StockScreener:
             score += min(18, abs(min(ret5, ret20 / 2))) * 0.9
             score += 8 if pe_ttm is not None and 0 < pe_ttm <= 15 else 4
             score += 5 if pb is not None and 0 < pb <= 2 else 0
+        elif primary == "dragon_pullback":
+            score += max(0, 10 - abs(close / ma5 - 1) * 100)
+            score += min(14, abs(min(ret5, 0))) * 0.7
+            score += 8 if close >= ma10 else 3
+        elif primary == "first_limit_up_breakout":
+            score += min(24, max(0, ret20)) * 1.0
+            score += 10 if close >= ma5 >= ma10 >= ma20 else 4
+            score += 6 if ma20 >= ma60 * 0.98 else 0
         else:
             score += 10 if ma20 >= ma60 else 0
             score += max(0, 8 - abs(close / ma20 - 1) * 100)
@@ -747,6 +938,9 @@ class StockScreener:
             "min_total_market_cap",
             "min_avg_amount20",
             "max_ma5_ma20_ratio",
+            "max_momentum_bias20",
+            "max_trend_bias20",
+            "min_new_stock_history_days",
             "turnover_rate_max",
             "max_per_industry",
             "top_n",

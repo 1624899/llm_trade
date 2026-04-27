@@ -37,8 +37,19 @@
 - 财报错杀/洗盘反转：短期急跌、估值有支撑、放量承接。
 - 强势主升浪：均线完美发散、动量极强、资金接力，但过滤放量滞涨。
 - 支撑回踩：趋势未坏，回踩关键均线或平台附近。
+- 龙回头 / 妖股断板低吸：近 10 日出现过多次涨停，断板后首次大幅回调，回踩 MA5/MA10 附近且成交量未彻底熄火。
+- 底部首板强突：把第一次涨停视为独立突破信号，用于捕捉主力启动初期，后续由交易 Agent 等待次日水下或均线附近低吸机会。
+
+为了降低“假突破”和“接飞刀”的概率，规则层还补充了以下技术确认：
+
+- 左侧低吸/恐慌反转必须有技术共振：RSI 超卖、MACD 绿柱改善或底背离，避免只因为短期跌幅大就接基本面恶化的真暴跌。
+- 右侧主升浪和趋势突破加入 MA20 乖离率上限，防止连续涨停后价格远离均线过多，接到兑现潮前的最后一棒。
+- 支撑回踩要求 K 线出现承接确认，例如收阳、下影线、十字星或收盘位于日内中上部，避免把阴跌破位误判成缩量企稳。
+- aggressive 档开放次新股特别通道，可把最小历史长度降低到 30 个交易日；conservative/balanced 默认仍使用 60 日硬过滤。
 
 候选股会带上 `strategy_tags`、`strategy_confidence` 和 `screen_reason`，方便后续 Agent 理解它为什么入选。
+
+`MarketRegimeDetector` 还会统计最高连板高度、当日涨停/跌停数量。系统不会直接追买高位连板股，但会把连板高度作为市场情绪温度计：最高连板达到 7 板以上时偏向 aggressive；最高连板只有 2 板且跌停压力明显时偏向 conservative 或空仓防守。
 
 ### 3. 深度财务数据
 
@@ -266,6 +277,13 @@ python main.py --post
 - `config/config.yaml`：LLM、搜索、数据保留窗口、并发数等运行配置。
 - `config/stock_picking.yaml`：选股 profile、多策略筛选参数、主题加分和市场状态配置。
 
+`stock_picking.yaml` 中与新增策略相关的关键参数包括：
+
+- `max_momentum_bias20` / `max_trend_bias20`：控制主升浪、趋势突破相对 MA20 的最大乖离率。
+- `allow_new_stock_channel` / `min_new_stock_history_days`：控制是否允许次新股特别通道，当前仅 aggressive 默认开启。
+- `limit_up_change_pct` / `limit_down_change_pct`：定义涨停、跌停估算阈值，也用于龙回头、首板和市场情绪统计。
+- `hot_limit_streak` / `cold_limit_streak`：定义连板高度的热度/冰点阈值，用于自动切换市场 Regime。
+
 ## 主要输出
 
 - `outputs/latest_report.md`：最近一次选股报告。
@@ -300,6 +318,9 @@ python -m unittest discover -s test
 
 - `src/agent/screener_agent.py` 已迁移为 `src/stock_screener.py`，定位为底层规则筛选器。
 - `StockScreener` 已升级为多策略雷达，不再用单一 MA20 趋势条件一刀切。
+- `StockScreener` 已补充 RSI/MACD 反转共振、MA20 乖离率约束、支撑回踩 K 线承接确认，降低假突破和接飞刀风险。
+- 新增次新股 aggressive 特别通道、`dragon_pullback` 龙回头策略和 `first_limit_up_breakout` 底部首板强突策略。
+- `MarketRegimeDetector` 新增最高连板高度、涨停/跌停数量监测，把市场情绪热度纳入 profile 自动切换。
 - 新增 `QuickFilterAgent`，形成“规则分策略海选 → AI 轻量精筛 → Agent 深度复核”的三段式漏斗。
 - 新增东方财富财务报表接入和 `financial_metrics` 表。
 - `FundamentalAgent` 已接入近几期财务趋势摘要。
