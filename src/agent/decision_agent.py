@@ -66,6 +66,10 @@ class DecisionAgent:
 报告中的决策日期必须使用：{decision_date}。不要自行改写为其他年份或交易日。
 直接输出报告正文，不要输出“好的、遵命、作为某某智能体”等寒暄句。
 必须尊重资讯风险的硬性剔除结论。
+你的判断周期是中期波段/配置视角，默认观察 1-3 个月，不是隔日或一周内的纯短线策略。
+如果一只股票基本面质量好、风险低、技术趋势没有失效，并且合理预期收益空间大于 15%，应当给出清晰积极的结论，不要因为短期震荡、回踩或小幅浮亏而过度保守。
+如果基本面已经恶化，或利润/现金流/公告风险与技术面破位、放量滞涨、趋势背离同时出现，必须明确建议减仓、清仓或不推荐，不能用“继续观察”稀释风险。
+最终报告必须像成熟交易分析员一样给出可执行判断：买入/配置/等待/减仓/清仓，不要只罗列优缺点。
 
 用户目标：{user_query}
 
@@ -74,12 +78,12 @@ class DecisionAgent:
 
 请输出一份详细且专业的中文 Markdown 决策报告。
 必须使用统一推荐分层，不能把所有入选标的都笼统写成“推荐”：
-- 强推荐：基本面强、技术形态明确、资讯风控低，适合作为本轮核心候选。
-- 配置/轻仓验证：防御属性、回踩支撑、低风险配置或赔率一般但胜率较稳，只能轻仓或等触发条件。
+- 强推荐：基本面强、技术趋势未失效、资讯风控低，且中期预期收益空间大于 15%，适合作为核心候选。
+- 配置/轻仓验证：风险较低且中期胜率较稳，但收益空间、成长性或买点确认度弱于强推荐，可轻仓配置或等待触发。
 - 观察：单独看有亮点，但买点、趋势、成长性或风控仍不够清晰。
 - 不推荐：基本面、技术面或资讯风控存在明显短板。
 如果某只股票只是弱市防御、缩量回踩、基本面稳但成长一般，请标为“配置/轻仓验证”，不要写成“强推荐”。
-最终决策表必须包含“推荐分层”列，并在个股标题中使用对应分层，例如“长江电力(600900) —— 配置/轻仓验证”。
+最终决策表必须包含“推荐分层”“中期预期收益空间”“主要持有逻辑”“减仓/清仓触发条件”列，并在个股标题中使用对应分层，例如“长江电力(600900) —— 配置/轻仓验证”。
 每只股票的资讯风控不能只写“风险等级：低/中/高”，必须至少说明：风险等级、处理动作、是否硬排除、新闻质量或关键证据；如果没有命中负面，也要写明“未发现明确负面关键词/公告硬风险”等依据。
 
 报告结尾必须包含一个机器可解析的代码块，格式如下：
@@ -326,8 +330,6 @@ CODE_LIST 只放“强推荐”和“配置/轻仓验证”的代码，不放“
             reverse=True,
         )
         selected = ranked[: max(0, int(pick_n or 0))]
-        selected_codes = [str(item.get("asset_info", {}).get("code", "")) for item in selected]
-        selected_codes = [code for code in selected_codes if code]
 
         risk_appetite = macro_context.get("risk_appetite", "未知")
         decision_date = datetime.now().strftime("%Y-%m-%d")
@@ -340,13 +342,17 @@ CODE_LIST 只放“强推荐”和“配置/轻仓验证”的代码，不放“
             "",
             "## 入选标的分层",
         ]
+        actionable_codes: List[str] = []
         for profile in selected:
             asset = profile.get("asset_info", {})
             tier = self._infer_fallback_tier(profile)
+            code = str(asset.get("code", ""))
+            if tier in {"强推荐", "配置/轻仓验证"} and code:
+                actionable_codes.append(code)
             lines.append(
                 "- {name}({code}) —— {tier}；技术得分={score}, 入选理由={reason}".format(
                     name=asset.get("name", ""),
-                    code=asset.get("code", ""),
+                    code=code,
                     tier=tier,
                     score=asset.get("technical_score", "N/A"),
                     reason=asset.get("screen_reason", "N/A"),
@@ -355,8 +361,8 @@ CODE_LIST 只放“强推荐”和“配置/轻仓验证”的代码，不放“
         if not selected:
             lines.append("- 本轮无符合规则的推荐标的。")
         
-        lines.extend(["", f"[CODE_LIST] {', '.join(selected_codes)} [/CODE_LIST]"])
-        return "\n".join(lines), selected_codes
+        lines.extend(["", f"[CODE_LIST] {', '.join(actionable_codes)} [/CODE_LIST]"])
+        return "\n".join(lines), actionable_codes
 
     def _infer_fallback_tier(self, profile: Dict[str, Any]) -> str:
         """LLM 不可用时，用保守规则给入选标的补充分层，避免报告口径过强。"""
@@ -368,7 +374,8 @@ CODE_LIST 只放“强推荐”和“配置/轻仓验证”的代码，不放“
             return "不推荐"
         if risk.get("risk_level") not in (None, "", "low") and risk.get("action") == "watch":
             return "观察"
-        if "强" in fund_text and not any(word in tech_text for word in ["不宜追高", "观望", "高位"]):
+        bad_technical_words = ["不宜追高", "观望", "高位", "跌破", "破位", "放量滞涨", "上影派发", "趋势失效"]
+        if "强" in fund_text and not any(word in tech_text for word in bad_technical_words):
             return "强推荐"
         primary_tags = asset.get("strategy_tags") or []
         if any(tag in primary_tags for tag in ["support_pullback", "value_bottom"]) or any(word in tech_text for word in ["轻仓", "低吸", "支撑", "缩量"]):

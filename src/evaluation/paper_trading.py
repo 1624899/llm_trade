@@ -20,8 +20,8 @@ from src.quote_sources import fetch_latest_prices
 
 DEFAULT_POST_MARKET_RULES = {
     "stop_loss_pct": -5.0,
-    "take_profit_pct": 10.0,
-    "reduce_watch_pct": 6.0,
+    "take_profit_pct": 15.0,
+    "reduce_watch_pct": 10.0,
     "wait_confirm_loss_pct": -2.0,
 }
 

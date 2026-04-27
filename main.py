@@ -22,12 +22,13 @@ def main():
     parser = argparse.ArgumentParser(description="全自动 AI 量化智能体选股与自省系统 (LLM-TRADE)")
     parser.add_argument("--sync", action="store_true", help="【盘后首要】执行全市场 A 股盘后数据同步至本地数据湖 (建议 15:30 后执行)")
     parser.add_argument("--pick", action="store_true", help="【自动选股】执行技术面预筛选 + 多 Agent 深度分析选股流程")
+    parser.add_argument("--trade", action="store_true", help="【模拟交易】根据观察仓推荐和交易仓状态运行 TradingAgent 调仓")
     parser.add_argument("--post", action="store_true", help="【盘后清算】运行盘后例行维护：虚拟观察仓结算 + 失败错题反思并沉淀风控规则")
     
     parser.add_argument("--analyze", nargs="+", help="【指定分析】对指定 A 股代码做单独深度分析，例如：python main.py --analyze 600519 000001")
     args = parser.parse_args()
     
-    if not any([args.sync, args.pick, args.analyze, args.post]):
+    if not any([args.sync, args.pick, args.trade, args.analyze, args.post]):
         parser.print_help()
         logger.info("\n没有输入任何指令。例如执行每日选股： python main.py --pick")
         return
@@ -62,6 +63,11 @@ def main():
         logger.info(f">>> 收到指定分析指令：{args.analyze}")
         coordinator = AgentCoordinator()
         report = coordinator.run_targeted_analysis(args.analyze)
+
+    if args.trade:
+        logger.info(">>> 收到模拟交易指令：TradingAgent 根据观察仓与交易仓执行调仓")
+        coordinator = AgentCoordinator()
+        coordinator.run_trading_workflow()
 
     if args.post:
         logger.info(">>> 收到指令：执行盘后仓位结算与 AI 错题反思...")

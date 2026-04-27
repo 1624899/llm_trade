@@ -25,11 +25,15 @@ from src.agent.macro_agent import MacroAgent
 from src.agent.news_agent import NewsRiskAgent
 from src.agent.quick_filter_agent import QuickFilterAgent
 from src.agent.reflection_agent import ReflectionAgent
+from src.agent.exit_agent import ExitAgent
+from src.agent.trading_agent import TradingAgent
 from src.stock_screener import StockScreener
 from src.agent.technical_agent import TechnicalAgent
 from src.agent.trace_recorder import trace_recorder
 from src.database import StockDatabase
 from src.evaluation.paper_trading import PaperTrading
+from src.evaluation.trading_account import TradingAccount
+from src.evaluation.watchlist import Watchlist
 
 
 DEFAULT_CANDIDATE_ANALYSIS_MAX_WORKERS = 3
@@ -56,8 +60,12 @@ class AgentCoordinator:
         self.quick_filter_agent = QuickFilterAgent()
         self.decision_agent = DecisionAgent()
         self.reflection_agent = ReflectionAgent()
-        self.paper_trading = PaperTrading()
         self.db = StockDatabase()
+        self.paper_trading = PaperTrading(db=self.db)
+        self.watchlist = Watchlist(db=self.db, max_items=10)
+        self.trading_account = TradingAccount(db=self.db)
+        self.exit_agent = ExitAgent(db=self.db)
+        self.trading_agent = TradingAgent()
 
     def run_picking_workflow(self, max_candidates: int = 10) -> str:
         """
@@ -128,25 +136,15 @@ class AgentCoordinator:
         if analysis_errors:
             final_markdown_report = self._append_analysis_error_summary(final_markdown_report, analysis_errors)
 
-        logger.info(f"[Paper Trading] 尝试将推荐股票加入观察仓: {selected_codes}")
+        logger.info(f"[Watchlist] 尝试将推荐股票更新到观察仓: {selected_codes}")
         stock_profiles_map = {item["asset_info"]["code"]: item for item in detailed_reports}
-        for code in selected_codes:
-            if code in stock_profiles_map:
-                profile = stock_profiles_map[code]
-                name = profile["asset_info"]["name"]
-                
-                reason_parts = []
-                if "fundamental_analysis" in profile:
-                    reason_parts.append("【基本面分析】\n" + str(profile["fundamental_analysis"]))
-                if "technical_analysis" in profile:
-                    reason_parts.append("【技术面分析】\n" + str(profile["technical_analysis"]))
-                if "news_risk_analysis" in profile:
-                    reason_parts.append("【风控与资讯】\n" + str(profile["news_risk_analysis"]))
-                
-                reason = "\n\n".join(reason_parts)
-                self.paper_trading.add_trade(code, name, reason)
-            else:
-                logger.warning(f"模型选取了不在原始池中的代码 {code}，已跳过建仓。")
+        watch_count = self.watchlist.upsert_recommendations(
+            selected_codes,
+            stock_profiles_map,
+            final_report=final_markdown_report,
+            macro_context=macro_context,
+        )
+        logger.info("[Watchlist] 本轮更新 {} 只观察标的；交易仓不会在 --pick 中自动买入", watch_count)
 
         elapsed = time.time() - start_time
         self._save_workflow_audit(
@@ -454,17 +452,19 @@ class AgentCoordinator:
         lines = [
             "## 综合结论",
             "",
-            "| 股票 | 综合倾向 | 核心矛盾 | 资讯风控 |",
-            "| --- | --- | --- | --- |",
+            "| 股票 | 综合倾向 | 中期动作 | 核心矛盾 | 资讯风控 |",
+            "| --- | --- | --- | --- | --- |",
         ]
         for item in detailed_reports:
             asset = item.get("asset_info", {})
             risk = item.get("news_risk_analysis") if isinstance(item.get("news_risk_analysis"), dict) else {}
+            view = self._infer_targeted_view(item)
             lines.append(
-                "| {name}({code}) | {view} | {reason} | {risk_level}/{action} |".format(
+                "| {name}({code}) | {view} | {mid_action} | {reason} | {risk_level}/{action} |".format(
                     name=asset.get("name", ""),
                     code=asset.get("code", ""),
-                    view=self._infer_targeted_view(item),
+                    view=view,
+                    mid_action=self._targeted_midterm_action(view),
                     reason=self._build_targeted_reason(item),
                     risk_level=risk.get("risk_level", "unknown"),
                     action=risk.get("action", "unknown"),
@@ -474,19 +474,37 @@ class AgentCoordinator:
         return lines
 
     def _infer_targeted_view(self, report: Dict[str, Any]) -> str:
-        """按基本面、技术面和资讯风控给出保守的单股总评。"""
+        """按基本面、技术面和资讯风控给出中期视角的单股总评。"""
         fund_text = str(report.get("fundamental_analysis", ""))
         tech_text = str(report.get("technical_analysis", ""))
         risk = report.get("news_risk_analysis") if isinstance(report.get("news_risk_analysis"), dict) else {}
         if risk.get("hard_exclude"):
             return "回避"
-        if "弱" in fund_text and any(word in tech_text for word in ["不宜追高", "观望", "弱势"]):
-            return "谨慎观望"
+        bad_fund_words = ["弱", "恶化", "下滑", "背离", "减值", "亏损", "负债压力"]
+        bad_tech_words = ["跌破", "破位", "趋势失效", "放量滞涨", "上影派发", "弱势"]
+        good_fund = any(word in fund_text for word in ["强", "增长", "改善", "高景气", "现金流良好", "盈利预期"])
+        good_tech = not any(word in tech_text for word in bad_tech_words)
+        if any(word in fund_text for word in bad_fund_words) and any(word in tech_text for word in bad_tech_words):
+            return "减仓/回避"
+        if good_fund and good_tech and risk.get("risk_level") == "low":
+            return "中期积极"
         if "中性" in fund_text and any(word in tech_text for word in ["观望", "轻仓", "低吸"]):
             return "观察/轻仓验证"
         if risk.get("risk_level") == "low":
-            return "中性观察"
+            return "中期观察"
         return "谨慎观望"
+
+    @staticmethod
+    def _targeted_midterm_action(view: str) -> str:
+        if view == "中期积极":
+            return "可配置，回踩不破关键支撑可持有"
+        if view == "观察/轻仓验证":
+            return "轻仓或等待触发，不追高"
+        if view == "减仓/回避":
+            return "减仓或清仓，等待基本面/技术面修复"
+        if view == "回避":
+            return "不参与"
+        return "等待更清晰信号"
 
     def _build_targeted_reason(self, report: Dict[str, Any]) -> str:
         """抽取基本面和技术面的第一层结论，压缩成总评理由。"""
@@ -614,6 +632,57 @@ class AgentCoordinator:
             logger.warning(f"读取 Coordinator 配置失败，使用默认值: {exc}")
             return {}
 
+    def run_trading_workflow(self) -> str:
+        """
+        独立模拟交易流程：
+        1. 刷新观察仓和交易仓价格。
+        2. 生成持仓退出信号。
+        3. TradingAgent 给出买卖/持有决策。
+        4. TradingAccount 校验硬约束并写入交易流水。
+        """
+        logger.info("=== 开始交易 Agent 模拟调仓 ===")
+        self.watchlist.refresh_prices()
+        account = self.trading_account.refresh_positions()
+        positions = self.trading_account.list_open_positions()
+        watch_items = self.watchlist.list_active()
+        macro_context = self.macro_agent.analyze_macro_environment()
+        exit_signals = self._build_exit_signals(positions, macro_context)
+
+        decisions = self.trading_agent.decide(
+            watchlist=watch_items,
+            positions=positions,
+            account=account,
+            exit_signals=exit_signals,
+            macro_context=macro_context,
+        )
+        results = self.trading_account.execute_decisions(decisions)
+        report = self.trading_account.format_report(results)
+        print(report)
+        logger.info("=== 交易 Agent 模拟调仓结束 ===")
+        return report
+
+    def _build_exit_signals(
+        self,
+        positions: List[Dict[str, Any]],
+        macro_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Dict[str, Any]]:
+        signals: Dict[str, Dict[str, Any]] = {}
+        for position in positions:
+            code = str(position.get("code") or "").zfill(6)
+            if not code:
+                continue
+            exit_position = dict(position)
+            exit_position["recommend_price"] = position.get("avg_cost")
+            exit_position["return_pct"] = position.get("unrealized_return_pct")
+            try:
+                signals[code] = self.exit_agent.evaluate_position(
+                    exit_position,
+                    macro_context=macro_context,
+                ).to_dict()
+            except Exception as exc:
+                logger.warning("[TradingWorkflow] exit signal failed for {}: {}", code, exc)
+        return signals
+
     def run_post_market_routine(self):
         """
         每日盘后例行维护：
@@ -622,17 +691,23 @@ class AgentCoordinator:
         3. 触发 AI 自我反思机制，吸取失败教训。
         """
         logger.info("=== 开始盘后虚拟观察仓结算与反思 ===")
+        self.watchlist.refresh_prices()
+        self.trading_account.refresh_positions()
+        self.reflection_agent.generate_trading_reflections(threshold_pct=-3.0)
+
         self.paper_trading.update_portfolio()
         self.reflection_agent.generate_reflection_for_failures(threshold_pct=-3.0)
 
         macro_context = self.macro_agent.analyze_macro_environment()
         diagnostics = self.paper_trading.diagnose_portfolio(macro_context=macro_context)
         review_report = self.paper_trading.format_diagnostics_report(diagnostics)
+        trading_report = self.trading_account.format_report([])
         print(review_report)
         print(self.paper_trading.show_portfolio())
+        print(trading_report)
 
         logger.info("=== 盘后例行任务结束 ===")
-        return review_report
+        return review_report + "\n\n" + trading_report
 
 
 if __name__ == "__main__":

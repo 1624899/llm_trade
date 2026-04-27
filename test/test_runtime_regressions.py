@@ -20,6 +20,7 @@ from src.agent.macro_agent import MACRO_CONTEXT_SCHEMA_FIELDS, MacroAgent
 from src.agent.news_agent import NewsRiskAgent
 from src.agent.quick_filter_agent import QuickFilterAgent
 from src.agent.reflection_agent import ReflectionAgent
+from src.agent.trading_agent import TradingAgent
 from src.agent.tools import AgentTools
 from src.market_extras import fetch_sina_board_list, fetch_sina_stock_news
 from src.market_sentiment import MarketSentiment
@@ -58,6 +59,15 @@ class MainEntryTests(unittest.TestCase):
             main.main()
 
         mock_coordinator.run_targeted_analysis.assert_called_once_with(["600519", "000001"])
+
+    @patch("main.AgentCoordinator")
+    def test_trade_uses_trading_workflow(self, mock_coordinator_cls):
+        mock_coordinator = mock_coordinator_cls.return_value
+
+        with patch.object(sys, "argv", ["main.py", "--trade"]):
+            main.main()
+
+        mock_coordinator.run_trading_workflow.assert_called_once_with()
 
 
 class LegacyCleanupTests(unittest.TestCase):
@@ -649,6 +659,41 @@ class QuickFilterAgentTests(unittest.TestCase):
 
         self.assertEqual(result["mode"], "rule_fallback")
         self.assertEqual(result["selected_codes"], ["000002", "000001"])
+
+
+class TradingAgentTests(unittest.TestCase):
+    @patch.object(TradingAgent, "_llm_decisions", return_value=[])
+    def test_fallback_buys_actionable_watchlist_and_sells_hard_exit(self, _mock_llm):
+        agent = TradingAgent(max_positions=5, max_buys_per_run=2, max_sells_per_run=2)
+        decisions = agent.decide(
+            watchlist=[
+                {
+                    "id": 1,
+                    "code": "000001",
+                    "name": "buy sample",
+                    "tier": "强推荐",
+                    "current_price": 10.0,
+                    "expected_return_pct": 18,
+                    "recommend_reason": "基本面稳定，趋势未失效",
+                }
+            ],
+            positions=[
+                {
+                    "code": "000002",
+                    "name": "sell sample",
+                    "quantity": 100,
+                    "current_price": 9.0,
+                    "unrealized_return_pct": -6,
+                }
+            ],
+            account={"cash": 10000},
+            exit_signals={"000002": {"action_level": 3, "reason": "技术破位"}},
+            macro_context={},
+        )
+
+        actions = {(item["code"], item["action"]) for item in decisions}
+        self.assertIn(("000001", "BUY"), actions)
+        self.assertIn(("000002", "SELL"), actions)
 
 
 class NewsRiskDecisionTests(unittest.TestCase):

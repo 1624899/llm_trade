@@ -1,9 +1,9 @@
 # LLM-TRADE
 
-`LLM-TRADE` 是一个面向 A 股的多 Agent 选股、复盘与观察仓管理系统。它的核心思路是：
+`LLM-TRADE` 是一个面向 A 股的多 Agent 选股、模拟交易、复盘与观察仓管理系统。它的核心思路是：
 
 ```text
-数据入湖 -> 多策略规则雷达 -> 多 Agent 深度复核 -> 决策输出 -> 观察仓退出诊断 -> 亏损反思沉淀
+数据入湖 -> 多策略规则雷达 -> 多 Agent 深度复核 -> 决策输出 -> 观察仓候选池 -> 交易仓模拟调仓 -> 亏损反思沉淀
 ```
 
 系统不会把所有判断都交给大模型。确定性的行情、财务、技术和风控规则先由代码计算，LLM 负责做最后的综合解释、取舍和报告生成。
@@ -18,7 +18,11 @@
 - 行情快照表：`daily_quotes`
 - 多周期 K 线表：`market_bars`
 - 财务指标表：`financial_metrics`
-- 观察仓表：`paper_trades`
+- 观察仓候选池表：`watchlist_items`
+- 模拟交易账户表：`trading_account`
+- 模拟交易持仓表：`trading_positions`
+- 模拟交易流水表：`trade_orders`
+- 旧版观察仓兼容表：`paper_trades`
 
 行情优先使用腾讯/新浪等免费接口，K 线和财务数据通过 AKShare 等源补充。
 
@@ -100,6 +104,22 @@
 
 `PaperTrading` 会保留原有收益率止盈止损规则，并在 `ExitAgent` 给出更严重信号时自动升级动作。
 
+### 6. 观察仓与交易仓
+
+`Watchlist` 位于 `src/evaluation/watchlist.py`，负责维护最多 10 只观察标的。`--pick` 只会把最终推荐和完整分析写入观察仓候选池，不再等同于模拟买入。
+
+`TradingAccount` 位于 `src/evaluation/trading_account.py`，负责持久模拟账户：
+
+- 默认初始资金 10000 元，只在首次初始化时注入。
+- 后续运行持续滚动现金、持仓、交易流水和盈亏。
+- 交易仓最多同时持有 5 只股票。
+- A 股默认按 100 股一手买入。
+- 买入后至少持有 5 个交易日。
+- 卖出后 5 个交易日内不回买同一股票。
+- 单次运行默认最多 2 笔买入、2 笔卖出，禁止频繁交易。
+
+`TradingAgent` 位于 `src/agent/trading_agent.py`，会读取观察仓、交易仓、宏观环境、退出信号和历史反思规则，输出 BUY/SELL/HOLD/WATCH/REMOVE 等结构化决策。LLM 不可用时会降级为规则兜底：风险清仓优先，未触发风险则持有，未持仓标的默认继续观察。
+
 ## Agent 工作流
 
 `AgentCoordinator` 统一调度完整选股流程：
@@ -111,8 +131,9 @@
 5. `TechnicalAgent` 结合量化技术信号和 K 线摘要做技术复核。
 6. `NewsRiskAgent` 检查公告、新闻和重大风险词。
 7. `DecisionAgent` 综合排序，输出最终推荐报告。
-8. `PaperTrading` 记录观察仓。
-9. `ExitAgent` 和 `ReflectionAgent` 在盘后进行持仓诊断与亏损反思。
+8. `Watchlist` 将推荐和分析沉淀为观察仓候选池。
+9. `TradingAgent` 在 `--trade` 中基于观察仓和交易仓执行模拟调仓。
+10. `ExitAgent` 和 `ReflectionAgent` 在盘后进行持仓诊断与亏损反思。
 
 ## 快速开始
 
@@ -169,10 +190,26 @@ python main.py --pick
 - `outputs/latest_workflow_audit.json`
 - `outputs/screener_audit.json`
 
+`--pick` 会同步更新 `watchlist_items`，但不会直接买入交易仓。
 
-### 5. 指定股票单独分析
+### 5. 执行模拟交易
 
-如果已经有几只想重点看的股票，可以跳过规则海选和观察仓建仓，只复用现有 Agent 做逐只分析：
+```bash
+python main.py --trade
+```
+
+该流程会：
+
+- 初始化或读取持久模拟账户。
+- 刷新观察仓和交易仓当前价格。
+- 获取宏观环境和持仓退出信号。
+- 调用 `TradingAgent` 生成买入、卖出、持有或继续观察决策。
+- 由 `TradingAccount` 校验现金、100 股一手、最多 5 只持仓、最短持有期和卖出冷却期。
+- 写入 `trade_orders`，并输出交易仓执行报告。
+
+### 6. 指定股票单独分析
+
+如果已经有几只想重点看的股票，可以跳过规则海选和观察仓更新，只复用现有 Agent 做逐只分析：
 
 ```bash
 python main.py --analyze 600519 000001 300750
@@ -196,7 +233,7 @@ python main.py --analyze sh600519,sz000001
 - `outputs/latest_targeted_analysis.md`
 - `outputs/latest_targeted_analysis_audit.json`
 
-### 6. 报告内容口径
+### 7. 报告内容口径
 
 `outputs/latest_report.md` 是完整选股流程的最终决策报告，结论是候选池内的相对排序，不等同于所有入选股票都是同一强度的买入建议。报告统一使用以下分层：
 
@@ -207,7 +244,7 @@ python main.py --analyze sh600519,sz000001
 
 `outputs/latest_targeted_analysis.md` 是指定股票的绝对诊断报告，不参与候选池相对排名，也不会自动加入观察仓。因此同一只股票可能在选股报告里属于“配置/轻仓验证”，但在单独分析里显示为中性、谨慎或等待买点；这表示它是弱市下的防御型备选，而不是进攻型强推荐。
 
-### 7. 盘后观察仓诊断
+### 8. 盘后观察仓与交易仓诊断
 
 ```bash
 python main.py --post
@@ -215,11 +252,11 @@ python main.py --post
 
 该流程会：
 
-- 更新观察仓最新价格。
-- 计算浮动收益。
+- 更新观察仓和交易仓最新价格。
+- 计算观察仓浮动收益和交易仓账户权益。
 - 调用宏观环境判断。
 - 通过 `ExitAgent` 评估是否减仓或清仓。
-- 对亏损案例生成反思并沉淀到规则本。
+- 对观察仓亏损和交易仓亏损案例生成反思并沉淀到规则本。
 
 ## 配置文件
 
@@ -233,6 +270,10 @@ python main.py --post
 - `outputs/screener_audit.json`：规则预筛审计。
 - `outputs/latest_agent_trace.jsonl`：Agent 调用轨迹。
 - `data/rules_book.txt`：亏损反思沉淀出的风控规则。
+- `watchlist_items`：观察仓候选池，最多 10 只。
+- `trading_account`：模拟交易账户和账户权益。
+- `trading_positions`：当前交易仓持仓，最多 5 只。
+- `trade_orders`：模拟交易流水和交易理由。
 
 ## 常用测试
 
@@ -240,6 +281,9 @@ python main.py --post
 python -m unittest test.test_financial_data
 python -m unittest test.test_technical_indicators
 python -m unittest test.test_exit_agent
+python -m unittest test.test_database_and_screener.TradingAccountLifecycleTests
+python -m unittest test.test_database_and_screener.WatchlistTests
+python -m unittest test.test_runtime_regressions.TradingAgentTests
 python -m unittest test.test_database_and_screener.StockScreenerTests
 ```
 
@@ -259,6 +303,10 @@ python -m unittest discover -s test
 - 新增量化技术信号层，`TechnicalAgent` 不再只看文本 K 线。
 - 新增 `ExitAgent`，观察仓具备第一版动态退出机制。
 - `PaperTrading` 已升级为收益率规则 + 技术退出 + 宏观防守的组合诊断。
+- 新增 `Watchlist`，`--pick` 只更新观察仓候选池，不再直接模拟买入。
+- 新增 `TradingAccount`，支持 10000 元持久模拟账户、交易持仓和交易流水。
+- 新增 `TradingAgent` 和 `--trade`，根据观察仓推荐与交易仓状态执行模拟调仓。
+- `ReflectionAgent` 已升级为可结合推荐内容、交易行为和盈亏结果做亏损复盘。
 
 ## 风险声明
 

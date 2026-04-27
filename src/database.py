@@ -143,6 +143,83 @@ class StockDatabase:
                 status TEXT
             )
             """,
+            """
+            CREATE TABLE IF NOT EXISTS watchlist_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                code TEXT NOT NULL,
+                name TEXT,
+                tier TEXT,
+                watch_status TEXT DEFAULT 'ACTIVE',
+                source TEXT,
+                added_at TEXT,
+                updated_at TEXT,
+                entry_price REAL,
+                current_price REAL,
+                return_pct REAL,
+                expected_return_pct REAL,
+                recommend_reason TEXT,
+                fundamental_analysis TEXT,
+                technical_analysis TEXT,
+                news_risk_analysis TEXT,
+                macro_context TEXT,
+                remove_reason TEXT
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS trading_account (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_name TEXT NOT NULL,
+                initial_cash REAL NOT NULL,
+                cash REAL NOT NULL,
+                total_market_value REAL DEFAULT 0,
+                total_equity REAL DEFAULT 0,
+                realized_pnl REAL DEFAULT 0,
+                unrealized_pnl REAL DEFAULT 0,
+                created_at TEXT,
+                updated_at TEXT
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS trading_positions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL,
+                code TEXT NOT NULL,
+                name TEXT,
+                quantity INTEGER NOT NULL,
+                avg_cost REAL NOT NULL,
+                current_price REAL DEFAULT 0,
+                market_value REAL DEFAULT 0,
+                unrealized_pnl REAL DEFAULT 0,
+                unrealized_return_pct REAL DEFAULT 0,
+                opened_at TEXT,
+                last_buy_at TEXT,
+                last_sell_at TEXT,
+                status TEXT DEFAULT 'OPEN',
+                linked_watchlist_id INTEGER,
+                buy_reason TEXT,
+                risk_note TEXT
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS trade_orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL,
+                code TEXT,
+                name TEXT,
+                action TEXT NOT NULL,
+                quantity INTEGER DEFAULT 0,
+                price REAL DEFAULT 0,
+                amount REAL DEFAULT 0,
+                cash_before REAL DEFAULT 0,
+                cash_after REAL DEFAULT 0,
+                position_before INTEGER DEFAULT 0,
+                position_after INTEGER DEFAULT 0,
+                reason TEXT,
+                decision_snapshot TEXT,
+                linked_watchlist_id INTEGER,
+                created_at TEXT
+            )
+            """,
         ]
 
         try:
@@ -164,6 +241,8 @@ class StockDatabase:
             ("market_bars", "idx_market_bars_code_period_trade_date", ["code", "period", "trade_date"]),
             ("daily_lhb", "idx_daily_lhb_code_trade_date", ["code", "trade_date"]),
             ("financial_metrics", "idx_financial_metrics_code_report_date", ["code", "report_date"]),
+            ("watchlist_items", "idx_watchlist_items_code", ["code"]),
+            ("trading_account", "idx_trading_account_name", ["account_name"]),
         ]
 
         for table_name, index_name, columns in unique_indexes:
@@ -191,6 +270,22 @@ class StockDatabase:
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_financial_metrics_report_date "
             "ON financial_metrics (report_date)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_watchlist_items_status "
+            "ON watchlist_items (watch_status, updated_at)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_trading_positions_account_status "
+            "ON trading_positions (account_id, status)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_trading_positions_code_status "
+            "ON trading_positions (code, status)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_trade_orders_account_created "
+            "ON trade_orders (account_id, created_at)"
         )
 
     def insert_dataframe(self, table_name: str, df: pd.DataFrame, if_exists: str = "replace") -> bool:

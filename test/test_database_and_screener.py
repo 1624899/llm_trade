@@ -17,6 +17,8 @@ from src.stock_screener import StockScreener
 from src.data_pipeline import DataPipeline
 from src.database import StockDatabase
 from src.evaluation.paper_trading import PaperTrading
+from src.evaluation.trading_account import TradingAccount
+from src.evaluation.watchlist import Watchlist
 from src.market_regime import MarketRegimeDetector
 
 
@@ -620,6 +622,134 @@ class PaperTradingPostMarketTests(unittest.TestCase):
         trades = self.db.query_to_dataframe("SELECT code, status FROM paper_trades WHERE code = '000001'")
         self.assertEqual(len(trades), 1)
         self.assertEqual(trades.iloc[0]["status"], "HOLD")
+
+
+class TradingAccountLifecycleTests(unittest.TestCase):
+    def setUp(self):
+        self.test_tmp_root = os.path.join(PROJECT_ROOT, ".test_tmp")
+        os.makedirs(self.test_tmp_root, exist_ok=True)
+        self.temp_dir = os.path.join(self.test_tmp_root, f"t_{uuid.uuid4().hex}")
+        os.makedirs(self.temp_dir, exist_ok=True)
+        self.db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_new_trading_tables_are_created(self):
+        with self.db.get_connection() as conn:
+            tables = {
+                row["name"]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+
+        self.assertIn("watchlist_items", tables)
+        self.assertIn("trading_account", tables)
+        self.assertIn("trading_positions", tables)
+        self.assertIn("trade_orders", tables)
+
+    @patch("src.evaluation.trading_account.fetch_latest_prices", return_value={})
+    def test_account_initial_cash_is_persistent_and_orders_are_recorded(self, _mock_prices):
+        account = TradingAccount(db=self.db)
+        first = account.ensure_account()
+        self.assertEqual(float(first["cash"]), 10000.0)
+
+        result = account.buy(
+            {
+                "code": "000001",
+                "name": "unit sample",
+                "action": "BUY",
+                "quantity": 100,
+                "price": 10.0,
+                "reason": "unit buy",
+            }
+        )
+        second = TradingAccount(db=self.db).ensure_account()
+
+        self.assertEqual(result["status"], "FILLED")
+        self.assertEqual(float(second["cash"]), 9000.0)
+        orders = self.db.query_to_dataframe("SELECT action, code, quantity FROM trade_orders")
+        self.assertEqual(orders[["action", "code", "quantity"]].values.tolist(), [["BUY", "000001", 100]])
+
+    @patch("src.evaluation.trading_account.fetch_latest_prices", return_value={})
+    def test_trading_account_enforces_position_limit_and_cooldown(self, _mock_prices):
+        account = TradingAccount(db=self.db, max_positions=5, max_buys_per_run=10)
+        for idx in range(5):
+            code = f"00000{idx + 1}"
+            result = account.buy({"code": code, "name": code, "quantity": 100, "price": 10.0, "reason": "unit"})
+            self.assertEqual(result["status"], "FILLED")
+
+        rejected = account.buy({"code": "000006", "name": "overflow", "quantity": 100, "price": 10.0})
+        self.assertEqual(rejected["status"], "REJECTED")
+        self.assertIn("持仓数量已达上限", rejected["reason"])
+
+        early_sell = account.sell({"code": "000001", "quantity": 100, "price": 9.5, "reason": "early"})
+        self.assertEqual(early_sell["status"], "REJECTED")
+        self.assertIn("最短持有期", early_sell["reason"])
+
+        risk_sell = account.sell(
+            {"code": "000001", "quantity": 100, "price": 9.5, "risk_override": True, "reason": "risk"}
+        )
+        self.assertEqual(risk_sell["status"], "FILLED")
+
+        cooldown_buy = account.buy({"code": "000001", "name": "cooldown", "quantity": 100, "price": 9.4})
+        self.assertEqual(cooldown_buy["status"], "REJECTED")
+        self.assertIn("冷却期", cooldown_buy["reason"])
+
+
+class WatchlistTests(unittest.TestCase):
+    def setUp(self):
+        self.test_tmp_root = os.path.join(PROJECT_ROOT, ".test_tmp")
+        os.makedirs(self.test_tmp_root, exist_ok=True)
+        self.temp_dir = os.path.join(self.test_tmp_root, f"t_{uuid.uuid4().hex}")
+        os.makedirs(self.temp_dir, exist_ok=True)
+        self.db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _profile(self, code):
+        return {
+            "asset_info": {"code": code, "name": f"sample-{code}"},
+            "fundamental_analysis": "基本面稳定",
+            "technical_analysis": "趋势未失效",
+            "news_risk_analysis": "无硬风险",
+        }
+
+    @patch("src.evaluation.watchlist.fetch_latest_prices", return_value={})
+    def test_watchlist_keeps_at_most_ten_active_items(self, _mock_prices):
+        watchlist = Watchlist(db=self.db, max_items=10)
+        for idx in range(12):
+            code = f"000{idx + 1:03d}"
+            self.db.upsert_dataframe(
+                "daily_quotes",
+                pd.DataFrame(
+                    [
+                        {
+                            "code": code,
+                            "trade_date": "20260425",
+                            "price": 10 + idx,
+                            "change_pct": 0,
+                            "volume": 1000,
+                            "amount": 1000000,
+                            "turnover_rate": 1,
+                            "pe_ttm": 10,
+                            "pb": 1,
+                            "total_market_cap": 1000000000,
+                        }
+                    ]
+                ),
+                key_columns=["code", "trade_date"],
+            )
+            watchlist.upsert_item(self._profile(code), final_report=f"{code} 强推荐 预期 18%")
+
+        watchlist.prune_to_limit()
+        active = self.db.query_to_dataframe("SELECT code FROM watchlist_items WHERE watch_status = 'ACTIVE'")
+        removed = self.db.query_to_dataframe("SELECT code FROM watchlist_items WHERE watch_status = 'REMOVED'")
+
+        self.assertEqual(len(active), 10)
+        self.assertEqual(len(removed), 2)
 
 
 class StockScreenerTests(unittest.TestCase):

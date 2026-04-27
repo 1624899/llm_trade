@@ -66,6 +66,129 @@ class ReflectionAgent:
         # 如果提取出了新的反思，固化到磁盘
         if new_rules:
             self._save_rules(new_rules)
+
+    def generate_trading_reflections(self, threshold_pct: float = -3.0):
+        """基于交易仓流水、推荐内容和最终盈亏生成亏损反思。"""
+        logger.info(f"[Reflection] 开始扫描交易仓亏损案例，阈值：{threshold_pct}%")
+        cases = self._load_trading_failure_cases(threshold_pct)
+        if not cases:
+            logger.info("[Reflection] 交易仓本期未发现需要反思的亏损案例。")
+            return
+
+        new_rules = []
+        for case in cases:
+            code = str(case.get("code") or "").zfill(6)
+            name = case.get("name") or code
+            recent_kline = tools.fetch_recent_kline(code, days=5)
+            system_prompt = """
+你是一位成熟、严格的交易复盘导师。
+请基于推荐内容、实际交易行为、持有结果和近期走势，提炼一条可复用的风控铁律。
+只输出一条几十字的规则，不要寒暄，不要写长文。
+"""
+            user_prompt = f"""
+股票：{name}({code})
+亏损幅度：{case.get('return_pct')}%
+推荐分层：{case.get('tier')}
+推荐理由：{case.get('recommend_reason')}
+基本面分析：{case.get('fundamental_analysis')}
+技术面分析：{case.get('technical_analysis')}
+资讯风控：{case.get('news_risk_analysis')}
+买入理由：{case.get('buy_reason')}
+卖出/持有动作理由：{case.get('trade_reason')}
+买入成本：{case.get('avg_cost')}
+当前/卖出价格：{case.get('price')}
+持有天数：{case.get('holding_days')}
+近期走势：
+{recent_kline}
+"""
+            rule = tools.call_llm(system_prompt, user_prompt, temperature=0.25)
+            if rule:
+                clean_rule = (
+                    rule.replace('"', "")
+                    .replace("风控铁律：", "")
+                    .replace("风控铁律:", "")
+                    .strip()
+                )
+                new_rules.append(f"[{datetime.now().strftime('%Y-%m-%d')}] 交易亏损复盘({name}): {clean_rule}")
+
+        if new_rules:
+            self._save_rules(new_rules)
+
+    def _load_trading_failure_cases(self, threshold_pct: float) -> list:
+        sell_cases = self.db.query_to_dataframe(
+            """
+            SELECT
+                o.code,
+                COALESCE(o.name, p.name, w.name) AS name,
+                o.price,
+                o.quantity,
+                o.reason AS trade_reason,
+                o.created_at,
+                p.avg_cost,
+                p.opened_at,
+                p.buy_reason,
+                w.tier,
+                w.recommend_reason,
+                w.fundamental_analysis,
+                w.technical_analysis,
+                w.news_risk_analysis,
+                ROUND((o.price / NULLIF(p.avg_cost, 0) - 1) * 100, 2) AS return_pct
+            FROM trade_orders o
+            LEFT JOIN trading_positions p ON p.code = o.code AND p.account_id = o.account_id
+            LEFT JOIN watchlist_items w ON w.code = o.code
+            WHERE o.action = 'SELL'
+              AND p.avg_cost > 0
+              AND ((o.price / p.avg_cost - 1) * 100) <= ?
+            ORDER BY o.created_at DESC
+            LIMIT 20
+            """,
+            (float(threshold_pct),),
+        )
+        open_cases = self.db.query_to_dataframe(
+            """
+            SELECT
+                p.code,
+                p.name,
+                p.current_price AS price,
+                p.quantity,
+                '当前交易仓浮亏达到反思阈值' AS trade_reason,
+                p.last_buy_at AS created_at,
+                p.avg_cost,
+                p.opened_at,
+                p.buy_reason,
+                w.tier,
+                w.recommend_reason,
+                w.fundamental_analysis,
+                w.technical_analysis,
+                w.news_risk_analysis,
+                p.unrealized_return_pct AS return_pct
+            FROM trading_positions p
+            LEFT JOIN watchlist_items w ON w.code = p.code
+            WHERE p.status = 'OPEN'
+              AND p.unrealized_return_pct <= ?
+            ORDER BY p.opened_at DESC
+            LIMIT 20
+            """,
+            (float(threshold_pct),),
+        )
+        rows = []
+        for df in (sell_cases, open_cases):
+            if df is None or df.empty:
+                continue
+            for _, row in df.iterrows():
+                item = row.to_dict()
+                item["holding_days"] = self._holding_days(item.get("opened_at"), item.get("created_at"))
+                rows.append(item)
+        return rows
+
+    @staticmethod
+    def _holding_days(opened_at, ended_at) -> int | None:
+        try:
+            start = datetime.strptime(str(opened_at)[:19], "%Y-%m-%d %H:%M:%S")
+            end = datetime.strptime(str(ended_at)[:19], "%Y-%m-%d %H:%M:%S")
+            return max(0, (end - start).days)
+        except Exception:
+            return None
             
     def _save_rules(self, new_rules: list):
         """持久化教训库"""
