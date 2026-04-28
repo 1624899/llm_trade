@@ -4,6 +4,7 @@ import sys
 import sqlite3
 import uuid
 import unittest
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -305,6 +306,37 @@ class DataPipelineNormalizationTests(unittest.TestCase):
         pending = pipeline._filter_codes_needing_bars(["000001", "000002"], "daily")
 
         self.assertEqual(pending, ["000002"])
+
+    def test_plan_bar_fetch_groups_uses_short_windows_for_recent_gaps(self):
+        pipeline = DataPipeline.__new__(DataPipeline)
+        target_daily = pipeline._expected_latest_trade_date("daily")
+        target_weekly = pipeline._expected_latest_trade_date("weekly")
+        target_monthly = pipeline._expected_latest_trade_date("monthly")
+
+        latest_dates = {
+            "000001": (datetime.strptime(target_daily, "%Y%m%d") - pd.Timedelta(days=1)).strftime("%Y%m%d"),
+            "000002": None,
+        }
+        self.assertEqual(
+            pipeline._plan_bar_fetch_groups(["000001", "000002"], "daily", latest_dates),
+            [(["000001"], "10d"), (["000002"], "2y")],
+        )
+
+        weekly_latest = {
+            "000001": (datetime.strptime(target_weekly, "%Y%m%d") - pd.Timedelta(days=14)).strftime("%Y%m%d"),
+        }
+        monthly_latest = {
+            "000001": (datetime.strptime(target_monthly, "%Y%m%d") - pd.Timedelta(days=35)).strftime("%Y%m%d"),
+        }
+
+        self.assertEqual(
+            pipeline._plan_bar_fetch_groups(["000001"], "weekly", weekly_latest),
+            [(["000001"], "3mo")],
+        )
+        self.assertEqual(
+            pipeline._plan_bar_fetch_groups(["000001"], "monthly", monthly_latest),
+            [(["000001"], "6mo")],
+        )
 
     def test_daily_quotes_fresh_when_latest_trade_date_exists(self):
         db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))

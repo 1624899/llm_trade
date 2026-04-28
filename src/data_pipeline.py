@@ -315,16 +315,40 @@ class DataPipeline:
                 f"跳过已更新 {skipped_count} 只"
             )
 
-            bars_df = self._fetch_yahoo_bars(pending_codes, period)
-            if bars_df is None or bars_df.empty:
-                bars_df = self._fetch_alpha_vantage_bars(pending_codes, period)
-            if bars_df is None or bars_df.empty:
-                bars_df = self._fetch_ak_bars(pending_codes, period)
+            latest_bar_dates = self._latest_bar_dates(codes, period)
+            yahoo_frames = []
+            for fetch_codes, lookback in self._plan_bar_fetch_groups(pending_codes, period, latest_bar_dates):
+                yahoo_df = self._fetch_yahoo_bars(fetch_codes, period, lookback=lookback)
+                if yahoo_df is not None and not yahoo_df.empty:
+                    yahoo_frames.append(yahoo_df)
+            bars_df = pd.concat(yahoo_frames, ignore_index=True) if yahoo_frames else None
+            fetched_codes = set()
+            if bars_df is not None and not bars_df.empty and "code" in bars_df.columns:
+                fetched_codes = set(bars_df["code"].astype(str).str.zfill(6))
+            fallback_codes = [code for code in pending_codes if str(code).zfill(6) not in fetched_codes]
+            yahoo_supported_codes = [code for code in pending_codes if self._to_yahoo_symbol(code)]
+            if fallback_codes:
+                fallback_df = self._fetch_alpha_vantage_bars(fallback_codes, period)
+                if fallback_df is None or fallback_df.empty:
+                    fallback_df = self._fetch_ak_bars(fallback_codes, period)
+                if fallback_df is not None and not fallback_df.empty:
+                    bars_df = pd.concat([bars_df, fallback_df], ignore_index=True) if bars_df is not None else fallback_df
 
             if bars_df is None or bars_df.empty:
-                logger.error(f"{period} K 线同步失败")
-                all_success = False
+                if latest_bar_dates or not yahoo_supported_codes:
+                    logger.warning(
+                        f"{period} K 线本轮未取到新增数据，保留本地已有历史；"
+                        f"待更新 {len(pending_codes)} 只将下次继续尝试"
+                    )
+                else:
+                    logger.error(f"{period} K 线同步失败")
+                    all_success = False
                 continue
+
+            final_codes = set(bars_df["code"].astype(str).str.zfill(6))
+            missing_codes = [code for code in pending_codes if str(code).zfill(6) not in final_codes]
+            if missing_codes:
+                logger.warning(f"{period} K 线仍有 {len(missing_codes)} 只未取到数据")
 
             bars_df = self._clean_market_bars(bars_df, period)
             ok = self.db.upsert_dataframe(
@@ -498,6 +522,65 @@ class DataPipeline:
         )
         return pending_codes
 
+    def _latest_bar_dates(self, codes, period: str) -> dict:
+        """Return latest local bar date by code for fetch-window planning."""
+        codes = [str(code).zfill(6) for code in codes]
+        if not codes:
+            return {}
+
+        sql = (
+            "SELECT code, MAX(trade_date) AS latest_trade_date "
+            "FROM market_bars "
+            "WHERE period = ? "
+            "GROUP BY code"
+        )
+        latest_df = self.db.query_to_dataframe(sql, (period,))
+        if latest_df is None or latest_df.empty:
+            return {}
+        latest_map = dict(zip(latest_df["code"].astype(str).str.zfill(6), latest_df["latest_trade_date"].astype(str)))
+        return {code: latest_map.get(code) for code in codes if code in latest_map}
+
+    def _plan_bar_fetch_groups(self, pending_codes, period: str, latest_dates: dict):
+        """Split stale codes into short incremental fetches and long backfills."""
+        pending_codes = [str(code).zfill(6) for code in pending_codes]
+        if not pending_codes:
+            return []
+
+        long_lookback = {"daily": "2y", "weekly": "5y", "monthly": "10y"}[period]
+        short_lookback = {"daily": "10d", "weekly": "3mo", "monthly": "6mo"}[period]
+        max_incremental_gap_days = {"daily": 45, "weekly": 120, "monthly": 370}[period]
+
+        target_date = datetime.strptime(self._expected_latest_trade_date(period), "%Y%m%d").date()
+        short_codes = []
+        long_codes = []
+        for code in pending_codes:
+            latest = self._parse_trade_date(latest_dates.get(code))
+            if latest is None or (target_date - latest).days > max_incremental_gap_days:
+                long_codes.append(code)
+            else:
+                short_codes.append(code)
+
+        groups = []
+        if short_codes:
+            groups.append((short_codes, short_lookback))
+        if long_codes:
+            groups.append((long_codes, long_lookback))
+
+        logger.info(
+            f"{period} K 线拉取窗口规划: 短窗口 {len(short_codes)} 只({short_lookback}), "
+            f"长窗口/补历史 {len(long_codes)} 只({long_lookback})"
+        )
+        return groups
+
+    @staticmethod
+    def _parse_trade_date(value):
+        if not value or str(value) == "nan":
+            return None
+        try:
+            return datetime.strptime(str(value).replace("-", "")[:8], "%Y%m%d").date()
+        except ValueError:
+            return None
+
     def _expected_latest_trade_date(self, period: str) -> str:
         """估算当前周期应至少覆盖到的日期，避免每天重复拉完整历史。"""
         today = datetime.now().date()
@@ -520,7 +603,7 @@ class DataPipeline:
         latest = str(latest_trade_date).replace("-", "")
         return latest < target_date
 
-    def _fetch_yahoo_bars(self, codes, period: str):
+    def _fetch_yahoo_bars(self, codes, period: str, lookback: str = None):
         """从 Yahoo Finance 批量拉取 A 股日/周/月 K 线。"""
         try:
             import yfinance as yf
@@ -529,9 +612,8 @@ class DataPipeline:
             return None
 
         interval_map = {"daily": "1d", "weekly": "1wk", "monthly": "1mo"}
-        lookback_map = {"daily": "2y", "weekly": "5y", "monthly": "10y"}
         interval = interval_map[period]
-        lookback = lookback_map[period]
+        lookback = lookback or {"daily": "2y", "weekly": "5y", "monthly": "10y"}[period]
         rows = []
 
         symbol_to_code = {
@@ -539,6 +621,9 @@ class DataPipeline:
             for code in codes
             if self._to_yahoo_symbol(code)
         }
+        unsupported_count = len(codes) - len(symbol_to_code)
+        if unsupported_count:
+            logger.warning(f"Yahoo Finance {period} K 线跳过 {unsupported_count} 只无法映射 ticker 的代码")
         symbols = list(symbol_to_code.keys())
         total_batches = (len(symbols) + self.yahoo_batch_size - 1) // self.yahoo_batch_size
         if not symbols:
@@ -561,7 +646,7 @@ class DataPipeline:
                     group_by="ticker",
                     auto_adjust=False,
                     progress=False,
-                    threads=True,
+                    threads=False,
                 )
             except Exception as e:
                 logger.warning(f"Yahoo Finance 批量 K 线拉取失败: {e}")
