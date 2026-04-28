@@ -1,6 +1,6 @@
 import unittest
 
-from src.agent.exit_agent import ACTION_CLEAR, ACTION_REDUCE, ExitAgent, ExitDecision
+from src.agent.exit_agent import ACTION_CLEAR, ACTION_HOLD, ACTION_REDUCE, ExitAgent, ExitDecision
 from src.evaluation.paper_trading import PaperTrading
 from src.technical_indicators import TechnicalSignalReport
 
@@ -52,6 +52,16 @@ class ExitAgentTests(unittest.TestCase):
 
         self.assertEqual(decision.action, ACTION_REDUCE)
         self.assertIn("放量滞涨", decision.reason)
+
+    def test_exit_agent_does_not_reduce_on_macro_defensive_micro_profit(self):
+        agent = ExitAgent(signal_provider=_FakeSignalProvider(self._report(close=10.5, ma20=10.0)))
+
+        decision = agent.evaluate_position(
+            {"code": "000001", "current_price": 10.5, "return_pct": 1.0},
+            macro_context={"risk_appetite": "low", "regime": "conservative"},
+        )
+
+        self.assertEqual(decision.action, ACTION_HOLD)
 
     def test_paper_trading_upgrades_action_when_exit_signal_is_stronger(self):
         decision = ExitDecision(

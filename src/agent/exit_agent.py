@@ -121,7 +121,7 @@ class ExitAgent:
                 risk_flags=risk_flags,
             )
 
-        if return_pct is not None and return_pct >= 8 and ma20 and price and price < ma20:
+        if return_pct is not None and return_pct >= 15 and ma20 and price and price < ma20:
             return self._decision(
                 code,
                 ACTION_REDUCE,
@@ -136,15 +136,6 @@ class ExitAgent:
                 code,
                 ACTION_REDUCE,
                 "出现放量滞涨/上影派发，疑似高位兑现，先降低仓位观察。",
-                tags=tags,
-                risk_flags=risk_flags,
-            )
-
-        if self._macro_is_defensive(macro_context) and return_pct is not None and return_pct > 0:
-            return self._decision(
-                code,
-                ACTION_REDUCE,
-                "宏观风险偏好偏低且持仓仍有浮盈，建议先锁定部分利润。",
                 tags=tags,
                 risk_flags=risk_flags,
             )

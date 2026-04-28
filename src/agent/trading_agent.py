@@ -94,10 +94,11 @@ class TradingAgent:
 
 硬约束：
 1. 交易仓最多同时持有 5 只股票。
-2. 禁止频繁交易，除非风险恶化，不要因为短期波动反复买卖。
-3. 低风险、基本面和技术面未恶化、中期预期收益大于 15% 的股票，可以给出明确买入/配置。
-4. 基本面恶化、技术破位、放量滞涨、趋势背离或资讯硬风险时，必须减仓、清仓或回避。
-5. 只输出 JSON，不要输出 Markdown。
+2. A 股按 100 股一手买卖，BUY/SELL 数量必须是 100 的整数倍；不要输出 50 股这类不可执行数量。
+3. 禁止频繁交易，默认按 1-3 个月中期波段/配置视角持有，除非风险恶化，不要因为短期波动反复买卖。
+4. 低风险、基本面和技术面未恶化、中期预期收益大于 15% 的股票，应偏向 HOLD/BUY，不要因为宏观环境短期偏弱或微小浮盈就 SELL。
+5. SELL 只允许在黑天鹅、基本面反转/恶化、资讯硬风险、技术硬破位/趋势失效、或已接近/达到中期止盈目标时使用。
+6. 只输出 JSON，不要输出 Markdown。
 
 JSON 格式：
 {
@@ -165,6 +166,11 @@ JSON 格式：
             if action not in {"BUY", "SELL", "HOLD", "WATCH", "REMOVE"}:
                 action = "HOLD"
             
+            watch = watch_map.get(code, {})
+            pos = position_map.get(code, {})
+            signal = exit_signals.get(code, {})
+            reason = str(item.get("reason") or signal.get("reason") or "交易 Agent 决策")
+
             # 执行硬性业务约束
             if action == "BUY":
                 # 如果已持仓、不在观察仓、或买入次数超限，降级为观察（WATCH）
@@ -173,15 +179,18 @@ JSON 格式：
                 else:
                     buys += 1
             if action == "SELL":
-                # 如果未持仓或卖出次数超限，降级为持有（HOLD）
-                if code not in position_map or sells >= self.max_sells_per_run:
+                # 未持仓、卖出次数超限、非硬退出，或不满足整手交易时，降级为持有（HOLD）。
+                quantity = self._normalized_sell_quantity(item.get("quantity"), pos)
+                if (
+                    code not in position_map
+                    or sells >= self.max_sells_per_run
+                    or not self._sell_allowed(item, pos, signal, reason)
+                    or quantity <= 0
+                ):
                     action = "HOLD"
                 else:
                     sells += 1
-            
-            watch = watch_map.get(code, {})
-            pos = position_map.get(code, {})
-            signal = exit_signals.get(code, {})
+                    item["quantity"] = quantity
             
             normalized.append(
                 {
@@ -192,7 +201,7 @@ JSON 格式：
                     "target_cash": self._to_float(item.get("target_cash")) or self._default_target_cash(account, positions),
                     "price": self._to_float(item.get("price")) or watch.get("current_price") or pos.get("current_price"),
                     "risk_override": bool(item.get("risk_override")) or int(signal.get("action_level", 0) or 0) >= 3,
-                    "reason": str(item.get("reason") or signal.get("reason") or "交易 Agent 决策"),
+                    "reason": reason,
                     "linked_watchlist_id": watch.get("id"),
                     "exit_signal": signal,
                 }
@@ -200,6 +209,64 @@ JSON 格式：
 
         # 最后通过强力退出检查，确保特大风险标的必须被处理
         return self._force_exit_risk(normalized, positions, exit_signals)
+
+    def _sell_allowed(
+        self,
+        decision: Dict[str, Any],
+        position: Dict[str, Any],
+        signal: Dict[str, Any],
+        reason: str,
+    ) -> bool:
+        """Only allow exits for hard risk, hard technical failure, or real medium-term profit taking."""
+        level = int(signal.get("action_level", 0) or 0)
+        if level >= 3:
+            return True
+
+        text = " ".join(
+            str(value or "")
+            for value in (
+                reason,
+                signal.get("reason"),
+                decision.get("risk_note"),
+                " ".join(signal.get("risk_flags") or []),
+                " ".join(signal.get("technical_tags") or []),
+            )
+        )
+        hard_words = (
+            "黑天鹅",
+            "基本面恶化",
+            "基本面反转",
+            "业绩暴雷",
+            "财务造假",
+            "监管立案",
+            "退市",
+            "硬风险",
+            "清仓",
+            "趋势失效",
+            "技术破位",
+            "跌破",
+            "破位",
+            "ATR",
+            "止损",
+        )
+        if any(word in text for word in hard_words):
+            return True
+
+        return_pct = self._to_float(position.get("unrealized_return_pct"))
+        if return_pct is None:
+            return_pct = self._to_float(position.get("return_pct"))
+        return bool(level >= 2 and return_pct is not None and return_pct >= 15)
+
+    def _normalized_sell_quantity(self, requested: Any, position: Dict[str, Any]) -> int:
+        """Round SELL quantity to A-share board lots; selling the full position is allowed as-is."""
+        quantity_before = int(position.get("quantity") or 0)
+        quantity = self._to_int(requested) or quantity_before
+        quantity = min(quantity_before, quantity)
+        if quantity <= 0:
+            return 0
+        if quantity == quantity_before:
+            return quantity
+        return quantity - quantity % 100
 
     def _fallback_decisions(
         self,
@@ -235,20 +302,19 @@ JSON 格式：
                 )
                 sells += 1
             elif level >= 2 and sells < self.max_sells_per_run:
-                # 级别 2 准备减仓
+                # 级别 2 只提示观察，不因宏观偏弱或微盈自动减仓；A 股一手 100 股，半仓可能不可执行。
                 decisions.append(
                     {
                         "code": code,
                         "name": pos.get("name") or code,
-                        "action": "SELL",
-                        "quantity": max(0, int(pos.get("quantity") or 0) // 2),
+                        "action": "HOLD",
+                        "quantity": 0,
                         "price": pos.get("current_price"),
-                        "risk_override": True,
-                        "reason": signal.get("reason") or "退出信号建议减仓",
+                        "risk_override": False,
+                        "reason": (signal.get("reason") or "退出信号提示观察") + "；未出现硬退出条件，按中期持有纪律继续持有。",
                         "exit_signal": signal,
                     }
                 )
-                sells += 1
             else:
                 # 默认持有
                 decisions.append(

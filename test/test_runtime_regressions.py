@@ -794,6 +794,64 @@ class TradingAgentTests(unittest.TestCase):
         self.assertIn(("000001", "BUY"), actions)
         self.assertIn(("000002", "SELL"), actions)
 
+    @patch.object(
+        TradingAgent,
+        "_llm_decisions",
+        return_value=[
+            {
+                "code": "002142",
+                "name": "宁波银行",
+                "action": "SELL",
+                "quantity": 100,
+                "price": 33.38,
+                "reason": "宏观风险偏好低且持仓微盈，先锁定利润",
+            }
+        ],
+    )
+    def test_llm_micro_profit_macro_sell_is_downgraded_to_hold(self, _mock_llm):
+        agent = TradingAgent(max_positions=5, max_buys_per_run=2, max_sells_per_run=2)
+
+        decisions = agent.decide(
+            watchlist=[],
+            positions=[
+                {
+                    "code": "002142",
+                    "name": "宁波银行",
+                    "quantity": 200,
+                    "current_price": 33.38,
+                    "unrealized_return_pct": 0.9,
+                }
+            ],
+            account={"cash": 5000},
+            exit_signals={"002142": {"action_level": 2, "reason": "减仓观察"}},
+            macro_context={"risk_appetite": "low"},
+        )
+
+        self.assertEqual(decisions[0]["action"], "HOLD")
+
+    @patch.object(TradingAgent, "_llm_decisions", return_value=[])
+    def test_fallback_level_two_exit_signal_holds_for_medium_term_position(self, _mock_llm):
+        agent = TradingAgent(max_positions=5, max_buys_per_run=2, max_sells_per_run=2)
+
+        decisions = agent.decide(
+            watchlist=[],
+            positions=[
+                {
+                    "code": "000933",
+                    "name": "神火股份",
+                    "quantity": 100,
+                    "current_price": 32.17,
+                    "unrealized_return_pct": 0.4,
+                }
+            ],
+            account={"cash": 5000},
+            exit_signals={"000933": {"action_level": 2, "reason": "宏观偏弱，减仓观察"}},
+            macro_context={"risk_appetite": "low"},
+        )
+
+        self.assertEqual(decisions[0]["action"], "HOLD")
+        self.assertEqual(decisions[0]["quantity"], 0)
+
 
 class NewsRiskDecisionTests(unittest.TestCase):
     def test_news_risk_keyword_assessment_marks_high_risk(self):
