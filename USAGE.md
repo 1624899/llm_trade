@@ -19,7 +19,6 @@ pip install -r requirements.txt
 ```powershell
 $env:DEEPSEEK_API_KEY="your-key"
 $env:TAVILY_API_KEY="your-key"
-$env:ALPHA_VANTAGE_API_KEY="your-key"
 ```
 
 3. 盘后同步数据：
@@ -79,7 +78,7 @@ web_search:
 系统优先使用免费数据源：
 
 - 行情快照：Tencent、Sina，失败后再降级。
-- 历史 K 线：Yahoo Finance、Alpha Vantage 小批量补数、AKShare 兜底。
+- 历史 K 线：Yahoo Finance 批量拉取、efinance 小批量补洞、AKShare 兜底。
 - 资讯搜索：Tavily 主力，DuckDuckGo HTML 免费兜底。
 
 当前不依赖 Tushare 等付费或积分型数据源。

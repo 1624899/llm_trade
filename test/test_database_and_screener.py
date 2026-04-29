@@ -182,78 +182,32 @@ class DataPipelineNormalizationTests(unittest.TestCase):
         self.assertEqual(pipeline._to_yahoo_symbol("000001"), "000001.SZ")
         self.assertEqual(pipeline._to_yahoo_symbol("300750"), "300750.SZ")
         self.assertEqual(pipeline._to_yahoo_symbol("830000"), "")
+        self.assertFalse(pipeline._is_supported_bar_code("920000"))
 
-    def test_to_alpha_vantage_symbol_maps_a_share_exchange_suffix(self):
+    def test_parse_efinance_download_builds_market_bar_rows(self):
         pipeline = DataPipeline.__new__(DataPipeline)
 
-        self.assertEqual(pipeline._to_alpha_vantage_symbol("600000"), "600000.SHH")
-        self.assertEqual(pipeline._to_alpha_vantage_symbol("000001"), "000001.SHZ")
-        self.assertEqual(pipeline._to_alpha_vantage_symbol("300750"), "300750.SHZ")
-        self.assertEqual(pipeline._to_alpha_vantage_symbol("830000"), "")
-
-    def test_parse_alpha_vantage_series_builds_market_bar_rows(self):
-        pipeline = DataPipeline.__new__(DataPipeline)
-
-        series = {
-            "2026-04-25": {
-                "1. open": "10.10",
-                "2. high": "10.50",
-                "3. low": "9.90",
-                "4. close": "10.30",
-                "5. adjusted close": "10.28",
-                "6. volume": "123456",
-            }
-        }
-
-        rows = pipeline._parse_alpha_vantage_series("000001", "daily", series, "2026-04-25 18:00:00")
+        raw = pd.DataFrame(
+            [
+                {
+                    "日期": "2026-04-25",
+                    "开盘": "10.10",
+                    "最高": "10.50",
+                    "最低": "9.90",
+                    "收盘": "10.30",
+                    "成交量": "123456",
+                    "成交额": "1234567",
+                }
+            ]
+        )
+        rows = pipeline._parse_efinance_download(raw, "000001", "daily", "2026-04-25 18:00:00")
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["code"], "000001")
         self.assertEqual(rows[0]["period"], "daily")
         self.assertEqual(rows[0]["trade_date"], "20260425")
-        self.assertEqual(rows[0]["source"], "alpha_vantage")
-        self.assertEqual(rows[0]["adj_close"], "10.28")
-
-    @patch("src.data_pipeline.time.sleep")
-    @patch("src.data_pipeline.requests.get")
-    def test_fetch_alpha_vantage_bars_returns_dataframe_for_small_batch(self, mock_get, _mock_sleep):
-        pipeline = DataPipeline.__new__(DataPipeline)
-        pipeline.alpha_vantage_api_key = "test-key"
-        pipeline.alpha_vantage_base_url = "https://www.alphavantage.co/query"
-        pipeline.alpha_vantage_daily_limit = 5
-        pipeline.alpha_vantage_request_interval = 0
-
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "Time Series (Daily)": {
-                "2026-04-25": {
-                    "1. open": "10.10",
-                    "2. high": "10.50",
-                    "3. low": "9.90",
-                    "4. close": "10.30",
-                    "5. adjusted close": "10.28",
-                    "6. volume": "123456",
-                }
-            }
-        }
-        mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
-
-        df = pipeline._fetch_alpha_vantage_bars(["000001"], "daily")
-
-        self.assertIsNotNone(df)
-        self.assertEqual(len(df), 1)
-        self.assertEqual(df.iloc[0]["code"], "000001")
-        self.assertEqual(df.iloc[0]["source"], "alpha_vantage")
-
-    def test_fetch_alpha_vantage_bars_skips_when_batch_exceeds_limit(self):
-        pipeline = DataPipeline.__new__(DataPipeline)
-        pipeline.alpha_vantage_api_key = "test-key"
-        pipeline.alpha_vantage_daily_limit = 1
-        pipeline.alpha_vantage_request_interval = 0
-
-        df = pipeline._fetch_alpha_vantage_bars(["000001", "000002"], "daily")
-        self.assertIsNone(df)
+        self.assertEqual(rows[0]["source"], "efinance")
+        self.assertEqual(rows[0]["adj_close"], "10.30")
 
     @patch("src.data_pipeline.ak.stock_zh_index_daily")
     def test_sync_index_bars_writes_market_regime_indices(self, mock_index_daily):
@@ -445,12 +399,12 @@ class DataPipelineNormalizationTests(unittest.TestCase):
         self.assertTrue((result["update_date"] == pd.Timestamp.now().strftime("%Y-%m-%d")).all())
 
     @patch.object(DataPipeline, "_fetch_ak_bars", return_value=None)
-    @patch.object(DataPipeline, "_fetch_alpha_vantage_bars", return_value=None)
+    @patch.object(DataPipeline, "_fetch_efinance_bars", return_value=None)
     @patch.object(DataPipeline, "_fetch_yahoo_bars", return_value=None)
     def test_sync_market_bars_does_not_fetch_when_all_codes_are_fresh(
         self,
         mock_yahoo,
-        mock_alpha,
+        mock_efinance,
         mock_ak,
     ):
         db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))
@@ -481,7 +435,7 @@ class DataPipelineNormalizationTests(unittest.TestCase):
         self.assertTrue(pipeline.sync_market_bars(codes=["000001"], periods=("daily",)))
 
         mock_yahoo.assert_not_called()
-        mock_alpha.assert_not_called()
+        mock_efinance.assert_not_called()
         mock_ak.assert_not_called()
 
     def test_prune_database_history_keeps_recent_analysis_window(self):

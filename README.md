@@ -163,7 +163,6 @@ pip install -r requirements.txt
 ```powershell
 $env:DEEPSEEK_API_KEY="your-key"
 $env:TAVILY_API_KEY="your-key"
-$env:ALPHA_VANTAGE_API_KEY="your-key"
 ```
 
 `config/config.yaml` 支持 `env:ENV_NAME` 写法：

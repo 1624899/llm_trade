@@ -5,10 +5,10 @@
 """
 
 import akshare as ak
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import glob
 import os
 import pandas as pd
-import requests
 from datetime import datetime, timedelta
 import time
 from dotenv import load_dotenv
@@ -34,6 +34,12 @@ class DataPipeline:
     def __init__(self):
         self.db = StockDatabase()
         self.yahoo_batch_size = 120
+        self.yahoo_max_workers = 4
+        self.yahoo_batch_pause = 0.2
+        self.efinance_max_codes = 120
+        self.efinance_max_workers = 4
+        self.efinance_timeout = 5.0
+        self.efinance_request_pause = 0.05
         self.enable_cleanup = True
         self.market_data_retention_days = 30
         self.macro_events_retention_days = 30
@@ -45,26 +51,12 @@ class DataPipeline:
         self.market_bars_monthly_retention_days = 3650
         self.daily_lhb_retention_days = 180
         self.paper_trades_retention_days = 365
-        self.alpha_vantage_base_url = "https://www.alphavantage.co/query"
-        self.alpha_vantage_api_key = None
-        self.alpha_vantage_daily_limit = 25
-        self.alpha_vantage_request_interval = 12.0
         self.financial_data_provider = FinancialDataProvider()
         self._load_pipeline_settings()
         logger.info("离线数据同步管道初始化完毕")
 
     def _load_pipeline_settings(self):
         """读取数据管道配置，环境变量优先，其次 config.yaml。"""
-        self.alpha_vantage_api_key = os.getenv("ALPHAVANTAGE_API_KEY") or os.getenv("ALPHA_VANTAGE_API_KEY")
-
-        env_daily_limit = os.getenv("ALPHA_VANTAGE_DAILY_LIMIT")
-        env_request_interval = os.getenv("ALPHA_VANTAGE_REQUEST_INTERVAL")
-
-        if env_daily_limit:
-            self.alpha_vantage_daily_limit = int(env_daily_limit)
-        if env_request_interval:
-            self.alpha_vantage_request_interval = float(env_request_interval)
-
         config_path = os.path.join("config", "config.yaml")
         if not os.path.exists(config_path):
             return
@@ -76,21 +68,7 @@ class DataPipeline:
             logger.warning(f"读取数据管道配置失败: {e}")
             return
 
-        normalized_config = {
-            str(key).strip().lower().replace(" ", "_"): value
-            for key, value in config.items()
-        }
-        alpha_cfg = normalized_config.get("alpha_vantage") or {}
         data_cfg = config.get("data", {}) or {}
-
-        if not self.alpha_vantage_api_key:
-            self.alpha_vantage_api_key = self._resolve_env_value(alpha_cfg.get("api_key") or alpha_cfg.get("apikey"))
-
-        if env_daily_limit is None and alpha_cfg.get("daily_limit") is not None:
-            self.alpha_vantage_daily_limit = int(alpha_cfg["daily_limit"])
-
-        if env_request_interval is None and alpha_cfg.get("request_interval") is not None:
-            self.alpha_vantage_request_interval = float(alpha_cfg["request_interval"])
 
         self.enable_cleanup = bool(data_cfg.get("enable_cleanup", self.enable_cleanup))
         self.market_data_retention_days = int(
@@ -120,6 +98,16 @@ class DataPipeline:
         )
         self.paper_trades_retention_days = int(
             data_cfg.get("paper_trades_retention_days", self.paper_trades_retention_days)
+        )
+        self.yahoo_batch_size = int(data_cfg.get("yahoo_batch_size", self.yahoo_batch_size))
+        self.yahoo_max_workers = max(1, min(int(data_cfg.get("yahoo_max_workers", self.yahoo_max_workers)), 8))
+        self.yahoo_batch_pause = max(0.0, float(data_cfg.get("yahoo_batch_pause", self.yahoo_batch_pause)))
+        self.efinance_max_codes = max(0, int(data_cfg.get("efinance_max_codes", self.efinance_max_codes)))
+        self.efinance_max_workers = max(1, min(int(data_cfg.get("efinance_max_workers", self.efinance_max_workers)), 8))
+        self.efinance_timeout = max(1.0, float(data_cfg.get("efinance_timeout", self.efinance_timeout)))
+        self.efinance_request_pause = max(
+            0.0,
+            float(data_cfg.get("efinance_request_pause", self.efinance_request_pause)),
         )
 
     @staticmethod
@@ -292,9 +280,9 @@ class DataPipeline:
     def sync_market_bars(self, codes=None, periods=("daily", "weekly", "monthly")) -> bool:
         """同步日/周/月 K 线到 market_bars。
 
-        数据源顺序：Yahoo Finance -> Alpha Vantage -> AKShare 单股历史。
-        Yahoo Finance 适合非交易时段批量补历史 K 线；Alpha Vantage 受免费额度限制，
-        更适合作为候选股级别补数；AKShare 作为最后兜底。
+        数据源顺序：Yahoo Finance -> efinance 小批量补洞 -> AKShare 单股历史。
+        Yahoo Finance 适合非交易时段批量补历史 K 线；efinance 仅用于 Yahoo 缺失后的
+        短超时小批量补洞；AKShare 作为最后兜底。
         """
         codes = codes or self._load_stock_codes_from_lake()
         if not codes:
@@ -308,6 +296,14 @@ class DataPipeline:
             if not pending_codes:
                 logger.info(f"{period} K 线已是最新，无需重复拉取")
                 continue
+
+            unsupported_codes = [code for code in pending_codes if not self._is_supported_bar_code(code)]
+            if unsupported_codes:
+                logger.info(f"{period} K 线跳过北交所/不支持代码 {len(unsupported_codes)} 只")
+                pending_codes = [code for code in pending_codes if self._is_supported_bar_code(code)]
+                if not pending_codes:
+                    logger.info(f"{period} K 线待更新代码均为不支持市场，跳过拉取")
+                    continue
 
             skipped_count = len(codes) - len(pending_codes)
             logger.info(
@@ -328,7 +324,7 @@ class DataPipeline:
             fallback_codes = [code for code in pending_codes if str(code).zfill(6) not in fetched_codes]
             yahoo_supported_codes = [code for code in pending_codes if self._to_yahoo_symbol(code)]
             if fallback_codes:
-                fallback_df = self._fetch_alpha_vantage_bars(fallback_codes, period)
+                fallback_df = self._fetch_efinance_bars(fallback_codes, period)
                 if fallback_df is None or fallback_df.empty:
                     fallback_df = self._fetch_ak_bars(fallback_codes, period)
                 if fallback_df is not None and not fallback_df.empty:
@@ -632,11 +628,15 @@ class DataPipeline:
 
         logger.info(
             f"Yahoo Finance 开始拉取 {period} K 线: {len(symbols)} 个 ticker, "
-            f"{total_batches} 批, lookback={lookback}"
+            f"{total_batches} 批, lookback={lookback}, max_workers={self.yahoo_max_workers}"
         )
 
-        for batch_no, start in enumerate(range(0, len(symbols), self.yahoo_batch_size), start=1):
-            batch = symbols[start:start + self.yahoo_batch_size]
+        batches = [
+            (batch_no, symbols[start:start + self.yahoo_batch_size])
+            for batch_no, start in enumerate(range(0, len(symbols), self.yahoo_batch_size), start=1)
+        ]
+
+        def download_batch(batch_no, batch):
             logger.info(f"Yahoo Finance {period} K 线进度: {batch_no}/{total_batches}, 本批 {len(batch)} 个")
             try:
                 raw = yf.download(
@@ -650,10 +650,35 @@ class DataPipeline:
                 )
             except Exception as e:
                 logger.warning(f"Yahoo Finance 批量 K 线拉取失败: {e}")
-                continue
+                return []
 
-            rows.extend(self._parse_yahoo_download(raw, batch, symbol_to_code, period))
-            time.sleep(0.3)
+            parsed_rows = self._parse_yahoo_download(raw, batch, symbol_to_code, period)
+            if self.yahoo_batch_pause:
+                time.sleep(self.yahoo_batch_pause)
+            return parsed_rows
+
+        max_workers = min(self.yahoo_max_workers, total_batches)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_batch = {}
+            for batch_no, batch in batches:
+                future_to_batch[executor.submit(download_batch, batch_no, batch)] = batch_no
+                if self.yahoo_batch_pause:
+                    time.sleep(self.yahoo_batch_pause)
+
+            completed = 0
+            for future in as_completed(future_to_batch):
+                batch_no = future_to_batch[future]
+                completed += 1
+                try:
+                    batch_rows = future.result()
+                except Exception as e:
+                    logger.warning(f"Yahoo Finance {period} K 线批次 {batch_no}/{total_batches} 失败: {e}")
+                    continue
+                rows.extend(batch_rows)
+                logger.info(
+                    f"Yahoo Finance {period} K 线批次完成: {completed}/{total_batches}, "
+                    f"batch={batch_no}, rows={len(batch_rows)}"
+                )
 
         if not rows:
             return None
@@ -800,120 +825,110 @@ class DataPipeline:
             return f"{code}.SZ"
         return ""
 
-    def _to_alpha_vantage_symbol(self, code: str) -> str:
-        """A 股代码转 Alpha Vantage ticker。"""
-        code = str(code).zfill(6)
-        if code.startswith(("600", "601", "603", "605", "688", "689")):
-            return f"{code}.SHH"
-        if code.startswith(("000", "001", "002", "003", "300", "301")):
-            return f"{code}.SHZ"
-        return ""
+    def _is_supported_bar_code(self, code: str) -> bool:
+        """K 线同步只覆盖沪深主板、创业板、科创板等系统实际使用的股票。"""
+        return bool(self._to_yahoo_symbol(code))
 
-    def _fetch_alpha_vantage_bars(self, codes, period: str):
-        """从 Alpha Vantage 拉取 A 股历史 K 线。
-
-        由于免费额度严格，这里只适合小批量补数，不适合全市场同步。
-        """
-        if not self.alpha_vantage_api_key:
-            logger.info("未配置 Alpha Vantage API Key，跳过该数据源")
+    def _fetch_efinance_bars(self, codes, period: str):
+        """用 efinance 对 Yahoo 缺失的 A 股 K 线做短超时小批量补洞。"""
+        if self.efinance_max_codes <= 0:
+            logger.info("efinance 补洞已禁用")
             return None
 
-        if len(codes) > self.alpha_vantage_daily_limit:
-            logger.warning(
-                f"Alpha Vantage 免费额度仅适合小批量补数，当前请求 {len(codes)} 只，"
-                f"超过限制 {self.alpha_vantage_daily_limit}，跳过"
-            )
+        try:
+            import efinance as ef
+        except ImportError:
+            logger.warning("未安装 efinance，跳过 Yahoo 缺失补洞")
             return None
 
-        function_map = {
-            "daily": ("TIME_SERIES_DAILY_ADJUSTED", "Time Series (Daily)"),
-            "weekly": ("TIME_SERIES_WEEKLY_ADJUSTED", "Weekly Adjusted Time Series"),
-            "monthly": ("TIME_SERIES_MONTHLY_ADJUSTED", "Monthly Adjusted Time Series"),
-        }
-        function_name, series_key = function_map[period]
+        codes = [str(code).zfill(6) for code in codes]
+        if not codes:
+            return None
+
+        skipped = max(0, len(codes) - self.efinance_max_codes)
+        codes = codes[:self.efinance_max_codes]
+        if skipped:
+            logger.warning(f"efinance 补洞仅处理前 {len(codes)} 只，跳过 {skipped} 只避免拖慢同步")
+
+        klt_map = {"daily": 101, "weekly": 102, "monthly": 103}
+        begin_date = self._efinance_begin_date(period)
+        end_date = datetime.now().strftime("%Y%m%d")
         fetched_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         rows = []
 
-        for idx, code in enumerate(codes):
-            symbol = self._to_alpha_vantage_symbol(code)
-            if not symbol:
-                continue
+        logger.info(
+            f"efinance 开始补洞 {period} K 线: {len(codes)} 只, "
+            f"beg={begin_date}, timeout={self.efinance_timeout}s, max_workers={self.efinance_max_workers}"
+        )
 
-            data = self._request_alpha_vantage_series(symbol, function_name)
-            if not data:
-                continue
+        def fetch_one(code):
+            try:
+                raw = ef.stock.get_quote_history(
+                    code,
+                    beg=begin_date,
+                    end=end_date,
+                    klt=klt_map[period],
+                    fqt=1,
+                    suppress_error=True,
+                    timeout=self.efinance_timeout,
+                )
+            except Exception as e:
+                logger.warning(f"efinance K 线补洞失败 {code}: {e}")
+                return []
 
-            series = data.get(series_key)
-            if not isinstance(series, dict) or not series:
-                logger.warning(f"Alpha Vantage 返回缺少时间序列: {symbol}")
-                continue
+            if self.efinance_request_pause:
+                time.sleep(self.efinance_request_pause)
+            return self._parse_efinance_download(raw, code, period, fetched_at)
 
-            rows.extend(self._parse_alpha_vantage_series(code, period, series, fetched_at))
-
-            if idx < len(codes) - 1:
-                time.sleep(self.alpha_vantage_request_interval)
+        max_workers = min(self.efinance_max_workers, len(codes))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_code = {executor.submit(fetch_one, code): code for code in codes}
+            for future in as_completed(future_to_code):
+                code = future_to_code[future]
+                try:
+                    code_rows = future.result()
+                except Exception as e:
+                    logger.warning(f"efinance K 线补洞异常 {code}: {e}")
+                    continue
+                rows.extend(code_rows)
 
         if not rows:
             return None
+        logger.info(f"efinance {period} K 线补洞完成: {len(rows)} 条")
         return pd.DataFrame(rows)
 
-    def _request_alpha_vantage_series(self, symbol: str, function_name: str):
-        """请求 Alpha Vantage 时间序列接口。"""
-        params = {
-            "function": function_name,
-            "symbol": symbol,
-            "apikey": self.alpha_vantage_api_key,
-            "outputsize": "full",
-            "datatype": "json",
-        }
+    def _efinance_begin_date(self, period: str) -> str:
+        days_map = {"daily": 20, "weekly": 120, "monthly": 370}
+        return (datetime.now() - timedelta(days=days_map[period])).strftime("%Y%m%d")
 
-        # 周线/月线接口不接受 outputsize，但额外参数通常会被忽略；这里保持简单实现。
-        if function_name != "TIME_SERIES_DAILY_ADJUSTED":
-            params.pop("outputsize", None)
+    def _parse_efinance_download(self, raw, code: str, period: str, fetched_at: str):
+        """解析 efinance.get_quote_history 返回的中文列 DataFrame。"""
+        if raw is None:
+            return []
+        if isinstance(raw, dict):
+            raw = raw.get(str(code).zfill(6))
+        if raw is None or raw.empty:
+            return []
 
-        try:
-            response = requests.get(self.alpha_vantage_base_url, params=params, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-        except Exception as e:
-            logger.warning(f"Alpha Vantage 请求失败 {symbol}: {e}")
-            return None
-
-        if not isinstance(data, dict):
-            logger.warning(f"Alpha Vantage 返回格式异常: {symbol}")
-            return None
-
-        if data.get("Note"):
-            logger.warning(f"Alpha Vantage 触发限频: {data['Note']}")
-            return None
-
-        if data.get("Error Message"):
-            logger.warning(f"Alpha Vantage 返回错误 {symbol}: {data['Error Message']}")
-            return None
-
-        if "Information" in data and not any("Time Series" in key for key in data.keys()):
-            logger.warning(f"Alpha Vantage 提示信息 {symbol}: {data['Information']}")
-            return None
-
-        return data
-
-    def _parse_alpha_vantage_series(self, code: str, period: str, series: dict, fetched_at: str):
-        """解析 Alpha Vantage 时间序列。"""
         rows = []
-        for trade_date, values in series.items():
+        code = str(code).zfill(6)
+        for _, row in raw.iterrows():
+            close = row.get("收盘")
+            if pd.isna(close):
+                continue
             rows.append(
                 {
-                    "code": str(code).zfill(6),
+                    "code": code,
                     "period": period,
-                    "trade_date": str(trade_date).replace("-", ""),
-                    "open": values.get("1. open"),
-                    "high": values.get("2. high"),
-                    "low": values.get("3. low"),
-                    "close": values.get("4. close"),
-                    "adj_close": values.get("5. adjusted close", values.get("4. close")),
-                    "volume": values.get("6. volume", values.get("5. volume")),
-                    "amount": None,
-                    "source": "alpha_vantage",
+                    "trade_date": str(row.get("日期", "")).replace("-", "")[:8],
+                    "open": row.get("开盘"),
+                    "high": row.get("最高"),
+                    "low": row.get("最低"),
+                    "close": close,
+                    "adj_close": close,
+                    "volume": row.get("成交量"),
+                    "amount": row.get("成交额"),
+                    "source": "efinance",
                     "fetched_at": fetched_at,
                 }
             )

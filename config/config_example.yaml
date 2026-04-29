@@ -39,11 +39,6 @@ web_search:
   timeout: 30
   max_results: 5
 
-alpha_vantage:
-  api_key: "env:ALPHA_VANTAGE_API_KEY"
-  daily_limit: 25
-  request_interval: 12.0
-
 data:
   enable_cleanup: true
   market_data_retention_days: 30
@@ -56,6 +51,13 @@ data:
   market_bars_monthly_retention_days: 3650
   daily_lhb_retention_days: 180
   paper_trades_retention_days: 365
+  yahoo_batch_size: 120
+  yahoo_max_workers: 4
+  yahoo_batch_pause: 0.2
+  efinance_max_codes: 120
+  efinance_max_workers: 4
+  efinance_timeout: 5.0
+  efinance_request_pause: 0.05
   retry_times: 3
   timeout: 30
   max_workers: 5
