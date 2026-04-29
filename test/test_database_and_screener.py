@@ -132,7 +132,7 @@ class StockDatabaseUpsertTests(unittest.TestCase):
                     "adj_close": 10.2,
                     "volume": 1000,
                     "amount": 10000,
-                    "source": "unit_test",
+                    "source": "efinance",
                     "fetched_at": "2026-04-20 18:00:00",
                 },
                 {
@@ -146,7 +146,7 @@ class StockDatabaseUpsertTests(unittest.TestCase):
                     "adj_close": 10.2,
                     "volume": 5000,
                     "amount": 50000,
-                    "source": "unit_test",
+                    "source": "efinance",
                     "fetched_at": "2026-04-20 18:00:00",
                 },
             ]
@@ -228,7 +228,7 @@ class DataPipelineNormalizationTests(unittest.TestCase):
                     "adj_close": 10.2,
                     "volume": 1000,
                     "amount": 10000,
-                    "source": "unit_test",
+                    "source": "efinance",
                     "fetched_at": "2026-04-25 18:00:00",
                 },
                 {
@@ -242,7 +242,7 @@ class DataPipelineNormalizationTests(unittest.TestCase):
                     "adj_close": 10.2,
                     "volume": 1000,
                     "amount": 10000,
-                    "source": "unit_test",
+                    "source": "efinance",
                     "fetched_at": "2026-04-25 18:00:00",
                 },
             ]
@@ -293,7 +293,7 @@ class DataPipelineNormalizationTests(unittest.TestCase):
                     "adj_close": 10.5,
                     "volume": 1000,
                     "amount": None,
-                    "source": "unit_test",
+                    "source": "tushare_daily",
                     "fetched_at": "2026-04-25 18:00:00",
                 }
             ]
@@ -303,6 +303,36 @@ class DataPipelineNormalizationTests(unittest.TestCase):
         pending = pipeline._filter_codes_needing_bars(["000001", "000002"], "daily")
 
         self.assertEqual(pending, ["000002"])
+
+    def test_filter_codes_needing_bars_refreshes_untrusted_daily_source(self):
+        db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))
+        pipeline = DataPipeline.__new__(DataPipeline)
+        pipeline.db = db
+
+        expected_date = pipeline._expected_latest_trade_date("daily")
+        bars_df = pd.DataFrame(
+            [
+                {
+                    "code": "000001",
+                    "period": "daily",
+                    "trade_date": expected_date,
+                    "open": 10,
+                    "high": 11,
+                    "low": 9,
+                    "close": 10.5,
+                    "adj_close": 10.5,
+                    "volume": 1000,
+                    "amount": None,
+                    "source": "yahoo_finance",
+                    "fetched_at": "2026-04-25 18:00:00",
+                }
+            ]
+        )
+        self.assertTrue(db.upsert_dataframe("market_bars", bars_df, key_columns=["code", "period", "trade_date"]))
+
+        pending = pipeline._filter_codes_needing_bars(["000001"], "daily")
+
+        self.assertEqual(pending, ["000001"])
 
     def test_plan_bar_fetch_groups_uses_short_windows_for_recent_gaps(self):
         pipeline = DataPipeline.__new__(DataPipeline)
@@ -473,6 +503,7 @@ class DataPipelineNormalizationTests(unittest.TestCase):
                 }
             ]
         )
+        bars_df["source"] = "efinance"
         self.assertTrue(db.upsert_dataframe("market_bars", bars_df, key_columns=["code", "period", "trade_date"]))
 
         self.assertTrue(pipeline.sync_market_bars(codes=["000001"], periods=("daily",)))
@@ -480,6 +511,92 @@ class DataPipelineNormalizationTests(unittest.TestCase):
         mock_yahoo.assert_not_called()
         mock_efinance.assert_not_called()
         mock_ak.assert_not_called()
+
+    @patch.object(DataPipeline, "_fetch_efinance_bars", return_value=None)
+    @patch.object(DataPipeline, "_fetch_ak_bars", return_value=None)
+    @patch.object(DataPipeline, "_fetch_tushare_daily_bars")
+    def test_sync_market_bars_uses_tushare_daily_as_primary(self, mock_tushare, mock_ak, mock_efinance):
+        db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))
+        pipeline = DataPipeline.__new__(DataPipeline)
+        pipeline.db = db
+        pipeline.market_bars_daily_retention_days = 540
+        pipeline.market_bars_weekly_retention_days = 1825
+        pipeline.market_bars_monthly_retention_days = 3650
+        mock_tushare.return_value = pd.DataFrame(
+            [
+                {
+                    "code": "000001",
+                    "period": "daily",
+                    "trade_date": "20260424",
+                    "open": 10,
+                    "high": 11,
+                    "low": 9,
+                    "close": 10.5,
+                    "adj_close": 10.5,
+                    "volume": 1000,
+                    "amount": 10000,
+                    "source": "tushare_daily",
+                    "fetched_at": "2026-04-24 18:00:00",
+                }
+            ]
+        )
+
+        self.assertTrue(pipeline._sync_daily_bars_for_codes(["000001"]))
+        rows = db.query_to_dataframe("SELECT code, period, trade_date, close, source FROM market_bars")
+
+        mock_tushare.assert_called_once()
+        mock_ak.assert_not_called()
+        mock_efinance.assert_called_once_with(["000001"], "daily")
+        self.assertEqual(rows[["code", "period", "trade_date", "close", "source"]].values.tolist(), [["000001", "daily", "20260424", 10.5, "tushare_daily"]])
+
+    def test_build_weekly_bars_from_daily_qfq(self):
+        db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))
+        pipeline = DataPipeline.__new__(DataPipeline)
+        pipeline.db = db
+        rows = pd.DataFrame(
+            [
+                {
+                    "code": "000001",
+                    "period": "daily",
+                    "trade_date": "20260420",
+                    "open": 10,
+                    "high": 11,
+                    "low": 9.5,
+                    "close": 10.8,
+                    "adj_close": 10.8,
+                    "volume": 100,
+                    "amount": 1000,
+                    "source": "efinance",
+                    "fetched_at": "2026-04-20 18:00:00",
+                },
+                {
+                    "code": "000001",
+                    "period": "daily",
+                    "trade_date": "20260421",
+                    "open": 10.8,
+                    "high": 12,
+                    "low": 10.6,
+                    "close": 11.5,
+                    "adj_close": 11.5,
+                    "volume": 200,
+                    "amount": 2200,
+                    "source": "efinance",
+                    "fetched_at": "2026-04-21 18:00:00",
+                },
+            ]
+        )
+        self.assertTrue(db.upsert_dataframe("market_bars", rows, key_columns=["code", "period", "trade_date"]))
+
+        weekly = pipeline._build_period_bars_from_daily(["000001"], "weekly")
+
+        self.assertEqual(len(weekly), 1)
+        self.assertEqual(weekly.iloc[0]["trade_date"], "20260421")
+        self.assertEqual(weekly.iloc[0]["open"], 10)
+        self.assertEqual(weekly.iloc[0]["high"], 12)
+        self.assertEqual(weekly.iloc[0]["low"], 9.5)
+        self.assertEqual(weekly.iloc[0]["close"], 11.5)
+        self.assertEqual(weekly.iloc[0]["volume"], 300)
+        self.assertEqual(weekly.iloc[0]["source"], "derived_daily_qfq")
 
     def test_prune_database_history_keeps_recent_analysis_window(self):
         db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))

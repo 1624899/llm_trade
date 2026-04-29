@@ -28,8 +28,12 @@ class StockDatabase:
 
     @contextmanager
     def get_connection(self):
-        conn = sqlite3.connect(self.db_path, timeout=30)
-        conn.execute("PRAGMA busy_timeout = 30000")
+        conn = sqlite3.connect(self.db_path, timeout=120)
+        conn.execute("PRAGMA busy_timeout = 120000")
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute("PRAGMA temp_store = MEMORY")
+        conn.execute("PRAGMA cache_size = -200000")
         conn.row_factory = sqlite3.Row
         try:
             yield conn
@@ -86,6 +90,38 @@ class StockDatabase:
                 source TEXT,
                 fetched_at TEXT,
                 PRIMARY KEY (code, period, trade_date)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS market_bars_weekly (
+                code TEXT,
+                trade_date TEXT,
+                open REAL,
+                high REAL,
+                low REAL,
+                close REAL,
+                adj_close REAL,
+                volume INTEGER,
+                amount REAL,
+                source TEXT,
+                fetched_at TEXT,
+                PRIMARY KEY (code, trade_date)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS market_bars_monthly (
+                code TEXT,
+                trade_date TEXT,
+                open REAL,
+                high REAL,
+                low REAL,
+                close REAL,
+                adj_close REAL,
+                volume INTEGER,
+                amount REAL,
+                source TEXT,
+                fetched_at TEXT,
+                PRIMARY KEY (code, trade_date)
             )
             """,
             """
@@ -239,6 +275,8 @@ class StockDatabase:
             ("stock_basic", "idx_stock_basic_code", ["code"]),
             ("daily_quotes", "idx_daily_quotes_code_trade_date", ["code", "trade_date"]),
             ("market_bars", "idx_market_bars_code_period_trade_date", ["code", "period", "trade_date"]),
+            ("market_bars_weekly", "idx_market_bars_weekly_code_trade_date", ["code", "trade_date"]),
+            ("market_bars_monthly", "idx_market_bars_monthly_code_trade_date", ["code", "trade_date"]),
             ("daily_lhb", "idx_daily_lhb_code_trade_date", ["code", "trade_date"]),
             ("financial_metrics", "idx_financial_metrics_code_report_date", ["code", "report_date"]),
             ("watchlist_items", "idx_watchlist_items_code", ["code"]),
@@ -247,21 +285,19 @@ class StockDatabase:
 
         for table_name, index_name, columns in unique_indexes:
             column_sql = ", ".join(columns)
-            cursor.execute(
-                f"""
-                DELETE FROM {table_name}
-                WHERE rowid NOT IN (
-                    SELECT MAX(rowid)
-                    FROM {table_name}
-                    GROUP BY {column_sql}
-                )
-                """
-            )
             cursor.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS {index_name} ON {table_name} ({column_sql})")
 
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_market_bars_period_trade_date "
             "ON market_bars (period, trade_date)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_market_bars_weekly_trade_date "
+            "ON market_bars_weekly (trade_date)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_market_bars_monthly_trade_date "
+            "ON market_bars_monthly (trade_date)"
         )
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_daily_quotes_trade_date "

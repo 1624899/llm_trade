@@ -43,12 +43,16 @@ web_search:
 
 data:
   enable_cleanup: true
+  enable_database_cleanup: false
+  enable_database_vacuum: false
+  derive_period_bars_on_sync: false
+  backfill_history_on_sync: false
   market_data_retention_days: 30
   macro_events_retention_days: 30
   output_retention_days: 30
   trade_execution_retention_days: 365
   daily_quotes_retention_days: 45
-  market_bars_daily_retention_days: 540
+  market_bars_daily_retention_days: 3650
   market_bars_weekly_retention_days: 1825
   market_bars_monthly_retention_days: 3650
   daily_lhb_retention_days: 180
@@ -56,10 +60,22 @@ data:
   yahoo_batch_size: 120
   yahoo_max_workers: 4
   yahoo_batch_pause: 0.2
-  efinance_max_codes: 120
+  efinance_max_codes: 5000
   efinance_max_workers: 4
   efinance_timeout: 5.0
   efinance_request_pause: 0.05
+  enable_efinance_validation: false
+  enable_efinance_fallback: false
+  tushare_token: "env:TUSHARE_TOKEN"
+  tushare_anomaly_pct: 15.0
+  tushare_history_start_date: "auto_10y"
+  tushare_request_interval: 0.1
+  tushare_history_max_workers: 4
+  tushare_max_retries: 3
+  tushare_fetch_adj_factor: false
+  enable_akshare_daily_fallback: false
+  daily_update_after_time: "15:30"
+  efinance_sample_size: 5
   retry_times: 3
   timeout: 30
   max_workers: 5

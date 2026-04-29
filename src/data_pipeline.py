@@ -1,7 +1,7 @@
-"""
-离线数据同步管道 (Data Pipeline)
-设计目标：在交易时间之外（如盘后）运行，将网络上容易限流的庞大数据，
-全量一次性拉取并清洗入库至本地 SQLite 数据湖中。
+﻿"""
+离线数据流水线 (Data Pipeline)
+负责从各种数据源（如雅虎财经、东方财富、Tushare等）下载股票历史K线数据和实时报价，
+并将其清洗、转换后存储至本地 SQLite 数据湖中。
 """
 
 import akshare as ak
@@ -32,31 +32,59 @@ DEFAULT_INDEX_BARS = {
 
 class DataPipeline:
     def __init__(self):
+        """
+        初始化数据流水线，配置数据库连接、各API参数及清理设置。
+        """
         self.db = StockDatabase()
+        # Yahoo Finance 配置
         self.yahoo_batch_size = 120
         self.yahoo_max_workers = 4
         self.yahoo_batch_pause = 0.2
-        self.efinance_max_codes = 120
+        # efinance 配置
+        self.efinance_max_codes = 5000
         self.efinance_max_workers = 4
         self.efinance_timeout = 5.0
         self.efinance_request_pause = 0.05
+        self.enable_efinance_validation = False
+        self.enable_efinance_fallback = False
+        # Tushare 配置
+        self.tushare_token = os.getenv("TUSHARE_TOKEN") or os.getenv("TUSHARE_API_KEY", "")
+        self.tushare_anomaly_pct = 15.0  # 异常涨跌幅阈值
+        self.tushare_history_start_date = self._date_days_ago(3650)
+        self.tushare_request_interval = 1.3
+        self.tushare_max_retries = 3
+        self.tushare_history_max_workers = 1
+        self.tushare_fetch_adj_factor = False
+        self._last_tushare_request_at = 0.0
+        self.enable_akshare_daily_fallback = False
+        # 每日更新时间
+        self.daily_update_after_time = "15:30"
+        self.efinance_sample_size = 5
+        # 数据清理与保留设置
         self.enable_cleanup = True
+        self.enable_database_cleanup = False
+        self.enable_database_vacuum = False
+        self.derive_period_bars_on_sync = False
+        self.backfill_history_on_sync = False
         self.market_data_retention_days = 30
         self.macro_events_retention_days = 30
         self.output_retention_days = 30
         self.trade_execution_retention_days = 365
         self.daily_quotes_retention_days = 45
-        self.market_bars_daily_retention_days = 540
+        self.market_bars_daily_retention_days = 3650
         self.market_bars_weekly_retention_days = 1825
         self.market_bars_monthly_retention_days = 3650
         self.daily_lhb_retention_days = 180
         self.paper_trades_retention_days = 365
+        # 财务数据提供者
         self.financial_data_provider = FinancialDataProvider()
         self._load_pipeline_settings()
-        logger.info("离线数据同步管道初始化完毕")
+        logger.info("数据流水线初始化完成")
 
     def _load_pipeline_settings(self):
-        """读取数据管道配置，环境变量优先，其次 config.yaml。"""
+        """
+        从本地配置文件 config/config.yaml 中加载数据流水线设置。
+        """
         config_path = os.path.join("config", "config.yaml")
         if not os.path.exists(config_path):
             return
@@ -65,12 +93,24 @@ class DataPipeline:
             with open(config_path, "r", encoding="utf-8") as f:
                 config = yaml.safe_load(f) or {}
         except Exception as e:
-            logger.warning(f"读取数据管道配置失败: {e}")
+            logger.warning(f"加载数据管道配置失败 {e}")
             return
 
         data_cfg = config.get("data", {}) or {}
 
         self.enable_cleanup = bool(data_cfg.get("enable_cleanup", self.enable_cleanup))
+        self.enable_database_cleanup = bool(
+            data_cfg.get("enable_database_cleanup", self.enable_database_cleanup)
+        )
+        self.enable_database_vacuum = bool(
+            data_cfg.get("enable_database_vacuum", self.enable_database_vacuum)
+        )
+        self.derive_period_bars_on_sync = bool(
+            data_cfg.get("derive_period_bars_on_sync", self.derive_period_bars_on_sync)
+        )
+        self.backfill_history_on_sync = bool(
+            data_cfg.get("backfill_history_on_sync", self.backfill_history_on_sync)
+        )
         self.market_data_retention_days = int(
             data_cfg.get("market_data_retention_days", self.market_data_retention_days)
         )
@@ -109,31 +149,110 @@ class DataPipeline:
             0.0,
             float(data_cfg.get("efinance_request_pause", self.efinance_request_pause)),
         )
+        self.enable_efinance_validation = bool(
+            data_cfg.get("enable_efinance_validation", self.enable_efinance_validation)
+        )
+        self.enable_efinance_fallback = bool(
+            data_cfg.get("enable_efinance_fallback", self.enable_efinance_fallback)
+        )
+        self.tushare_token = self._resolve_env_value(data_cfg.get("tushare_token", self.tushare_token))
+        self.tushare_anomaly_pct = max(
+            0.0,
+            float(data_cfg.get("tushare_anomaly_pct", self.tushare_anomaly_pct)),
+        )
+        self.tushare_request_interval = max(
+            0.0,
+            float(data_cfg.get("tushare_request_interval", self.tushare_request_interval)),
+        )
+        self.tushare_max_retries = max(
+            1,
+            int(data_cfg.get("tushare_max_retries", self.tushare_max_retries)),
+        )
+        self.tushare_history_max_workers = max(
+            1,
+            min(int(data_cfg.get("tushare_history_max_workers", self.tushare_history_max_workers)), 8),
+        )
+        self.tushare_fetch_adj_factor = bool(
+            data_cfg.get("tushare_fetch_adj_factor", self.tushare_fetch_adj_factor)
+        )
+        self.enable_akshare_daily_fallback = bool(
+            data_cfg.get("enable_akshare_daily_fallback", self.enable_akshare_daily_fallback)
+        )
+        configured_history_start = data_cfg.get("tushare_history_start_date", self.tushare_history_start_date)
+        if configured_history_start in (None, "", "auto_10y"):
+            self.tushare_history_start_date = self._date_days_ago(
+                int(data_cfg.get("market_bars_daily_retention_days", self.market_bars_daily_retention_days))
+            )
+        else:
+            self.tushare_history_start_date = str(configured_history_start).replace("-", "")[:8]
+        self.daily_update_after_time = str(
+            data_cfg.get("daily_update_after_time", self.daily_update_after_time)
+        )
+        self.efinance_sample_size = max(0, int(data_cfg.get("efinance_sample_size", self.efinance_sample_size)))
 
     @staticmethod
     def _resolve_env_value(value):
         if isinstance(value, str) and value.startswith("env:"):
-            return os.getenv(value.split(":", 1)[1], "")
+            env_name = value.split(":", 1)[1]
+            if env_name == "TUSHARE_TOKEN":
+                return os.getenv("TUSHARE_TOKEN") or os.getenv("TUSHARE_API_KEY", "")
+            return os.getenv(env_name, "")
         return value
 
+    @staticmethod
+    def _date_days_ago(days: int) -> str:
+        return (datetime.now() - timedelta(days=max(1, int(days)))).strftime("%Y%m%d")
+
+    def _call_tushare_api(self, api_func, **kwargs):
+        for attempt in range(1, self.tushare_max_retries + 1):
+            elapsed = time.monotonic() - self._last_tushare_request_at
+            wait_seconds = self.tushare_request_interval - elapsed
+            if wait_seconds > 0:
+                time.sleep(wait_seconds)
+
+            self._last_tushare_request_at = time.monotonic()
+            try:
+                return api_func(**kwargs)
+            except Exception as exc:
+                message = str(exc)
+                if "频率超限" in message or "rate" in message.lower():
+                    sleep_seconds = max(65.0, self.tushare_request_interval * 2)
+                    logger.warning(
+                        "Tushare request hit rate limit; sleeping {:.0f}s before retry {}/{}",
+                        sleep_seconds,
+                        attempt,
+                        self.tushare_max_retries,
+                    )
+                    time.sleep(sleep_seconds)
+                    continue
+                if attempt >= self.tushare_max_retries:
+                    raise
+                time.sleep(min(10.0, attempt * self.tushare_request_interval))
+        return None
+
     def _safe_fetch(self, func, *args, retries=3, delay=5, **kwargs):
-        """安全的数据获取，带重试机制"""
+        """
+        安全地调用数据抓取函数，支持重试机制。
+        """
         for i in range(retries):
             try:
                 res = func(*args, **kwargs)
                 if res is not None and not res.empty:
                     return res
-                logger.warning(f"获取数据为空，准备重试 ({i+1}/{retries})")
+                logger.warning(f"获取数据为空，准备重试({i+1}/{retries})")
             except Exception as e:
-                logger.error(f"调用 {func.__name__} 失败: {e}")
+                logger.error(f"调用{func.__name__} 失败 {e}")
             if i < retries - 1:
                 time.sleep(delay * (i + 1))
         return None
 
     def sync_daily_quotes(self):
-        """Sync market snapshot with tested sources first."""
+        """
+        同步每日行情快照。
+        优先级：腾讯/新浪 -> AKShare -> Yahoo Finance (最后兜底)。
+        """
         if self._daily_quotes_is_fresh():
-            logger.info("daily_quotes already covers the latest trade date; skip duplicate fetch")
+            logger.info("daily_quotes 已经涵盖了最新的交易日期；跳过重复获取")
             return True
 
         logger.info("Start syncing market snapshot...")
@@ -157,7 +276,9 @@ class DataPipeline:
         return self._upsert_daily_quotes(df)
 
     def _fetch_primary_daily_quotes(self, codes):
-        """Use tested quote sources first: Tencent -> Sina."""
+        """
+        使用主要测试过的行情源：腾讯 -> 新浪。
+        """
         if not codes:
             return None
 
@@ -174,17 +295,20 @@ class DataPipeline:
         return None
 
     def _enrich_daily_quote_valuations(self, clean_df: pd.DataFrame, codes) -> pd.DataFrame:
-        """用 AKShare/东方财富快照补齐 PE、PB、总市值，避免行情源估值字段缺失。"""
+        """
+        补充行情数据中的估值信息（如 PE, PB, 总市值）。
+        如果当前数据覆盖率低，则从 AKShare 补充。
+        """
         if clean_df is None or clean_df.empty:
             return clean_df
 
         if self._valuation_fields_are_usable(clean_df):
             return clean_df
 
-        logger.info("daily_quotes 估值字段覆盖不足，尝试用 AKShare/东方财富快照补齐")
+        logger.info("daily_quotes valuation coverage is low; enrich with AKShare snapshot")
         ak_df = self._safe_fetch(ak.stock_zh_a_spot_em, retries=1, delay=1)
         if ak_df is None or ak_df.empty:
-            logger.warning("AKShare/东方财富估值补齐失败，保留原始行情快照")
+            logger.warning("AKShare valuation enrichment returned no usable data")
             return clean_df
 
         trade_date = str(clean_df["trade_date"].dropna().iloc[0]) if "trade_date" in clean_df.columns and clean_df["trade_date"].notna().any() else datetime.now().strftime("%Y%m%d")
@@ -192,7 +316,7 @@ class DataPipeline:
         code_set = {str(code).zfill(6) for code in codes}
         valuation_df = valuation_df[valuation_df["code"].astype(str).str.zfill(6).isin(code_set)]
         if valuation_df.empty:
-            logger.warning("AKShare/东方财富估值补齐没有匹配到当前股票池")
+            logger.warning("log warning")
             return clean_df
 
         enrich_cols = ["code", "pe_ttm", "pb", "total_market_cap"]
@@ -208,11 +332,13 @@ class DataPipeline:
             merged[col] = primary.where(primary.notna(), fallback)
             merged = merged.drop(columns=[f"{col}_ak"])
 
-        logger.info("AKShare/东方财富估值补齐完成：{} 行", len(merged))
+        logger.info("log message")
         return self._clean_daily_quotes(merged)
 
     def _valuation_fields_are_usable(self, df: pd.DataFrame, min_coverage: float = 0.8) -> bool:
-        """检查估值字段覆盖率，至少要求总市值大面积可用。"""
+        """
+        检查估值字段（市值、PE、PB）的数据覆盖率是否达到阈值。
+        """
         if df is None or df.empty or "total_market_cap" not in df.columns:
             return False
         cap_coverage = pd.to_numeric(df["total_market_cap"], errors="coerce").notna().mean()
@@ -221,17 +347,28 @@ class DataPipeline:
         return cap_coverage >= min_coverage and (pb_coverage >= min_coverage or pe_coverage >= min_coverage)
 
     def _normalize_ak_spot_quotes(self, df: pd.DataFrame, trade_date: str) -> pd.DataFrame:
-        """将 AKShare 东方财富全市场快照标准化为 daily_quotes 结构。"""
+        """
+        将 AKShare 的原始行情数据字段标准化为本地数据库字段。
+        """
         column_mapping = {
-            '代码': 'code',
-            '最新价': 'price',
-            '涨跌幅': 'change_pct',
-            '成交量': 'volume',
-            '成交额': 'amount',
-            '换手率': 'turnover_rate',
-            '市盈率-动态': 'pe_ttm',
-            '市净率': 'pb',
-            '总市值': 'total_market_cap',
+            "代码": "code",
+            "最新价": "price",
+            "涨跌幅": "change_pct",
+            "成交量": "volume",
+            "成交额": "amount",
+            "换手率": "turnover_rate",
+            "市盈率-动态": "pe_ttm",
+            "市净率": "pb",
+            "总市值": "total_market_cap",
+            "code": "code",
+            "price": "price",
+            "change_pct": "change_pct",
+            "volume": "volume",
+            "amount": "amount",
+            "turnover_rate": "turnover_rate",
+            "pe_ttm": "pe_ttm",
+            "pb": "pb",
+            "total_market_cap": "total_market_cap",
         }
         available_cols = {k: v for k, v in column_mapping.items() if k in df.columns}
         clean_df = df[list(available_cols.keys())].rename(columns=available_cols)
@@ -239,7 +376,9 @@ class DataPipeline:
         return self._clean_daily_quotes(clean_df)
 
     def _clean_daily_quotes(self, df: pd.DataFrame) -> pd.DataFrame:
-        """清洗 daily_quotes 的公共字段。"""
+        """
+        清洗行情数据，包括数值转换、代码补全和字段筛选。
+        """
         clean_df = df.copy()
         numeric_cols = [
             'price', 'change_pct', 'volume', 'amount', 'turnover_rate',
@@ -263,30 +402,36 @@ class DataPipeline:
         ]
 
     def _upsert_daily_quotes(self, clean_df: pd.DataFrame) -> bool:
-        """写入 daily_quotes。"""
+        """
+        将清洗后的行情数据插入或更新到数据库的 daily_quotes 表中。
+        """
         try:
             self.db.upsert_dataframe(
                 "daily_quotes",
                 clean_df,
                 key_columns=["code", "trade_date"]
             )
-            logger.info("全市场基本行情同步通过")
+            logger.info("daily_quotes upsert completed")
             return True
             
         except Exception as e:
-            logger.error(f"行情数据清洗入库失败: {e}")
+            logger.error(f"行情数据清洗入库失败 {e}")
             return False
 
     def sync_market_bars(self, codes=None, periods=("daily", "weekly", "monthly")) -> bool:
-        """同步日/周/月 K 线到 market_bars。
-
-        数据源顺序：Yahoo Finance -> efinance 小批量补洞 -> AKShare 单股历史。
-        Yahoo Finance 适合非交易时段批量补历史 K 线；efinance 仅用于 Yahoo 缺失后的
-        短超时小批量补洞；AKShare 作为最后兜底。
         """
+        同步市场 K 线数据。
+        
+        策略：
+        1. 增量更新：仅拉取缺失的交易日数据。
+        2. 多周期支持：日线、周线、月线。
+        3. 周/月线由清洗后的日线聚合而成。
+        """
+        # Current strategy: efinance qfq daily bars first, AKShare qfq daily fallback;
+        # weekly/monthly bars are derived from cleaned daily bars.
         codes = codes or self._load_stock_codes_from_lake()
         if not codes:
-            logger.error("没有可同步 K 线的股票代码，请先同步 stock_basic")
+            logger.error("没有发现K 线的股票代码，请先同步 stock_basic")
             return False
 
         all_success = True
@@ -294,85 +439,534 @@ class DataPipeline:
             period = self._normalize_period(period)
             pending_codes = self._filter_codes_needing_bars(codes, period)
             if not pending_codes:
-                logger.info(f"{period} K 线已是最新，无需重复拉取")
+                logger.info(f"{period} K 线已是最新，无需重新拉取")
                 continue
 
-            unsupported_codes = [code for code in pending_codes if not self._is_supported_bar_code(code)]
-            if unsupported_codes:
-                logger.info(f"{period} K 线跳过北交所/不支持代码 {len(unsupported_codes)} 只")
-                pending_codes = [code for code in pending_codes if self._is_supported_bar_code(code)]
-                if not pending_codes:
-                    logger.info(f"{period} K 线待更新代码均为不支持市场，跳过拉取")
-                    continue
-
             skipped_count = len(codes) - len(pending_codes)
-            logger.info(
-                f"开始增量同步 {period} K 线，需要更新 {len(pending_codes)} 只，"
-                f"跳过已更新 {skipped_count} 只"
-            )
+            logger.info(f"Start syncing {period} bars: pending={len(pending_codes)}, skipped={skipped_count}")
 
-            latest_bar_dates = self._latest_bar_dates(codes, period)
-            yahoo_frames = []
-            for fetch_codes, lookback in self._plan_bar_fetch_groups(pending_codes, period, latest_bar_dates):
-                yahoo_df = self._fetch_yahoo_bars(fetch_codes, period, lookback=lookback)
-                if yahoo_df is not None and not yahoo_df.empty:
-                    yahoo_frames.append(yahoo_df)
-            bars_df = pd.concat(yahoo_frames, ignore_index=True) if yahoo_frames else None
-            fetched_codes = set()
-            if bars_df is not None and not bars_df.empty and "code" in bars_df.columns:
-                fetched_codes = set(bars_df["code"].astype(str).str.zfill(6))
-            fallback_codes = [code for code in pending_codes if str(code).zfill(6) not in fetched_codes]
-            yahoo_supported_codes = [code for code in pending_codes if self._to_yahoo_symbol(code)]
-            if fallback_codes:
-                fallback_df = self._fetch_efinance_bars(fallback_codes, period)
-                if fallback_df is None or fallback_df.empty:
-                    fallback_df = self._fetch_ak_bars(fallback_codes, period)
-                if fallback_df is not None and not fallback_df.empty:
-                    bars_df = pd.concat([bars_df, fallback_df], ignore_index=True) if bars_df is not None else fallback_df
+            if period == "daily":
+                ok = self.sync_daily_bars_by_trade_date(pending_codes)
+                all_success = all_success and ok
+                continue
+
+            daily_ok = self.sync_daily_bars_by_trade_date(pending_codes)
+            if not daily_ok:
+                logger.warning(f"{period} K line will use existing local daily bars because daily refresh failed")
+            bars_df = self._build_period_bars_from_daily(pending_codes, period)
 
             if bars_df is None or bars_df.empty:
-                if latest_bar_dates or not yahoo_supported_codes:
-                    logger.warning(
-                        f"{period} K 线本轮未取到新增数据，保留本地已有历史；"
-                        f"待更新 {len(pending_codes)} 只将下次继续尝试"
-                    )
-                else:
-                    logger.error(f"{period} K 线同步失败")
-                    all_success = False
+                logger.error(f"{period} K line sync failed")
+                all_success = False
                 continue
 
             final_codes = set(bars_df["code"].astype(str).str.zfill(6))
             missing_codes = [code for code in pending_codes if str(code).zfill(6) not in final_codes]
             if missing_codes:
-                logger.warning(f"{period} K 线仍有 {len(missing_codes)} 只未取到数据")
+                logger.warning(f"{period} K line still missing {len(missing_codes)} codes")
 
             bars_df = self._clean_market_bars(bars_df, period)
-            ok = self.db.upsert_dataframe(
-                "market_bars",
-                bars_df,
-                key_columns=["code", "period", "trade_date"],
-            )
+            ok = self._upsert_derived_period_bars(bars_df, period)
             all_success = all_success and ok
+            continue
 
         return all_success
 
+    def sync_daily_bars_by_trade_date(self, codes=None, trade_date: str = None) -> bool:
+        """
+        按交易日拉取并存储日线数据。
+        主数据源：Tushare；备用数据源：AKShare。
+        """
+        codes = [str(code).zfill(6) for code in (codes or self._load_stock_codes_from_lake())]
+        if not codes:
+            return True
+
+        trade_date = str(trade_date or self._expected_latest_trade_date("daily")).replace("-", "")[:8]
+        bars_df = self._fetch_tushare_daily_bars(trade_date, codes)
+        fetched_codes = set()
+        if bars_df is not None and not bars_df.empty and "code" in bars_df.columns:
+            fetched_codes = set(bars_df["code"].astype(str).str.zfill(6))
+
+        fallback_codes = [code for code in codes if code not in fetched_codes]
+        if fallback_codes and self.enable_akshare_daily_fallback:
+            fallback_df = self._fetch_ak_bars(
+                fallback_codes,
+                "daily",
+                start_date=trade_date,
+                end_date=trade_date,
+            )
+            if fallback_df is not None and not fallback_df.empty:
+                bars_df = pd.concat([bars_df, fallback_df], ignore_index=True) if bars_df is not None else fallback_df
+        elif fallback_codes:
+            logger.info(f"Skip AKShare daily fallback; missing codes from Tushare={len(fallback_codes)}")
+
+        if bars_df is None or bars_df.empty:
+            if not self.enable_akshare_daily_fallback:
+                logger.warning(
+                    "daily K line has no usable rows for requested missing codes; "
+                    "AKShare fallback is disabled, treating as non-fatal"
+                )
+                return True
+            logger.error("daily K line sync failed: Tushare and AKShare returned no usable rows")
+            return False
+
+        if self.enable_efinance_validation:
+            self._validate_daily_bars_with_efinance_sample(
+                bars_df,
+                sample_size=getattr(self, "efinance_sample_size", 5),
+            )
+        final_codes = set(bars_df["code"].astype(str).str.zfill(6))
+        missing_codes = [code for code in codes if code not in final_codes]
+        if missing_codes:
+            logger.warning(f"daily K line still missing {len(missing_codes)} codes")
+
+        clean_df = self._clean_market_bars(bars_df, "daily")
+        if clean_df.empty:
+            logger.error("daily K line sync produced no rows after OHLC validation")
+            return False
+
+        return self.db.upsert_dataframe(
+            "market_bars",
+            clean_df,
+            key_columns=["code", "period", "trade_date"],
+        )
+
+    def _sync_daily_bars_by_trade_date(self, codes) -> bool:
+        """Backward-compatible wrapper for daily bar refresh."""
+        return self.sync_daily_bars_by_trade_date(codes)
+
+    def _sync_daily_bars_for_codes(self, codes) -> bool:
+        """Backward-compatible wrapper for daily bar refresh."""
+        return self.sync_daily_bars_by_trade_date(codes)
+
+    def sync_market_bars_history(
+        self,
+        start_date: str = None,
+        end_date: str = None,
+        codes=None,
+        derive_periods=("weekly", "monthly"),
+    ) -> bool:
+        """
+        通过拉取 Tushare 全市场历史日线数据来初始化本地数据库。
+        """
+        codes = [str(code).zfill(6) for code in (codes or self._load_stock_codes_from_lake())]
+        if not codes:
+            logger.error("No stock codes available for historical market_bars initialization")
+            return False
+
+        start_date = str(start_date or getattr(self, "tushare_history_start_date", "20000101")).replace("-", "")[:8]
+        end_date = str(end_date or self._expected_latest_trade_date("daily")).replace("-", "")[:8]
+        trade_dates = self._resolve_tushare_trade_dates(start_date, end_date)
+        if not trade_dates:
+            logger.error(f"No trade dates resolved for {start_date}..{end_date}")
+            return False
+        existing_dates = self._existing_daily_trade_dates()
+        pending_trade_dates = [trade_date for trade_date in trade_dates if trade_date not in existing_dates]
+        skipped_dates = len(trade_dates) - len(pending_trade_dates)
+        if not pending_trade_dates:
+            logger.info(
+                f"Historical daily K initialization already complete for {start_date}..{end_date}; "
+                f"skipped={skipped_dates}"
+            )
+        trade_dates = pending_trade_dates
+
+        logger.info(
+            f"Start historical daily K initialization: pending={len(trade_dates)}, "
+            f"skipped={skipped_dates}, workers={self.tushare_history_max_workers}"
+        )
+        all_success = True
+        if self.tushare_history_max_workers <= 1:
+            for idx, trade_date in enumerate(trade_dates, start=1):
+                all_success = self._fetch_clean_upsert_historical_daily(trade_date, codes) and all_success
+                if idx % 100 == 0 or idx == len(trade_dates):
+                    logger.info(f"Historical daily K progress: {idx}/{len(trade_dates)} trade dates")
+        else:
+            with ThreadPoolExecutor(max_workers=self.tushare_history_max_workers) as executor:
+                future_to_date = {
+                    executor.submit(self._fetch_tushare_daily_bars, trade_date, codes): trade_date
+                    for trade_date in trade_dates
+                }
+                completed = 0
+                for future in as_completed(future_to_date):
+                    completed += 1
+                    trade_date = future_to_date[future]
+                    try:
+                        bars_df = future.result()
+                    except Exception as exc:
+                        logger.warning(f"Historical daily K line failed for {trade_date}: {exc}")
+                        all_success = False
+                        continue
+                    all_success = self._clean_upsert_historical_daily(trade_date, bars_df) and all_success
+                    if completed % 100 == 0 or completed == len(trade_dates):
+                        logger.info(f"Historical daily K progress: {completed}/{len(trade_dates)} trade dates")
+
+        for period in derive_periods or ():
+            period = self._normalize_period(period)
+            if period == "daily":
+                continue
+            bars_df = self._build_period_bars_from_daily(codes, period)
+            if bars_df is None or bars_df.empty:
+                logger.warning(f"Historical {period} bars were not generated")
+                all_success = False
+                continue
+            clean_df = self._clean_market_bars(bars_df, period)
+            all_success = self._upsert_derived_period_bars(clean_df, period) and all_success
+        return all_success
+
+    def _fetch_clean_upsert_historical_daily(self, trade_date: str, codes) -> bool:
+        bars_df = self._fetch_tushare_daily_bars(trade_date, codes)
+        return self._clean_upsert_historical_daily(trade_date, bars_df)
+
+    def _clean_upsert_historical_daily(self, trade_date: str, bars_df: pd.DataFrame) -> bool:
+        if bars_df is None or bars_df.empty:
+            logger.warning(f"Historical daily K line missing for {trade_date}")
+            return False
+
+        clean_df = self._clean_market_bars(bars_df, "daily")
+        if clean_df.empty:
+            logger.warning(f"Historical daily K line empty after cleaning for {trade_date}")
+            return False
+
+        return self.db.upsert_dataframe(
+            "market_bars",
+            clean_df,
+            key_columns=["code", "period", "trade_date"],
+        )
+
+    def _fetch_tushare_daily_bars(self, trade_date: str, codes=None):
+        """
+        从 Tushare API 获取指定交易日的日线行情及复权因子。
+        """
+        token = str(
+            getattr(self, "tushare_token", "")
+            or os.getenv("TUSHARE_TOKEN")
+            or os.getenv("TUSHARE_API_KEY")
+            or ""
+        ).strip()
+        if not token:
+            logger.warning("TUSHARE_TOKEN 未配置；跳过 Tushare 主日常 K 线")
+            return None
+
+        try:
+            import tushare as ts
+        except ImportError:
+            logger.warning("tushare 未安装；跳过 Tushare 主要日频数据")
+            return None
+
+        code_set = {str(code).zfill(6) for code in codes} if codes else None
+        fetched_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            pro = ts.pro_api(token)
+            raw = self._call_tushare_api(pro.daily, trade_date=trade_date)
+        except Exception as exc:
+            logger.warning(f"Tushare 日线获取失败{trade_date}: {exc}")
+            return None
+
+        if raw is None or raw.empty:
+            logger.warning(f"Tushare 日线返回空数据{trade_date}")
+            return None
+
+        adj = None
+        if self.tushare_fetch_adj_factor:
+            try:
+                adj = self._call_tushare_api(pro.adj_factor, trade_date=trade_date)
+            except Exception as exc:
+                logger.warning(f"Tushare adj_factor 获取失败{trade_date}: {exc}")
+
+        if adj is not None and not adj.empty and {"ts_code", "adj_factor"}.issubset(adj.columns):
+            raw = raw.merge(adj[["ts_code", "adj_factor"]], on="ts_code", how="left")
+
+        rows = []
+        for _, row in raw.iterrows():
+            code = str(row.get("ts_code", "")).split(".", 1)[0].zfill(6)
+            if code_set is not None and code not in code_set:
+                continue
+
+            close = row.get("close")
+            adj_factor = row.get("adj_factor")
+            adj_close = close
+            if pd.notna(close) and pd.notna(adj_factor):
+                adj_close = float(close) * float(adj_factor)
+
+            rows.append(
+                {
+                    "code": code,
+                    "period": "daily",
+                    "trade_date": str(row.get("trade_date", trade_date)).replace("-", "")[:8],
+                    "open": row.get("open"),
+                    "high": row.get("high"),
+                    "low": row.get("low"),
+                    "close": close,
+                    "adj_close": adj_close,
+                    "volume": row.get("vol"),
+                    "amount": row.get("amount"),
+                    "source": "tushare_daily",
+                    "fetched_at": fetched_at,
+                    "pre_close": row.get("pre_close"),
+                    "pct_chg": row.get("pct_chg"),
+                }
+            )
+
+        df = pd.DataFrame(rows)
+        if df.empty:
+            return None
+        return self._drop_anomalous_daily_bars(df)
+
+    def derive_period_bars(self, codes=None, periods=("weekly", "monthly")) -> bool:
+        """Derive weekly/monthly bars from local daily bars into dedicated tables."""
+        codes = [str(code).zfill(6) for code in (codes or self._load_stock_codes_from_lake())]
+        if not codes:
+            logger.error("No stock codes available for derived market bars")
+            return False
+
+        all_success = True
+        for period in periods or ():
+            period = self._normalize_period(period)
+            if period == "daily":
+                continue
+
+            bars_df = self._build_period_bars_from_daily(codes, period)
+            if bars_df is None or bars_df.empty:
+                logger.warning(f"No {period} bars derived from local daily bars")
+                all_success = False
+                continue
+
+            clean_df = self._clean_market_bars(bars_df, period)
+            ok = self._upsert_derived_period_bars(clean_df, period)
+            all_success = ok and all_success
+        return all_success
+
+    def _period_bar_table(self, period: str) -> str:
+        table_map = {
+            "weekly": "market_bars_weekly",
+            "monthly": "market_bars_monthly",
+        }
+        if period not in table_map:
+            raise ValueError(f"No dedicated table for {period} bars")
+        return table_map[period]
+
+    def _upsert_derived_period_bars(self, clean_df: pd.DataFrame, period: str) -> bool:
+        if clean_df is None or clean_df.empty:
+            return False
+
+        table_name = self._period_bar_table(period)
+        storage_df = clean_df.drop(columns=["period"], errors="ignore")
+        ok = self.db.upsert_dataframe(
+            table_name,
+            storage_df,
+            key_columns=["code", "trade_date"],
+        )
+        if ok:
+            logger.info(f"Successfully upserted {len(storage_df)} rows into {table_name}")
+        return ok
+
+    def _resolve_tushare_trade_dates(self, start_date: str, end_date: str) -> list:
+        """
+        解析 A 股交易日，优先使用 Tushare 的交易日历 API。
+        """
+        start_date = str(start_date).replace("-", "")[:8]
+        end_date = str(end_date).replace("-", "")[:8]
+        token = str(
+            getattr(self, "tushare_token", "")
+            or os.getenv("TUSHARE_TOKEN")
+            or os.getenv("TUSHARE_API_KEY")
+            or ""
+        ).strip()
+
+        if token:
+            try:
+                import tushare as ts
+
+                pro = ts.pro_api(token)
+                cal = self._call_tushare_api(
+                    pro.trade_cal,
+                    exchange="",
+                    start_date=start_date,
+                    end_date=end_date,
+                    is_open="1",
+                )
+                if cal is not None and not cal.empty and "cal_date" in cal.columns:
+                    return sorted(cal["cal_date"].astype(str).str.replace("-", "", regex=False).tolist())
+            except Exception as exc:
+                logger.warning(f"Tushare trade_cal fetch failed, fallback to weekday calendar: {exc}")
+
+        ak_dates = self._resolve_akshare_trade_dates(start_date, end_date)
+        if ak_dates:
+            return ak_dates
+
+        days = pd.date_range(start=pd.to_datetime(start_date, format="%Y%m%d"), end=pd.to_datetime(end_date, format="%Y%m%d"))
+        return [day.strftime("%Y%m%d") for day in days if day.weekday() < 5]
+
+    def _resolve_akshare_trade_dates(self, start_date: str, end_date: str) -> list:
+        """Resolve trade dates from AKShare when Tushare trade_cal is unavailable."""
+        try:
+            cal = ak.tool_trade_date_hist_sina()
+        except Exception as exc:
+            logger.warning(f"AKShare trade calendar fetch failed, fallback to weekday calendar: {exc}")
+            return []
+
+        if cal is None or cal.empty:
+            return []
+
+        date_col = None
+        for candidate in ("trade_date", "交易日", "calendarDate"):
+            if candidate in cal.columns:
+                date_col = candidate
+                break
+        if date_col is None:
+            date_col = cal.columns[0]
+
+        dates = pd.to_datetime(cal[date_col], errors="coerce").dt.strftime("%Y%m%d").dropna()
+        return sorted(date for date in dates.tolist() if start_date <= date <= end_date)
+
+    def _drop_anomalous_daily_bars(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        剔除涨跌幅异常的日线数据（如超过 15% 的波动，可能是由于除权拆股未正确处理导致）。
+        """
+        anomaly_pct = getattr(self, "tushare_anomaly_pct", 15.0)
+        if df is None or df.empty or anomaly_pct <= 0:
+            return df
+
+        clean_df = df.copy()
+        close = pd.to_numeric(clean_df.get("close"), errors="coerce")
+        pct_chg = pd.to_numeric(clean_df.get("pct_chg"), errors="coerce")
+        if "pre_close" in clean_df.columns:
+            pre_close = pd.to_numeric(clean_df.get("pre_close"), errors="coerce")
+            derived_pct = (close - pre_close) / pre_close * 100
+            pct_chg = pct_chg.where(pct_chg.notna(), derived_pct)
+
+        anomalous = pct_chg.abs() > anomaly_pct
+        if anomalous.any():
+            logger.warning(
+                "Dropped {} daily bars with abs pct_chg above {}%",
+                int(anomalous.sum()),
+                anomaly_pct,
+            )
+        return clean_df[~anomalous].drop(columns=["pre_close", "pct_chg"], errors="ignore")
+
+    def _validate_daily_bars_with_efinance_sample(self, bars_df: pd.DataFrame, sample_size: int = 5) -> None:
+        """
+        使用 efinance 作为轻量级采样源，对 Tushare 的数据进行一致性校验。
+        """
+        if bars_df is None or bars_df.empty or sample_size <= 0:
+            return
+        if "source" not in bars_df.columns or not bars_df["source"].astype(str).str.startswith("tushare").any():
+            return
+
+        sample_codes = bars_df["code"].astype(str).str.zfill(6).drop_duplicates().head(sample_size).tolist()
+        sample_df = self._fetch_efinance_bars(sample_codes, "daily")
+        if sample_df is None or sample_df.empty:
+            logger.warning("efinance sample validation skipped: no sample data returned")
+            return
+
+        primary_latest = (
+            bars_df.sort_values("trade_date")
+            .groupby("code", as_index=False)
+            .tail(1)[["code", "close"]]
+        )
+        sample_latest = (
+            sample_df.sort_values("trade_date")
+            .groupby("code", as_index=False)
+            .tail(1)[["code", "close"]]
+        )
+        merged = primary_latest.merge(sample_latest, on="code", suffixes=("_primary", "_efinance"))
+        if merged.empty:
+            logger.warning("efinance sample validation skipped: no overlapping codes")
+            return
+
+        primary_close = pd.to_numeric(merged["close_primary"], errors="coerce")
+        sample_close = pd.to_numeric(merged["close_efinance"], errors="coerce")
+        diff_pct = ((primary_close - sample_close).abs() / primary_close.replace(0, pd.NA) * 100).dropna()
+        if not diff_pct.empty and diff_pct.max() > 1.0:
+            logger.warning("efinance sample validation found max close diff {:.2f}%", float(diff_pct.max()))
+
+    def _build_period_bars_from_daily(self, codes, period: str) -> pd.DataFrame:
+        """
+        基于本地已清洗的日线数据，聚合生成周线或月线数据。
+        """
+        if period not in {"weekly", "monthly"}:
+            raise ValueError(f"Cannot derive {period} bars from daily bars")
+
+        codes = [str(code).zfill(6) for code in codes]
+        if not codes:
+            return pd.DataFrame()
+
+        placeholders = ",".join("?" for _ in codes)
+        sql = (
+            "SELECT code, trade_date, open, high, low, close, adj_close, volume, amount, fetched_at "
+            "FROM market_bars "
+            f"WHERE period = 'daily' AND code IN ({placeholders}) "
+            "ORDER BY code, trade_date"
+        )
+        daily_df = self.db.query_to_dataframe(sql, tuple(codes))
+        if daily_df is None or daily_df.empty:
+            return pd.DataFrame()
+
+        return self._aggregate_daily_bars(daily_df, period)
+
+    def _aggregate_daily_bars(self, daily_df: pd.DataFrame, period: str) -> pd.DataFrame:
+        """
+        将日线 OHLCV 数据聚合为指定周期的 K 线数据。
+        """
+        if daily_df is None or daily_df.empty:
+            return pd.DataFrame()
+
+        df = daily_df.copy()
+        df["code"] = df["code"].astype(str).str.zfill(6)
+        df["trade_date"] = pd.to_datetime(df["trade_date"].astype(str), format="%Y%m%d", errors="coerce")
+        for col in ["open", "high", "low", "close", "adj_close", "volume", "amount"]:
+            df[col] = pd.to_numeric(df.get(col), errors="coerce")
+        df = df.dropna(subset=["code", "trade_date", "open", "high", "low", "close"])
+        if df.empty:
+            return pd.DataFrame()
+
+        if period == "weekly":
+            df["_bucket"] = df["trade_date"].dt.to_period("W-FRI")
+        elif period == "monthly":
+            df["_bucket"] = df["trade_date"].dt.to_period("M")
+        else:
+            raise ValueError(f"Cannot derive {period} bars from daily bars")
+
+        rows = []
+        fetched_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for (code, _), group in df.sort_values("trade_date").groupby(["code", "_bucket"]):
+            rows.append(
+                {
+                    "code": code,
+                    "period": period,
+                    "trade_date": group["trade_date"].iloc[-1].strftime("%Y%m%d"),
+                    "open": group["open"].iloc[0],
+                    "high": group["high"].max(),
+                    "low": group["low"].min(),
+                    "close": group["close"].iloc[-1],
+                    "adj_close": group["adj_close"].iloc[-1],
+                    "volume": group["volume"].sum(min_count=1),
+                    "amount": group["amount"].sum(min_count=1),
+                    "source": "derived_daily_qfq",
+                    "fetched_at": fetched_at,
+                }
+            )
+        return pd.DataFrame(rows)
+
     def sync_index_bars(self) -> bool:
-        """Sync broad index daily bars used by MarketRegimeDetector."""
+        """
+        同步主要指数（如上证、沪深300）的日线数据，用于市场行情研判。
+        """
         rows = []
         fetched_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         for code, name in DEFAULT_INDEX_BARS.items():
             try:
                 raw = ak.stock_zh_index_daily(symbol=code)
             except Exception as exc:
-                logger.warning(f"指数 K 线同步失败 {name}({code}): {exc}")
+                logger.warning(f"指数 K 线同步失败{name}({code}): {exc}")
                 continue
             if raw is None or raw.empty:
-                logger.warning(f"指数 K 线为空 {name}({code})")
+                logger.warning(f"指数 K 线数据为空{name}({code})")
                 continue
             rows.extend(self._normalize_index_bars(code, raw, fetched_at))
 
         if not rows:
-            logger.warning("指数 K 线同步未获取到有效数据")
+            logger.warning("log warning")
             return False
 
         bars_df = self._clean_market_bars(pd.DataFrame(rows), "daily")
@@ -382,11 +976,13 @@ class DataPipeline:
             key_columns=["code", "period", "trade_date"],
         )
         if ok:
-            logger.info(f"指数 K 线同步完成: {len(bars_df)} 条")
+            logger.info("log message")
         return ok
 
     def sync_financial_metrics(self, codes=None, periods: int = 8) -> bool:
-        """Sync compact financial metrics from Eastmoney via AKShare."""
+        """
+        同步核心财务指标（来自东方财富）。
+        """
         codes = codes or self._load_stock_codes_from_lake()
         if not codes:
             logger.warning("No stock codes available for financial metric sync")
@@ -435,7 +1031,7 @@ class DataPipeline:
         }
         available = {src: dst for src, dst in column_mapping.items() if src in raw.columns}
         if "trade_date" not in available.values() or "close" not in available.values():
-            logger.warning(f"指数 K 线字段不完整 {code}: {list(raw.columns)}")
+            logger.warning(f"指数 K 线字段不完整{code}: {list(raw.columns)}")
             return []
 
         df = raw[list(available.keys())].rename(columns=available).copy()
@@ -469,7 +1065,9 @@ class DataPipeline:
         ].to_dict("records")
 
     def _load_stock_codes_from_lake(self):
-        """优先从本地 stock_basic 取代码，空库时再调用轻量接口。"""
+        """
+        从本地 stock_basic 表中加载所有股票代码。
+        """
         df = self.db.query_to_dataframe("SELECT code FROM stock_basic ORDER BY code")
         if df is not None and not df.empty:
             return df["code"].astype(str).str.zfill(6).tolist()
@@ -487,57 +1085,84 @@ class DataPipeline:
         aliases = {"1d": "daily", "day": "daily", "1w": "weekly", "week": "weekly", "1mo": "monthly", "month": "monthly"}
         normalized = aliases.get(str(period).lower(), str(period).lower())
         if normalized not in {"daily", "weekly", "monthly"}:
-            raise ValueError(f"不支持的 K 线周期: {period}")
+            raise ValueError(f"不支持的 K 线周期 {period}")
         return normalized
 
     def _filter_codes_needing_bars(self, codes, period: str):
-        """只返回本地 K 线明显过期或缺失的代码。"""
+        """
+        通过对比数据库中的最新日期，筛选出需要更新 K 线数据的股票代码。
+        """
         target_date = self._expected_latest_trade_date(period)
         codes = [str(code).zfill(6) for code in codes]
 
         sql = (
-            "SELECT code, MAX(trade_date) AS latest_trade_date "
-            "FROM market_bars "
-            "WHERE period = ? "
-            "GROUP BY code"
+            "SELECT mb.code, mb.trade_date AS latest_trade_date, mb.source "
+            "FROM market_bars mb "
+            "JOIN ("
+            "    SELECT code, MAX(trade_date) AS latest_trade_date "
+            "    FROM market_bars "
+            "    WHERE period = ? "
+            "    GROUP BY code"
+            ") latest "
+            "ON latest.code = mb.code AND latest.latest_trade_date = mb.trade_date "
+            "WHERE mb.period = ?"
         )
-        latest_df = self.db.query_to_dataframe(sql, (period,))
+        latest_df = self.db.query_to_dataframe(sql, (period, period))
         if latest_df is None or latest_df.empty:
-            logger.info(f"{period} K 线本地无记录，将执行首次同步")
+            logger.info("log message")
             return codes
 
-        latest_map = dict(zip(latest_df["code"].astype(str).str.zfill(6), latest_df["latest_trade_date"].astype(str)))
+        latest_df["code"] = latest_df["code"].astype(str).str.zfill(6)
+        latest_map = dict(zip(latest_df["code"], latest_df["latest_trade_date"].astype(str)))
+        source_map = dict(zip(latest_df["code"], latest_df["source"].fillna("").astype(str)))
         pending_codes = [
             code
             for code in codes
             if self._bar_is_stale(latest_map.get(code), target_date)
+            or not self._bar_source_is_trusted(period, source_map.get(code))
         ]
-        logger.info(
-            f"{period} K 线增量检查: 目标日期 {target_date}, "
-            f"已有记录 {len(latest_map)} 只, 待更新 {len(pending_codes)} 只"
-        )
+        logger.info(f"{period} bar freshness check: target={target_date}, existing={len(latest_map)}, pending={len(pending_codes)}")
         return pending_codes
 
+    @staticmethod
+    def _bar_source_is_trusted(period: str, source: str) -> bool:
+        source = str(source or "")
+        if period == "daily":
+            return source.startswith(("tushare", "efinance", "akshare", "akshare_index"))
+        if period in {"weekly", "monthly"}:
+            return source == "derived_daily_qfq" or source.startswith("akshare_index")
+        return False
+
     def _latest_bar_dates(self, codes, period: str) -> dict:
-        """Return latest local bar date by code for fetch-window planning."""
+        """
+        获取每个代码在本地数据库中的最新 K 线日期，用于规划抓取窗口。
+        """
         codes = [str(code).zfill(6) for code in codes]
         if not codes:
             return {}
 
         sql = (
-            "SELECT code, MAX(trade_date) AS latest_trade_date "
-            "FROM market_bars "
-            "WHERE period = ? "
-            "GROUP BY code"
+            "SELECT mb.code, mb.trade_date AS latest_trade_date, mb.source "
+            "FROM market_bars mb "
+            "JOIN ("
+            "    SELECT code, MAX(trade_date) AS latest_trade_date "
+            "    FROM market_bars "
+            "    WHERE period = ? "
+            "    GROUP BY code"
+            ") latest "
+            "ON latest.code = mb.code AND latest.latest_trade_date = mb.trade_date "
+            "WHERE mb.period = ?"
         )
-        latest_df = self.db.query_to_dataframe(sql, (period,))
+        latest_df = self.db.query_to_dataframe(sql, (period, period))
         if latest_df is None or latest_df.empty:
             return {}
         latest_map = dict(zip(latest_df["code"].astype(str).str.zfill(6), latest_df["latest_trade_date"].astype(str)))
         return {code: latest_map.get(code) for code in codes if code in latest_map}
 
     def _plan_bar_fetch_groups(self, pending_codes, period: str, latest_dates: dict):
-        """Split stale codes into short incremental fetches and long backfills."""
+        """
+        将待更新的代码分为“短周期增量抓取”和“长周期历史补全”两组。
+        """
         pending_codes = [str(code).zfill(6) for code in pending_codes]
         if not pending_codes:
             return []
@@ -563,8 +1188,8 @@ class DataPipeline:
             groups.append((long_codes, long_lookback))
 
         logger.info(
-            f"{period} K 线拉取窗口规划: 短窗口 {len(short_codes)} 只({short_lookback}), "
-            f"长窗口/补历史 {len(long_codes)} 只({long_lookback})"
+            f"{period} K 线拉取窗口: 增量 ({len(short_codes)} 只, {short_lookback}), "
+            f"历史补全 ({len(long_codes)} 只, {long_lookback})"
         )
         return groups
 
@@ -578,10 +1203,14 @@ class DataPipeline:
             return None
 
     def _expected_latest_trade_date(self, period: str) -> str:
-        """估算当前周期应至少覆盖到的日期，避免每天重复拉完整历史。"""
+        """
+        计算本地数据库中应该具有的最新的交易日期（考虑休市和盘后延迟）。
+        """
         today = datetime.now().date()
         if period == "daily":
             expected = today
+            if expected.weekday() < 5 and not self._is_after_daily_market_close():
+                expected -= timedelta(days=1)
             while expected.weekday() >= 5:
                 expected -= timedelta(days=1)
             return expected.strftime("%Y%m%d")
@@ -593,6 +1222,18 @@ class DataPipeline:
         first_day_prev_month = (first_day_this_month - timedelta(days=1)).replace(day=1)
         return first_day_prev_month.strftime("%Y%m%d")
 
+    def _is_after_daily_market_close(self) -> bool:
+        """
+        判断当前是否已经过了设定的盘后同步起始时间。
+        """
+        raw_value = str(getattr(self, "daily_update_after_time", "15:30") or "15:30")
+        try:
+            hour, minute = [int(part) for part in raw_value.split(":", 1)]
+        except Exception:
+            hour, minute = 15, 30
+        now = datetime.now()
+        return now.hour > hour or (now.hour == hour and now.minute >= minute)
+
     def _bar_is_stale(self, latest_trade_date, target_date: str) -> bool:
         if not latest_trade_date or latest_trade_date == "nan":
             return True
@@ -600,11 +1241,13 @@ class DataPipeline:
         return latest < target_date
 
     def _fetch_yahoo_bars(self, codes, period: str, lookback: str = None):
-        """从 Yahoo Finance 批量拉取 A 股日/周/月 K 线。"""
+        """
+        从 Yahoo Finance 抓取历史 K 线数据。
+        """
         try:
             import yfinance as yf
         except ImportError:
-            logger.warning("未安装 yfinance，无法使用 Yahoo Finance 降级数据源")
+            logger.warning("log warning")
             return None
 
         interval_map = {"daily": "1d", "weekly": "1wk", "monthly": "1mo"}
@@ -619,16 +1262,16 @@ class DataPipeline:
         }
         unsupported_count = len(codes) - len(symbol_to_code)
         if unsupported_count:
-            logger.warning(f"Yahoo Finance {period} K 线跳过 {unsupported_count} 只无法映射 ticker 的代码")
+            logger.warning("log warning")
         symbols = list(symbol_to_code.keys())
         total_batches = (len(symbols) + self.yahoo_batch_size - 1) // self.yahoo_batch_size
         if not symbols:
-            logger.warning(f"Yahoo Finance 无可用 ticker，跳过 {period} K 线")
+            logger.warning("log warning")
             return None
 
         logger.info(
-            f"Yahoo Finance 开始拉取 {period} K 线: {len(symbols)} 个 ticker, "
-            f"{total_batches} 批, lookback={lookback}, max_workers={self.yahoo_max_workers}"
+            f"Yahoo Finance 开始下载 {period} K ? {len(symbols)} ?ticker, "
+            f"{total_batches} ? lookback={lookback}, max_workers={self.yahoo_max_workers}"
         )
 
         batches = [
@@ -637,7 +1280,7 @@ class DataPipeline:
         ]
 
         def download_batch(batch_no, batch):
-            logger.info(f"Yahoo Finance {period} K 线进度: {batch_no}/{total_batches}, 本批 {len(batch)} 个")
+            logger.info("log message")
             try:
                 raw = yf.download(
                     tickers=" ".join(batch),
@@ -649,7 +1292,7 @@ class DataPipeline:
                     threads=False,
                 )
             except Exception as e:
-                logger.warning(f"Yahoo Finance 批量 K 线拉取失败: {e}")
+                logger.warning(f"Yahoo Finance 批?K 线拉取失败 {e}")
                 return []
 
             parsed_rows = self._parse_yahoo_download(raw, batch, symbol_to_code, period)
@@ -672,32 +1315,37 @@ class DataPipeline:
                 try:
                     batch_rows = future.result()
                 except Exception as e:
-                    logger.warning(f"Yahoo Finance {period} K 线批次 {batch_no}/{total_batches} 失败: {e}")
+                    logger.warning(f"Yahoo Finance {period} K 线批?{batch_no}/{total_batches} 失败 {e}")
                     continue
                 rows.extend(batch_rows)
                 logger.info(
-                    f"Yahoo Finance {period} K 线批次完成: {completed}/{total_batches}, "
+                    f"Yahoo Finance {period} K 线批次完? {completed}/{total_batches}, "
                     f"batch={batch_no}, rows={len(batch_rows)}"
                 )
 
         if not rows:
             return None
-        logger.info(f"Yahoo Finance {period} K 线拉取完成: {len(rows)} 条")
+        logger.info("log message")
         return pd.DataFrame(rows)
 
     def cleanup_old_data(self) -> bool:
-        """清理临时行情缓存、旧输出和数据库重复行。"""
-        logger.info("开始清理旧数据与临时缓存...")
+        """
+        清理过期的数据库记录和本地数据文件，保持存储空间精简。
+        """
+        logger.info("正在清理旧数据与临时缓存...")
         ok = True
-        ok = self._deduplicate_database_tables() and ok
-        ok = self._prune_database_history() and ok
+        if self.enable_database_cleanup:
+            ok = self._deduplicate_database_tables(vacuum=self.enable_database_vacuum) and ok
+            ok = self._prune_database_history(vacuum=self.enable_database_vacuum) and ok
+        else:
+            logger.info("跳过数据库深度清理，仅清理临时文件")
         ok = self._cleanup_files("data/market_data/*", self.market_data_retention_days) and ok
         ok = self._cleanup_files("data/Macro events/**/*.csv", self.macro_events_retention_days, recursive=True) and ok
         ok = self._cleanup_files("outputs/trading_prompt_*.md", self.output_retention_days) and ok
         ok = self._cleanup_files("data/trade_executions/execution_*.json", self.trade_execution_retention_days) and ok
         return ok
 
-    def _deduplicate_database_tables(self) -> bool:
+    def _deduplicate_database_tables(self, vacuum: bool = False) -> bool:
         statements = [
             """
             DELETE FROM stock_basic
@@ -717,6 +1365,18 @@ class DataPipeline:
                 SELECT MAX(rowid) FROM market_bars GROUP BY code, period, trade_date
             )
             """,
+            """
+            DELETE FROM market_bars_weekly
+            WHERE rowid NOT IN (
+                SELECT MAX(rowid) FROM market_bars_weekly GROUP BY code, trade_date
+            )
+            """,
+            """
+            DELETE FROM market_bars_monthly
+            WHERE rowid NOT IN (
+                SELECT MAX(rowid) FROM market_bars_monthly GROUP BY code, trade_date
+            )
+            """,
         ]
         try:
             with self.db.get_connection() as conn:
@@ -724,21 +1384,24 @@ class DataPipeline:
                 for sql in statements:
                     cursor.execute(sql)
                 conn.commit()
-                conn.execute("VACUUM")
-            logger.info("数据库重复行清理完成")
+                if vacuum:
+                    conn.execute("VACUUM")
+            logger.info("database deduplicate completed")
             return True
         except Exception as e:
-            logger.warning(f"数据库清理失败: {e}")
+            logger.warning(f"数据库理失败 {e}")
             return False
 
-    def _prune_database_history(self) -> bool:
-        """Keep the local lake compact while preserving enough history for analysis."""
+    def _prune_database_history(self, vacuum: bool = False) -> bool:
+        """
+        根据配置的保留天数，物理删除数据库中的旧历史数据。
+        """
         try:
             retention_specs = [
                 ("daily_quotes", None, self.daily_quotes_retention_days),
                 ("market_bars", "daily", self._market_bars_retention_days("daily")),
-                ("market_bars", "weekly", self._market_bars_retention_days("weekly")),
-                ("market_bars", "monthly", self._market_bars_retention_days("monthly")),
+                ("market_bars_weekly", None, self._market_bars_retention_days("weekly")),
+                ("market_bars_monthly", None, self._market_bars_retention_days("monthly")),
                 ("daily_lhb", None, self.daily_lhb_retention_days),
             ]
 
@@ -775,14 +1438,12 @@ class DataPipeline:
                     total_deleted += cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
 
                 conn.commit()
-                if total_deleted:
+                if total_deleted and vacuum:
                     conn.execute("VACUUM")
-                    logger.info(f"数据库历史裁剪完成，删除 {total_deleted} 条过期记录")
-                else:
-                    logger.info("数据库历史裁剪完成，无过期记录")
+                logger.info(f"database prune completed, deleted={total_deleted}")
             return True
         except Exception as e:
-            logger.warning(f"数据库历史裁剪失败: {e}")
+            logger.warning(f"数据库历史清理失败 {e}")
             return False
 
     def _market_bars_retention_days(self, period: str) -> int:
@@ -792,6 +1453,60 @@ class DataPipeline:
             "monthly": self.market_bars_monthly_retention_days,
         }
         return retention_map.get(period, self.market_bars_daily_retention_days)
+
+    def _market_bars_is_empty(self) -> bool:
+        df = self.db.query_to_dataframe("SELECT COUNT(*) AS row_count FROM market_bars")
+        if df is None or df.empty:
+            return True
+        row_count = df.iloc[0].get("row_count")
+        return not row_count or int(row_count) == 0
+
+    def _market_bars_needs_history_init(self) -> bool:
+        target_start = str(getattr(self, "tushare_history_start_date", "") or "").replace("-", "")[:8]
+        if not target_start:
+            return self._market_bars_is_empty()
+
+        df = self.db.query_to_dataframe(
+            """
+            SELECT COUNT(*) AS row_count, MIN(trade_date) AS min_trade_date
+            FROM market_bars
+            WHERE period = 'daily'
+              AND LENGTH(code) = 6
+              AND COALESCE(source, '') != 'akshare_index'
+            """
+        )
+        if df is None or df.empty:
+            return True
+
+        row_count = int(df.iloc[0].get("row_count") or 0)
+        min_trade_date = str(df.iloc[0].get("min_trade_date") or "").replace("-", "")[:8]
+        complete_dates = len(self._existing_daily_trade_dates())
+        if row_count == 0 or complete_dates < 1000:
+            return True
+        if not min_trade_date:
+            return True
+        try:
+            first_local = datetime.strptime(min_trade_date, "%Y%m%d")
+            target = datetime.strptime(target_start, "%Y%m%d")
+            return (first_local - target).days > 7
+        except ValueError:
+            return min_trade_date > target_start
+
+    def _existing_daily_trade_dates(self) -> set:
+        df = self.db.query_to_dataframe(
+            """
+            SELECT trade_date
+            FROM market_bars
+            WHERE period = 'daily'
+              AND LENGTH(code) = 6
+              AND COALESCE(source, '') != 'akshare_index'
+            GROUP BY trade_date
+            HAVING COUNT(*) >= 1000
+            """
+        )
+        if df is None or df.empty:
+            return set()
+        return set(df["trade_date"].astype(str).str.replace("-", "", regex=False).str[:8])
 
     def _cleanup_files(self, pattern: str, retention_days: int, recursive: bool = False) -> bool:
         if retention_days < 0:
@@ -809,15 +1524,17 @@ class DataPipeline:
                     os.remove(file_path)
                     deleted += 1
             except Exception as e:
-                logger.warning(f"删除旧文件失败 {file_path}: {e}")
+                logger.warning(f"删除旧文件失败{file_path}: {e}")
                 return False
 
         if deleted:
-            logger.info(f"清理旧文件 {pattern}: 删除 {deleted} 个")
+            logger.info("log message")
         return True
 
     def _to_yahoo_symbol(self, code: str) -> str:
-        """A 股代码转 Yahoo Finance ticker。"""
+        """
+        将 A 股代码转换为 Yahoo Finance 的 Ticker 格式（.SS 或 .SZ）。
+        """
         code = str(code).zfill(6)
         if code.startswith(("600", "601", "603", "605", "688", "689")):
             return f"{code}.SS"
@@ -826,13 +1543,19 @@ class DataPipeline:
         return ""
 
     def _is_supported_bar_code(self, code: str) -> bool:
-        """K 线同步只覆盖沪深主板、创业板、科创板等系统实际使用的股票。"""
+        """Helper."""
         return bool(self._to_yahoo_symbol(code))
 
     def _fetch_efinance_bars(self, codes, period: str):
-        """用 efinance 对 Yahoo 缺失的 A 股 K 线做短超时小批量补洞。"""
+        """
+        从 efinance 抓取数据，通常用于补全 Yahoo Finance 缺失的数据点。
+        """
+        if not self.enable_efinance_fallback and not self.enable_efinance_validation:
+            logger.info("efinance disabled by config; skip efinance bars")
+            return None
+
         if self.efinance_max_codes <= 0:
-            logger.info("efinance 补洞已禁用")
+            logger.info("log message")
             return None
 
         try:
@@ -848,7 +1571,7 @@ class DataPipeline:
         skipped = max(0, len(codes) - self.efinance_max_codes)
         codes = codes[:self.efinance_max_codes]
         if skipped:
-            logger.warning(f"efinance 补洞仅处理前 {len(codes)} 只，跳过 {skipped} 只避免拖慢同步")
+            logger.warning("log warning")
 
         klt_map = {"daily": 101, "weekly": 102, "monthly": 103}
         begin_date = self._efinance_begin_date(period)
@@ -857,7 +1580,7 @@ class DataPipeline:
         rows = []
 
         logger.info(
-            f"efinance 开始补洞 {period} K 线: {len(codes)} 只, "
+            f"efinance 开始补洞 {period} K ? {len(codes)} ? "
             f"beg={begin_date}, timeout={self.efinance_timeout}s, max_workers={self.efinance_max_workers}"
         )
 
@@ -888,21 +1611,36 @@ class DataPipeline:
                 try:
                     code_rows = future.result()
                 except Exception as e:
-                    logger.warning(f"efinance K 线补洞异常 {code}: {e}")
+                    logger.warning(f"efinance K 线补洞异?{code}: {e}")
                     continue
                 rows.extend(code_rows)
 
         if not rows:
             return None
-        logger.info(f"efinance {period} K 线补洞完成: {len(rows)} 条")
+        logger.info("log message")
         return pd.DataFrame(rows)
 
     def _efinance_begin_date(self, period: str) -> str:
-        days_map = {"daily": 20, "weekly": 120, "monthly": 370}
-        return (datetime.now() - timedelta(days=days_map[period])).strftime("%Y%m%d")
+        days_map = {
+            "daily": self._market_bars_retention_days("daily"),
+            "weekly": self._market_bars_retention_days("weekly"),
+            "monthly": self._market_bars_retention_days("monthly"),
+        }
+        days = max(1, days_map[period])
+        return (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
+
+    @staticmethod
+    def _row_get_any(row, *names):
+        for name in names:
+            value = row.get(name)
+            if value is not None:
+                return value
+        return None
 
     def _parse_efinance_download(self, raw, code: str, period: str, fetched_at: str):
-        """解析 efinance.get_quote_history 返回的中文列 DataFrame。"""
+        """
+        解析 efinance 抓取回来的数据行。
+        """
         if raw is None:
             return []
         if isinstance(raw, dict):
@@ -913,21 +1651,21 @@ class DataPipeline:
         rows = []
         code = str(code).zfill(6)
         for _, row in raw.iterrows():
-            close = row.get("收盘")
+            close = self._row_get_any(row, "收盘", "close")
             if pd.isna(close):
                 continue
             rows.append(
                 {
                     "code": code,
                     "period": period,
-                    "trade_date": str(row.get("日期", "")).replace("-", "")[:8],
-                    "open": row.get("开盘"),
-                    "high": row.get("最高"),
-                    "low": row.get("最低"),
+                    "trade_date": str(self._row_get_any(row, "日期", "trade_date") or "").replace("-", "")[:8],
+                    "open": self._row_get_any(row, "开盘", "open"),
+                    "high": self._row_get_any(row, "最高", "high"),
+                    "low": self._row_get_any(row, "最低", "low"),
                     "close": close,
                     "adj_close": close,
-                    "volume": row.get("成交量"),
-                    "amount": row.get("成交额"),
+                    "volume": self._row_get_any(row, "成交量", "volume"),
+                    "amount": self._row_get_any(row, "成交额", "amount"),
                     "source": "efinance",
                     "fetched_at": fetched_at,
                 }
@@ -935,7 +1673,9 @@ class DataPipeline:
         return rows
 
     def _parse_yahoo_download(self, raw: pd.DataFrame, batch, symbol_to_code, period: str):
-        """解析 yfinance.download 返回的宽表。"""
+        """
+        解析 Yahoo Finance 下载的原始数据。
+        """
         if raw is None or raw.empty:
             return []
 
@@ -978,15 +1718,15 @@ class DataPipeline:
                 )
         return rows
 
-    def _fetch_ak_bars(self, codes, period: str):
-        """用 AKShare 单股历史接口兜底，适合候选股级别的小批量补数。"""
+    def _fetch_ak_bars(self, codes, period: str, start_date: str = None, end_date: str = None):
+        """从 AKShare 获取 qfq 每日 K 线图以补充缺失的代码。"""
         if len(codes) > 200:
-            logger.warning(f"AKShare 单股 K 线兜底仅适合小批量，当前 {len(codes)} 只，跳过")
+            logger.warning(f"AKShare 的降级处理仅支持小批量；已跳过 {len(codes)} 支股票")
             return None
 
         rows = []
-        end_date = datetime.now().strftime("%Y%m%d")
-        start_date = "20180101" if period != "daily" else "20220101"
+        end_date = str(end_date or datetime.now().strftime("%Y%m%d")).replace("-", "")[:8]
+        start_date = str(start_date or self._efinance_begin_date(period)).replace("-", "")[:8]
         fetched_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         for code in codes:
@@ -999,25 +1739,29 @@ class DataPipeline:
                     adjust="qfq",
                 )
             except Exception as e:
-                logger.warning(f"AKShare K 线拉取失败 {code}: {e}")
+                logger.warning(f"AKShare K 线获取失败{code}: {e}")
                 continue
 
             if df is None or df.empty:
                 continue
 
             for _, row in df.iterrows():
+                row_trade_date = str(self._row_get_any(row, "日期", "trade_date") or "").replace("-", "")[:8]
+                if period == "daily" and row_trade_date and not (start_date <= row_trade_date <= end_date):
+                    continue
+                close = self._row_get_any(row, "收盘", "close")
                 rows.append(
                     {
                         "code": str(code).zfill(6),
                         "period": period,
-                        "trade_date": str(row.get("日期", "")).replace("-", ""),
-                        "open": row.get("开盘"),
-                        "high": row.get("最高"),
-                        "low": row.get("最低"),
-                        "close": row.get("收盘"),
-                        "adj_close": row.get("收盘"),
-                        "volume": row.get("成交量"),
-                        "amount": row.get("成交额"),
+                        "trade_date": row_trade_date,
+                        "open": self._row_get_any(row, "开盘", "open"),
+                        "high": self._row_get_any(row, "最高", "high"),
+                        "low": self._row_get_any(row, "最低", "low"),
+                        "close": close,
+                        "adj_close": close,
+                        "volume": self._row_get_any(row, "成交量", "volume"),
+                        "amount": self._row_get_any(row, "成交额", "amount"),
                         "source": "akshare",
                         "fetched_at": fetched_at,
                     }
@@ -1029,7 +1773,9 @@ class DataPipeline:
         return pd.DataFrame(rows)
 
     def _clean_market_bars(self, df: pd.DataFrame, period: str) -> pd.DataFrame:
-        """标准化 market_bars 字段与类型。"""
+        """
+        清洗 K 线数据，包括 OHLC 一致性校验、数值修正和重复剔除。
+        """
         clean_df = df.copy()
         clean_df["code"] = clean_df["code"].astype(str).str.zfill(6)
         clean_df["period"] = period
@@ -1038,18 +1784,24 @@ class DataPipeline:
         numeric_cols = ["open", "high", "low", "close", "adj_close", "volume", "amount"]
         for col in numeric_cols:
             clean_df[col] = pd.to_numeric(clean_df.get(col), errors="coerce")
+        clean_df["adj_close"] = clean_df["adj_close"].where(clean_df["adj_close"].notna(), clean_df["close"])
 
         clean_df = clean_df.dropna(subset=["code", "trade_date", "close"])
         before_ohlc_check = len(clean_df)
         ohlc_cols = ["open", "high", "low", "close"]
         clean_df = clean_df.dropna(subset=ohlc_cols)
         valid_ohlc = (
-            (clean_df["high"] >= clean_df["low"])
+            (clean_df[ohlc_cols] > 0).all(axis=1)
+            & (clean_df["high"] >= clean_df["low"])
             & (clean_df["open"] <= clean_df["high"])
             & (clean_df["open"] >= clean_df["low"])
             & (clean_df["close"] <= clean_df["high"])
             & (clean_df["close"] >= clean_df["low"])
         )
+        if "volume" in clean_df.columns:
+            valid_ohlc = valid_ohlc & (clean_df["volume"].isna() | (clean_df["volume"] >= 0))
+        if "amount" in clean_df.columns:
+            valid_ohlc = valid_ohlc & (clean_df["amount"].isna() | (clean_df["amount"] >= 0))
         invalid_count = before_ohlc_check - int(valid_ohlc.sum())
         if invalid_count:
             logger.warning(
@@ -1070,7 +1822,9 @@ class DataPipeline:
         ]
 
     def _build_daily_quotes_from_yahoo(self):
-        """用 Yahoo Finance 最新两根日线生成 daily_quotes 降级快照。"""
+        """
+        从 Yahoo Finance 历史数据中提取最近两个交易日，构造每日行情快照。
+        """
         codes = self._load_stock_codes_from_lake()
         bars = self._fetch_yahoo_bars(codes, "daily") if codes else None
         if bars is None or bars.empty:
@@ -1105,12 +1859,14 @@ class DataPipeline:
         return self._clean_daily_quotes(pd.DataFrame(rows)) if rows else None
 
     def sync_stock_basic(self):
-        """同步股票基础列表和行业信息"""
+        """
+        同步全市场股票的基础列表（代码、名称、行业等）。
+        """
         if self._stock_basic_is_fresh():
-            logger.info("stock_basic 今日已更新，跳过重复拉取")
+            logger.info("log message")
             return True
 
-        logger.info("开始同步股票基础列表...")
+        logger.info("同步股票基本信息...")
         
         # 获取基本代码名字
         code_df = self._safe_fetch(ak.stock_info_a_code_name)
@@ -1151,6 +1907,9 @@ class DataPipeline:
             return False
 
     def _stock_basic_is_fresh(self) -> bool:
+        """
+        检查本地股票基础信息表是否已是最新（今日已更新）。
+        """
         df = self.db.query_to_dataframe("SELECT MAX(update_date) AS latest_update_date FROM stock_basic")
         if df is None or df.empty:
             return False
@@ -1158,6 +1917,9 @@ class DataPipeline:
         return str(latest) == datetime.now().strftime("%Y-%m-%d")
 
     def _daily_quotes_is_fresh(self) -> bool:
+        """
+        检查本地行情快照是否已是最新且数据覆盖率达标。
+        """
         df = self.db.query_to_dataframe("SELECT MAX(trade_date) AS latest_trade_date FROM daily_quotes")
         if df is None or df.empty:
             return False
@@ -1178,27 +1940,40 @@ class DataPipeline:
         if coverage_df is None or coverage_df.empty:
             return False
         if not self._valuation_fields_are_usable(coverage_df):
-            logger.info("daily_quotes 日期已最新，但估值字段覆盖不足，需要重新同步补齐")
+            logger.info("log message")
             return False
         return True
 
     def run_all(self):
-        """执行所有同步任务"""
-        logger.info("=== 离线数据管道作业开始 ===")
+        """
+        执行完整的流水线流程：清理、同步基础表、行情快照、指数及 K 线。
+        """
+        logger.info("=== 离线数据管道启动===")
         cleanup_ok = self.cleanup_old_data() if self.enable_cleanup else True
         success_basic = self.sync_stock_basic()
         success_quotes = self.sync_daily_quotes()
         success_index_bars = self.sync_index_bars()
-        success_bars = self.sync_market_bars(periods=("daily", "weekly", "monthly")) if success_basic else False
+        if success_basic and self.backfill_history_on_sync and self._market_bars_needs_history_init():
+            logger.info(
+                "market_bars history is incomplete; initializing 10-year daily history "
+                "from Tushare and deriving weekly/monthly bars"
+            )
+            success_bars = self.sync_market_bars_history(derive_periods=("weekly", "monthly"))
+        else:
+            sync_periods = ("daily", "weekly", "monthly") if self.derive_period_bars_on_sync else ("daily",)
+            if not self.derive_period_bars_on_sync:
+                logger.info("Skip weekly/monthly derivation on daily sync")
+            success_bars = self.sync_market_bars(periods=sync_periods) if success_basic else False
         
         if cleanup_ok and success_basic and success_quotes and success_index_bars and success_bars:
-            logger.info("=== 离线数据管道作业成功完成 ===")
+            logger.info("=== 离线数据管道运行完成===")
             return True
         else:
-            logger.warning("=== 离线数据管道作业完成，但存在部分失败 ===")
+            logger.warning("=== 离线数据管道运行完成，但存在部分失败===")
             return False
 
 
 if __name__ == "__main__":
     pipeline = DataPipeline()
     pipeline.run_all()
+

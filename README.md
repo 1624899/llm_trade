@@ -16,7 +16,9 @@
 
 - 数据库：`data/stock_lake.db`
 - 行情快照表：`daily_quotes`
-- 多周期 K 线表：`market_bars`
+- 日线 K 线表：`market_bars`
+- 周线 K 线表：`market_bars_weekly`
+- 月线 K 线表：`market_bars_monthly`
 - 财务指标表：`financial_metrics`
 - 观察仓候选池表：`watchlist_items`
 - 模拟交易账户表：`trading_account`
@@ -24,7 +26,10 @@
 - 模拟交易流水表：`trade_orders`
 - 旧版观察仓兼容表：`paper_trades`
 
-行情优先使用腾讯/新浪等免费接口，K 线和财务数据通过 AKShare 等源补充。
+行情快照优先使用腾讯/新浪等免费接口。日线 K 线主源为 Tushare，日常 `--sync`
+只做增量维护；历史缺口补全、周线/月线聚合分别由独立命令执行，避免盘后同步被
+大批量历史回填或全市场聚合卡住。AKShare、efinance 补全/校验默认关闭，可在
+`config/config.yaml` 中按需打开。
 
 ### 2. 多策略选股雷达
 
@@ -178,11 +183,40 @@ web_search:
 
 ### 3. 同步数据
 
-盘后同步基础数据、行情快照和 K 线：
+盘后日常增量同步基础数据、行情快照、指数 K 线和最新日线：
 
 ```bash
 python main.py --sync
 ```
+
+`--sync` 只做日常增量维护，不会自动补 10 年历史，也不会自动派生周线/月线。
+
+首次建库或历史 K 线被清空后，先单独补全近 10 年日线缺口：
+
+```bash
+python main.py --backfill-bars
+```
+
+日线补齐后，再基于本地日线库派生周线/月线：
+
+```bash
+python main.py --derive-bars
+```
+
+推荐顺序：
+
+```text
+python main.py --backfill-bars
+python main.py --derive-bars
+python main.py --sync
+```
+
+当前默认数据源策略：
+
+- 日线主源：Tushare。
+- AKShare 日线补全：默认关闭，配置项 `enable_akshare_daily_fallback: false`。
+- efinance 抽样校验/补全：默认关闭，配置项 `enable_efinance_validation: false`、`enable_efinance_fallback: false`。
+- 周线/月线：不从外部数据源拉取，统一由本地日线聚合生成，并分别写入 `market_bars_weekly`、`market_bars_monthly`。
 
 财务数据同步目前没有默认放进 `run_all()`，避免全市场请求过重。可以在 Python 中按候选股或指定列表同步：
 

@@ -21,6 +21,8 @@ def main():
     
     parser = argparse.ArgumentParser(description="全自动 AI 量化智能体选股与自省系统 (LLM-TRADE)")
     parser.add_argument("--sync", action="store_true", help="【盘后首要】执行全市场 A 股盘后数据同步至本地数据湖 (建议 15:30 后执行)")
+    parser.add_argument("--backfill-bars", action="store_true", help="【历史补洞】只补全本地缺失的 10 年日线 K 线，不派生周/月线")
+    parser.add_argument("--derive-bars", action="store_true", help="【K线聚合】基于本地日线派生周线/月线")
     parser.add_argument("--pick", action="store_true", help="【自动选股】执行技术面预筛选 + 多 Agent 深度分析选股流程")
     parser.add_argument("--trade", action="store_true", help="【模拟交易】根据观察仓推荐和交易仓状态运行 TradingAgent 调仓")
     parser.add_argument("--post", action="store_true", help="【盘后清算】运行盘后例行维护：虚拟观察仓结算 + 失败错题反思并沉淀风控规则")
@@ -28,7 +30,7 @@ def main():
     parser.add_argument("--analyze", nargs="+", help="【指定分析】对指定 A 股代码做单独深度分析，例如：python main.py --analyze 600519 000001")
     args = parser.parse_args()
     
-    if not any([args.sync, args.pick, args.trade, args.analyze, args.post]):
+    if not any([args.sync, args.backfill_bars, args.derive_bars, args.pick, args.trade, args.analyze, args.post]):
         parser.print_help()
         logger.info("\n没有输入任何指令。例如执行每日选股： python main.py --pick")
         return
@@ -40,6 +42,24 @@ def main():
         logger.info(">>> 收到指令：全量同步云端市场数据至本地 SQLite ...")
         pipeline = DataPipeline()
         pipeline.run_all()
+
+    if args.backfill_bars:
+        logger.info(">>> 收到指令：补全本地缺失的历史日线 K 线 ...")
+        pipeline = DataPipeline()
+        ok = pipeline.sync_market_bars_history(derive_periods=())
+        if ok:
+            logger.info("历史日线 K 线补洞完成")
+        else:
+            logger.warning("历史日线 K 线补洞完成，但存在部分缺失日期")
+
+    if args.derive_bars:
+        logger.info(">>> 收到指令：基于本地日线派生周线/月线 ...")
+        pipeline = DataPipeline()
+        ok = pipeline.derive_period_bars(periods=("weekly", "monthly"))
+        if ok:
+            logger.info("周线/月线派生完成")
+        else:
+            logger.warning("周线/月线派生完成，但存在部分失败")
         
     # 2. 端到端多 Agent 选股执行
     if args.pick:

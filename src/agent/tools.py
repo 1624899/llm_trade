@@ -899,26 +899,43 @@ class AgentTools:
         """从本地 market_bars 表读取 K 线摘要。"""
         try:
             db = StockDatabase()
-            query = """
-                WITH recent_bars AS (
+            normalized_symbol = str(symbol).zfill(6)
+            if period == "daily":
+                query = """
+                    WITH recent_bars AS (
+                        SELECT trade_date, close, volume, amount
+                        FROM market_bars
+                        WHERE code = ? AND period = 'daily'
+                        ORDER BY trade_date DESC
+                        LIMIT ?
+                    )
+                    SELECT
+                        b.trade_date,
+                        COALESCE(q.price, b.close) AS close,
+                        b.volume,
+                        b.amount
+                    FROM recent_bars b
+                    LEFT JOIN daily_quotes q
+                      ON q.code = ? AND q.trade_date = b.trade_date AND q.price > 0
+                    ORDER BY b.trade_date DESC
+                """
+                df = db.query_to_dataframe(query, (normalized_symbol, limit, normalized_symbol))
+            else:
+                table_map = {
+                    "weekly": "market_bars_weekly",
+                    "monthly": "market_bars_monthly",
+                }
+                table_name = table_map.get(period)
+                if table_name is None:
+                    return ""
+                query = f"""
                     SELECT trade_date, close, volume, amount
-                    FROM market_bars
-                    WHERE code = ? AND period = ?
+                    FROM {table_name}
+                    WHERE code = ?
                     ORDER BY trade_date DESC
                     LIMIT ?
-                )
-                SELECT
-                    b.trade_date,
-                    COALESCE(q.price, b.close) AS close,
-                    b.volume,
-                    b.amount
-                FROM recent_bars b
-                LEFT JOIN daily_quotes q
-                  ON q.code = ? AND q.trade_date = b.trade_date AND q.price > 0
-                ORDER BY b.trade_date DESC
-            """
-            normalized_symbol = str(symbol).zfill(6)
-            df = db.query_to_dataframe(query, (normalized_symbol, period, limit, normalized_symbol))
+                """
+                df = db.query_to_dataframe(query, (normalized_symbol, limit))
             if df is None or df.empty:
                 return ""
 
