@@ -47,8 +47,11 @@ profiles:
     bt_trend_ret5_max: 10.0
     bt_max_momentum_bias20: 1.18
     bt_momentum_ret20_min: 26.0
+    bt_momentum_ret10_min: 10.0
     bt_momentum_ret5_min: 5.0
     bt_momentum_ret5_max: 10.0
+    bt_momentum_min_intraday_position: 0.55
+    bt_momentum_max_volume_ratio: 2.6
     bt_first_limit_max_bias20: 1.16
     bt_first_limit_ret20_max: 24.0
     bt_support_max_volume_ratio: 0.72
@@ -80,10 +83,13 @@ profiles:
     # 回测校准参数：balanced 是默认实盘档，优先使用这一组继续滚动验证。
     bt_max_trend_bias20: 1.18
     bt_trend_ret5_max: 12.0
-    bt_max_momentum_bias20: 1.22
-    bt_momentum_ret20_min: 24.0
+    bt_max_momentum_bias20: 1.18
+    bt_momentum_ret20_min: 28.0
+    bt_momentum_ret10_min: 10.0
     bt_momentum_ret5_min: 4.0
-    bt_momentum_ret5_max: 12.0
+    bt_momentum_ret5_max: 9.0
+    bt_momentum_min_intraday_position: 0.55
+    bt_momentum_max_volume_ratio: 2.6
     bt_first_limit_max_bias20: 1.18
     bt_first_limit_ret20_max: 28.0
     bt_support_max_volume_ratio: 0.78
@@ -117,8 +123,11 @@ profiles:
     bt_trend_ret5_max: 16.0
     bt_max_momentum_bias20: 1.26
     bt_momentum_ret20_min: 22.0
+    bt_momentum_ret10_min: 8.0
     bt_momentum_ret5_min: 4.0
     bt_momentum_ret5_max: 15.0
+    bt_momentum_min_intraday_position: 0.50
+    bt_momentum_max_volume_ratio: 3.2
     bt_first_limit_max_bias20: 1.22
     bt_first_limit_ret20_max: 38.0
     bt_support_max_volume_ratio: 0.82

@@ -42,8 +42,11 @@ DEFAULT_SCREENING_PROFILES: Dict[str, Dict[str, Any]] = {
         "bt_trend_ret5_max": 10.0,
         "bt_max_momentum_bias20": 1.18,
         "bt_momentum_ret20_min": 26.0,
+        "bt_momentum_ret10_min": 10.0,
         "bt_momentum_ret5_min": 5.0,
         "bt_momentum_ret5_max": 10.0,
+        "bt_momentum_min_intraday_position": 0.55,
+        "bt_momentum_max_volume_ratio": 2.6,
         "bt_first_limit_max_bias20": 1.16,
         "bt_first_limit_ret20_max": 24.0,
         "bt_support_max_volume_ratio": 0.72,
@@ -76,8 +79,11 @@ DEFAULT_SCREENING_PROFILES: Dict[str, Dict[str, Any]] = {
         "bt_trend_ret5_max": 12.0,
         "bt_max_momentum_bias20": 1.22,
         "bt_momentum_ret20_min": 24.0,
+        "bt_momentum_ret10_min": 10.0,
         "bt_momentum_ret5_min": 4.0,
         "bt_momentum_ret5_max": 12.0,
+        "bt_momentum_min_intraday_position": 0.52,
+        "bt_momentum_max_volume_ratio": 2.8,
         "bt_first_limit_max_bias20": 1.18,
         "bt_first_limit_ret20_max": 28.0,
         "bt_support_max_volume_ratio": 0.78,
@@ -110,8 +116,11 @@ DEFAULT_SCREENING_PROFILES: Dict[str, Dict[str, Any]] = {
         "bt_trend_ret5_max": 16.0,
         "bt_max_momentum_bias20": 1.26,
         "bt_momentum_ret20_min": 22.0,
+        "bt_momentum_ret10_min": 8.0,
         "bt_momentum_ret5_min": 4.0,
         "bt_momentum_ret5_max": 15.0,
+        "bt_momentum_min_intraday_position": 0.50,
+        "bt_momentum_max_volume_ratio": 3.2,
         "bt_first_limit_max_bias20": 1.22,
         "bt_first_limit_ret20_max": 38.0,
         "bt_support_max_volume_ratio": 0.82,
@@ -738,11 +747,14 @@ class StockScreener:
             and abs(close / ma5 - 1) <= 0.06
             and bias20 <= tuned_momentum_bias20
             and ret20 >= float(profile.get("bt_momentum_ret20_min", 24.0))
+            and ret10 >= float(profile.get("bt_momentum_ret10_min", 10.0))
             and ret5 >= float(profile.get("bt_momentum_ret5_min", 4.0))
             and ret5 <= float(profile.get("bt_momentum_ret5_max", 12.0))
             and change_pct < float(profile["limit_up_change_pct"])
             and volume_ratio >= 1.1
+            and volume_ratio <= float(profile.get("bt_momentum_max_volume_ratio", 2.8))
             and volume5_ratio >= 1.05
+            and intraday_position >= float(profile.get("bt_momentum_min_intraday_position", 0.52))
             and (turnover >= 5.0 or volume_ratio >= 1.6)
             and not high_volume_stall
         ):
@@ -990,10 +1002,10 @@ class StockScreener:
             score += 8 if ma20 >= ma60 else 0
             score += max(-10, min(8, high60_distance + 8))
         elif primary == "momentum_leader":
-            score += min(28, max(0, ret20)) * 0.85
-            score += min(10, max(0, ret5)) * 0.75
-            score += 10 if close > ma5 > ma10 > ma20 > ma60 else 0
-            score += max(0, 6 - abs(close / ma5 - 1) * 100)
+            score += min(24, max(0, ret20)) * 0.65
+            score += min(8, max(0, ret5)) * 0.45
+            score += 6 if close > ma5 > ma10 > ma20 > ma60 else 0
+            score += max(0, 4 - abs(close / ma5 - 1) * 100)
         elif primary == "value_bottom":
             score += max(0, 12 - low60_distance) * 1.4
             score += 8 if close < ma20 else 4
@@ -1043,6 +1055,10 @@ class StockScreener:
 
         if primary in {"momentum_leader", "first_limit_up_breakout"}:
             risk_penalty += 4.0
+            if primary == "momentum_leader":
+                risk_penalty += 4.0
+                if intraday_position < 0.65:
+                    risk_penalty += 3.0
             if ret5 > 12:
                 risk_penalty += min(10.0, (ret5 - 12) * 0.9)
             if ret20 > 35:

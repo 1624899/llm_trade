@@ -101,6 +101,35 @@ class BacktestEngineTests(unittest.TestCase):
 
         self.assertEqual(result["selected_codes"], ["000002"])
 
+    def test_strategy_stats_use_strategy_specific_preferred_horizon(self):
+        candidates = [
+            {
+                "code": "000001",
+                "name": "dragon sample",
+                "strategy_tags": ["dragon_pullback"],
+                "strategy_confidence": 0.9,
+                "technical_score": 80,
+            },
+            {
+                "code": "000002",
+                "name": "support sample",
+                "strategy_tags": ["support_pullback"],
+                "strategy_confidence": 0.8,
+                "technical_score": 75,
+            },
+        ]
+        dates = ["20260420", "20260421", "20260422", "20260423", "20260424", "20260427"]
+        self._seed_bars("000001", dates, [10, 10.1, 10.2, 9.0, 10.5, 12.0])
+        self._seed_bars("000002", dates, [20, 20.2, 20.5, 22.0, 21.0, 18.0])
+
+        self.engine.record_signal_snapshot(candidates, signal_date="20260420")
+        report = self.engine.evaluate_signal_snapshots(holding_days=(3, 5))
+
+        self.assertEqual(report["strategy_stats"]["dragon_pullback"]["preferred_horizon"], 5)
+        self.assertGreater(report["strategy_stats"]["dragon_pullback"]["effect_score"], 0)
+        self.assertEqual(report["strategy_stats"]["support_pullback"]["preferred_horizon"], 3)
+        self.assertGreater(report["strategy_stats"]["support_pullback"]["effect_score"], 0)
+
     @patch("src.stock_screener.StockScreener")
     def test_walk_forward_backtest_masks_future_data_by_as_of_date(self, mock_screener_class):
         self._seed_bars(

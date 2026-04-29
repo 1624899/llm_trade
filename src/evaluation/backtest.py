@@ -15,6 +15,13 @@ from src.database import StockDatabase
 
 
 DEFAULT_HOLDING_DAYS = (3, 5, 10, 20)
+DEFAULT_STRATEGY_HORIZONS = {
+    "dragon_pullback": 5,
+    "first_limit_up_breakout": 5,
+    "support_pullback": 3,
+    "trend_breakout": 10,
+    "momentum_leader": 5,
+}
 
 
 class BacktestEngine:
@@ -288,8 +295,6 @@ class BacktestEngine:
             grouped[str(item.get("primary_strategy") or "unknown")].append(item)
 
         stats: Dict[str, Dict[str, Any]] = {}
-        preferred_day = 10 if 10 in holding_days else max(holding_days)
-        preferred_key = f"return_{preferred_day}d"
         for strategy, rows in grouped.items():
             strategy_stat: Dict[str, Any] = {"sample_count": len(rows)}
             for day in holding_days:
@@ -304,6 +309,8 @@ class BacktestEngine:
                     "max_drawdown_proxy": round(min(values), 4),
                     "best_return_pct": round(max(values), 4),
                 }
+            preferred_day = self._preferred_horizon_for_strategy(strategy, holding_days, strategy_stat)
+            preferred_key = f"return_{preferred_day}d"
             preferred = strategy_stat.get(preferred_key) or next(
                 (strategy_stat.get(f"return_{day}d") for day in reversed(holding_days) if strategy_stat.get(f"return_{day}d")),
                 {},
@@ -312,6 +319,24 @@ class BacktestEngine:
             strategy_stat["effect_score"] = self._effect_score(preferred)
             stats[strategy] = strategy_stat
         return stats
+
+    def _preferred_horizon_for_strategy(
+        self,
+        strategy: str,
+        holding_days: Sequence[int],
+        strategy_stat: Dict[str, Any],
+    ) -> int:
+        """根据策略类型选择主评价周期，避免所有信号都被 10 日收益牵着走。"""
+        available_days = [int(day) for day in holding_days if strategy_stat.get(f"return_{int(day)}d")]
+        if not available_days:
+            return 10 if 10 in holding_days else max(holding_days)
+
+        preferred = DEFAULT_STRATEGY_HORIZONS.get(strategy)
+        if preferred in available_days:
+            return preferred
+        if preferred is not None:
+            return min(available_days, key=lambda day: abs(day - preferred))
+        return 10 if 10 in available_days else max(available_days)
 
     def _build_strategy_adjustments(
         self,
