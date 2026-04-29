@@ -490,8 +490,8 @@ class AgentCoordinator:
 
     def _infer_targeted_view(self, report: Dict[str, Any]) -> str:
         """按基本面、技术面和资讯风控给出中期视角的单股总评。"""
-        fund_text = str(report.get("fundamental_analysis", ""))
-        tech_text = str(report.get("technical_analysis", ""))
+        fund_text = self._extract_targeted_signal_text(str(report.get("fundamental_analysis", "")))
+        tech_text = self._extract_targeted_signal_text(str(report.get("technical_analysis", "")))
         risk = report.get("news_risk_analysis") if isinstance(report.get("news_risk_analysis"), dict) else {}
         if risk.get("hard_exclude"):
             return "回避"
@@ -508,6 +508,37 @@ class AgentCoordinator:
         if risk.get("risk_level") == "low":
             return "中期观察"
         return "谨慎观望"
+
+    @staticmethod
+    def _extract_targeted_signal_text(text: str) -> str:
+        """只保留当前判断段，避免把条件性止损/减仓条款误判成当下结论。"""
+        if not text:
+            return ""
+        risk_headings = ("止损/失效", "减仓/清仓条件", "量能与风险", "质量风险", "风险评估")
+        signal_headings = (
+            "基本面结论",
+            "最终评级",
+            "技术结论",
+            "买点/触发",
+            "操作建议",
+            "宏观适配",
+            "财务趋势",
+            "盈利预期",
+        )
+        kept: List[str] = []
+        skipping_risk_block = False
+        for raw_line in text.splitlines():
+            line = re.sub(r"[*#`>\s]+", "", raw_line or "")
+            if not line:
+                continue
+            if any(heading in line for heading in risk_headings):
+                skipping_risk_block = True
+                continue
+            if any(heading in line for heading in signal_headings):
+                skipping_risk_block = False
+            if not skipping_risk_block:
+                kept.append(raw_line)
+        return "\n".join(kept)
 
     @staticmethod
     def _targeted_midterm_action(view: str) -> str:

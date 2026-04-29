@@ -330,6 +330,29 @@ class FreeMarketDataTests(unittest.TestCase):
         self.assertEqual(snapshot["market"]["up_count"], 2)
         self.assertEqual(snapshot["hot_concepts"][0]["name"], "Demo Board")
 
+    @patch("src.market_sentiment.fetch_sina_board_list")
+    def test_market_sentiment_prefers_newer_market_bars(self, mock_boards):
+        mock_boards.return_value = pd.DataFrame()
+        db = MagicMock()
+        db.query_to_dataframe.side_effect = [
+            pd.DataFrame([{"latest": "20260424"}]),
+            pd.DataFrame([{"latest": "20260429"}]),
+            pd.DataFrame(
+                [
+                    {"code": "000001", "trade_date": "20260429", "change_pct": 1.0},
+                    {"code": "000002", "trade_date": "20260429", "change_pct": 2.0},
+                    {"code": "000003", "trade_date": "20260429", "change_pct": -0.5},
+                ]
+            ),
+        ]
+        sentiment = MarketSentiment(db=db)
+
+        snapshot = sentiment.build_snapshot(top_n=1)
+
+        self.assertEqual(snapshot["market"]["up_count"], 2)
+        self.assertEqual(snapshot["market"]["down_count"], 1)
+        self.assertIn("market_bars", db.query_to_dataframe.call_args_list[2].args[0])
+
 
 class ThemeScorerTests(unittest.TestCase):
     @patch("src.theme_scorer.fetch_sina_board_constituents")
@@ -725,6 +748,30 @@ class CoordinatorConcurrencyTests(unittest.TestCase):
         self.assertIn("2026-04-26 sample direct headline", text)
         self.assertNotIn("raw_news", text)
         self.assertNotIn("raw noisy item", text)
+
+    def test_targeted_summary_ignores_conditional_exit_sections(self):
+        coordinator = AgentCoordinator.__new__(AgentCoordinator)
+        report = {
+            "asset_info": {"code": "000807", "name": "云铝股份"},
+            "fundamental_analysis": (
+                "### 基本面结论\n"
+                "云铝股份基本面强劲，利润高增长，现金流良好。\n"
+                "### 质量风险\n"
+                "无基本面恶化信号。"
+            ),
+            "technical_analysis": (
+                "**技术结论：** 当前为缩量回踩形态，中期趋势未破。\n"
+                "**操作建议：** 回踩支撑区可低吸，不建议追高。\n"
+                "**止损/失效：** 跌破支撑则说明趋势失效。\n"
+                "**减仓/清仓条件：** 跌破止损位，清仓。"
+            ),
+            "news_risk_analysis": {"risk_level": "low", "action": "pass", "hard_exclude": False},
+        }
+
+        self.assertEqual(coordinator._infer_targeted_view(report), "中期积极")
+        text = "\n".join(coordinator._format_targeted_summary([report]))
+        self.assertIn("可配置", text)
+        self.assertNotIn("减仓或清仓，等待基本面/技术面修复", text)
 
 
 class QuickFilterAgentTests(unittest.TestCase):

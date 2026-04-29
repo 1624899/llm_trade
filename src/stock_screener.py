@@ -329,8 +329,7 @@ class StockScreener:
             low60_distance = (close / low60 - 1) * 100 if low60 else 0
 
             # 5. 流动性检查（平均成交额）
-            amount_series = bars["bar_amount"].fillna(bars["quote_amount"])
-            amount_series = amount_series.fillna(bars["close"] * bars["volume"])
+            amount_series = self._normalize_amount_series_to_yuan(bars)
             avg_amount20 = amount_series.tail(20).mean()
             if pd.isna(avg_amount20) or avg_amount20 < float(profile["min_avg_amount20"]):
                 reject(
@@ -772,6 +771,26 @@ class StockScreener:
                     match["confidence"] = min(0.96, match["confidence"] + 0.04)
 
         return sorted(matches, key=lambda item: item["confidence"], reverse=True)
+
+    @staticmethod
+    def _normalize_amount_series_to_yuan(bars: pd.DataFrame) -> pd.Series:
+        """把不同数据源的成交额统一到元口径。"""
+        bar_amount = pd.to_numeric(bars.get("bar_amount"), errors="coerce")
+        quote_amount = pd.to_numeric(bars.get("quote_amount"), errors="coerce")
+        amount = bar_amount.fillna(quote_amount)
+
+        closes = pd.to_numeric(bars.get("close"), errors="coerce")
+        volumes = pd.to_numeric(bars.get("volume"), errors="coerce")
+        hand_based_amount = closes * volumes * 100
+
+        # Tushare 日线 amount 常见单位是千元，volume 是手；本地阈值统一按元比较。
+        valid = amount.notna() & (amount > 0) & hand_based_amount.notna() & (hand_based_amount > 0)
+        if valid.any():
+            median_ratio = (hand_based_amount[valid] / amount[valid]).replace([np.inf, -np.inf], np.nan).dropna().median()
+            if pd.notna(median_ratio) and 100 <= float(median_ratio) <= 2_000:
+                amount = amount * 1_000
+
+        return amount.fillna(closes * volumes)
 
     @staticmethod
     def _calculate_rsi(closes: pd.Series, period: int = 14) -> float | None:

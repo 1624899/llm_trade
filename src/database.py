@@ -263,12 +263,36 @@ class StockDatabase:
                 cursor = conn.cursor()
                 for query in queries:
                     cursor.execute(query)
+                self._ensure_schema_columns(cursor)
                 self._ensure_unique_constraints(cursor)
                 conn.commit()
             return True
         except Exception as exc:
             logger.error("Failed to initialize database schema: {}", exc)
             return False
+
+    def _ensure_schema_columns(self, cursor) -> None:
+        """为旧版 SQLite 表补齐新增字段。"""
+        expected_columns = {
+            "stock_basic": {
+                "industry": "TEXT",
+                "update_date": "TEXT",
+            },
+        }
+
+        for table_name, columns in expected_columns.items():
+            existing_columns = self._get_existing_columns(cursor, table_name)
+            if not existing_columns:
+                continue
+            for column_name, column_type in columns.items():
+                if column_name not in existing_columns:
+                    cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
+                    logger.info("Added missing column {}.{} {}", table_name, column_name, column_type)
+
+    @staticmethod
+    def _get_existing_columns(cursor, table_name: str) -> set[str]:
+        rows = cursor.execute(f"PRAGMA table_info({table_name})").fetchall()
+        return {row[1] for row in rows}
 
     def _ensure_unique_constraints(self, cursor) -> None:
         unique_indexes = [

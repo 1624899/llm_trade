@@ -82,6 +82,31 @@ class StockDatabaseUpsertTests(unittest.TestCase):
         self.assertEqual(result.iloc[0]["name"], "new name")
         self.assertEqual(result.iloc[0]["industry"], "new industry")
 
+    def test_legacy_stock_basic_missing_industry_gets_migrated(self):
+        legacy_db_path = os.path.join(self.temp_dir, "legacy_missing_industry.db")
+        with sqlite3.connect(legacy_db_path) as conn:
+            conn.execute(
+                """
+                CREATE TABLE stock_basic (
+                    code TEXT PRIMARY KEY,
+                    name TEXT
+                )
+                """
+            )
+            conn.execute("INSERT INTO stock_basic (code, name) VALUES (?, ?)", ("000001", "old name"))
+            conn.commit()
+
+        db = StockDatabase(db_path=legacy_db_path)
+        updated_df = pd.DataFrame(
+            [{"code": "000001", "name": "new name", "industry": "new industry", "update_date": "2026-04-25"}]
+        )
+
+        self.assertTrue(db.upsert_dataframe("stock_basic", updated_df, key_columns=["code"]))
+        result = db.query_to_dataframe("SELECT code, name, industry, update_date FROM stock_basic")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.iloc[0]["industry"], "new industry")
+        self.assertEqual(result.iloc[0]["update_date"], "2026-04-25")
+
     def test_upsert_daily_quotes_preserves_history_by_trade_date(self):
         quotes_df = pd.DataFrame(
             [
@@ -927,6 +952,41 @@ class WatchlistTests(unittest.TestCase):
 class StockScreenerTests(unittest.TestCase):
     def setUp(self):
         self.screener = StockScreener()
+
+    def test_amount_normalization_handles_tushare_thousand_yuan(self):
+        bars = pd.DataFrame(
+            [
+                {
+                    "close": 11.52,
+                    "volume": 1_378_423.44,
+                    "bar_amount": 1_583_294.869,
+                    "quote_amount": None,
+                },
+                {
+                    "close": 11.46,
+                    "volume": 1_674_258.83,
+                    "bar_amount": 1_908_333.959,
+                    "quote_amount": None,
+                },
+            ]
+        )
+
+        normalized = StockScreener._normalize_amount_series_to_yuan(bars)
+
+        self.assertGreater(normalized.mean(), 1_000_000_000)
+        self.assertAlmostEqual(normalized.iloc[0], 1_583_294_869, delta=1)
+
+    def test_amount_normalization_keeps_yuan_amounts(self):
+        bars = pd.DataFrame(
+            [
+                {"close": 16.0, "volume": 1_000_000, "bar_amount": 100_000_000, "quote_amount": None},
+                {"close": 16.2, "volume": 1_001_000, "bar_amount": 101_000_000, "quote_amount": None},
+            ]
+        )
+
+        normalized = StockScreener._normalize_amount_series_to_yuan(bars)
+
+        self.assertEqual(normalized.tolist(), [100_000_000, 101_000_000])
 
     def _seed_index_bars(self, db, mode="offensive"):
         rows = []

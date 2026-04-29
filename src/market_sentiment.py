@@ -24,7 +24,7 @@ class MarketSentiment:
 
         snapshot = {
             "as_of": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "source": "local_daily_quotes+sina_free_boards",
+            "source": "local_quotes_or_bars+sina_free_boards",
             "market": self._summarize_quotes(quotes),
             "hot_industries": board_strength.get("industry", []),
             "hot_concepts": board_strength.get("concept", []),
@@ -55,10 +55,67 @@ class MarketSentiment:
 
     def _load_latest_quotes(self) -> pd.DataFrame:
         """从本地数据库加载最新的行情快照数据。"""
+        """从本地数据湖加载最新可用行情，优先使用日期更新的 K 线数据。"""
+        quote_date = self._latest_trade_date("daily_quotes")
+        bar_date = self._latest_trade_date("market_bars", period="daily")
+        if bar_date and (not quote_date or bar_date > quote_date):
+            return self._load_latest_market_bars_snapshot()
+        return self._load_latest_daily_quotes()
+
+    def _latest_trade_date(self, table_name: str, period: str | None = None) -> str:
+        where_clause = " WHERE period = 'daily'" if period else ""
+        df = self.db.query_to_dataframe(f"SELECT MAX(trade_date) AS latest FROM {table_name}{where_clause}")
+        if df is None or df.empty or "latest" not in df.columns:
+            return ""
+        value = df.iloc[0].get("latest")
+        return "" if pd.isna(value) else str(value)
+
+    def _load_latest_daily_quotes(self) -> pd.DataFrame:
+        """从 daily_quotes 加载最新行情快照。"""
         query = """
             SELECT *
             FROM daily_quotes
             WHERE trade_date = (SELECT MAX(trade_date) FROM daily_quotes)
+        """
+        return self.db.query_to_dataframe(query)
+
+    def _load_latest_market_bars_snapshot(self) -> pd.DataFrame:
+        """从 market_bars 计算最新交易日相对前一交易日的涨跌幅。"""
+        query = """
+            WITH latest_bars AS (
+                SELECT code, trade_date, close
+                FROM market_bars
+                WHERE period = 'daily'
+                  AND trade_date = (
+                      SELECT MAX(trade_date)
+                      FROM market_bars
+                      WHERE period = 'daily'
+                        AND code GLOB '[0-9][0-9][0-9][0-9][0-9][0-9]'
+                  )
+                  AND code GLOB '[0-9][0-9][0-9][0-9][0-9][0-9]'
+            ),
+            previous_bars AS (
+                SELECT p.code, p.close
+                FROM market_bars p
+                JOIN latest_bars lb ON lb.code = p.code
+                WHERE p.period = 'daily'
+                  AND p.trade_date = (
+                      SELECT MAX(p2.trade_date)
+                      FROM market_bars p2
+                      WHERE p2.period = 'daily'
+                        AND p2.code = lb.code
+                        AND p2.trade_date < lb.trade_date
+                  )
+            )
+            SELECT
+                lb.code,
+                lb.trade_date,
+                lb.close AS price,
+                (lb.close / pb.close - 1) * 100 AS change_pct
+            FROM latest_bars lb
+            JOIN previous_bars pb ON pb.code = lb.code
+            WHERE pb.close > 0
+              AND lb.close IS NOT NULL
         """
         return self.db.query_to_dataframe(query)
 
