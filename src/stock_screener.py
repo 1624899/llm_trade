@@ -38,6 +38,18 @@ DEFAULT_SCREENING_PROFILES: Dict[str, Dict[str, Any]] = {
         "max_ma5_ma20_ratio": 1.10,
         "max_momentum_bias20": 1.24,
         "max_trend_bias20": 1.18,
+        "bt_max_trend_bias20": 1.16,
+        "bt_trend_ret5_max": 10.0,
+        "bt_max_momentum_bias20": 1.18,
+        "bt_momentum_ret20_min": 26.0,
+        "bt_momentum_ret5_min": 5.0,
+        "bt_momentum_ret5_max": 10.0,
+        "bt_first_limit_max_bias20": 1.16,
+        "bt_first_limit_ret20_max": 24.0,
+        "bt_support_max_volume_ratio": 0.72,
+        "bt_support_min_intraday_position": 0.55,
+        "bt_support_ret1_max": 2.5,
+        "bt_dragon_min_intraday_position": 0.40,
         "min_new_stock_history_days": 30,
         "allow_new_stock_channel": False,
         "turnover_rate_min": 0.8,
@@ -60,6 +72,18 @@ DEFAULT_SCREENING_PROFILES: Dict[str, Dict[str, Any]] = {
         "max_ma5_ma20_ratio": 1.15,
         "max_momentum_bias20": 1.30,
         "max_trend_bias20": 1.22,
+        "bt_max_trend_bias20": 1.18,
+        "bt_trend_ret5_max": 12.0,
+        "bt_max_momentum_bias20": 1.22,
+        "bt_momentum_ret20_min": 24.0,
+        "bt_momentum_ret5_min": 4.0,
+        "bt_momentum_ret5_max": 12.0,
+        "bt_first_limit_max_bias20": 1.18,
+        "bt_first_limit_ret20_max": 28.0,
+        "bt_support_max_volume_ratio": 0.78,
+        "bt_support_min_intraday_position": 0.52,
+        "bt_support_ret1_max": 3.0,
+        "bt_dragon_min_intraday_position": 0.38,
         "min_new_stock_history_days": 30,
         "allow_new_stock_channel": False,
         "turnover_rate_min": 0.5,
@@ -82,6 +106,18 @@ DEFAULT_SCREENING_PROFILES: Dict[str, Dict[str, Any]] = {
         "max_ma5_ma20_ratio": 1.25,
         "max_momentum_bias20": 1.38,
         "max_trend_bias20": 1.28,
+        "bt_max_trend_bias20": 1.24,
+        "bt_trend_ret5_max": 16.0,
+        "bt_max_momentum_bias20": 1.26,
+        "bt_momentum_ret20_min": 22.0,
+        "bt_momentum_ret5_min": 4.0,
+        "bt_momentum_ret5_max": 15.0,
+        "bt_first_limit_max_bias20": 1.22,
+        "bt_first_limit_ret20_max": 38.0,
+        "bt_support_max_volume_ratio": 0.82,
+        "bt_support_min_intraday_position": 0.50,
+        "bt_support_ret1_max": 4.0,
+        "bt_dragon_min_intraday_position": 0.35,
         "min_new_stock_history_days": 30,
         "allow_new_stock_channel": True,
         "turnover_rate_min": 0.3,
@@ -652,6 +688,19 @@ class StockScreener:
             or macd_hist_rising
             or macd_bullish_divergence
         )
+        # 根据 walk_forward_masked 回测结果，老参数只作为宽边界；二级阈值用于收紧弱势策略。
+        tuned_trend_bias20 = min(
+            float(profile.get("max_trend_bias20", 1.22)),
+            float(profile.get("bt_max_trend_bias20", profile.get("max_trend_bias20", 1.22))),
+        )
+        tuned_momentum_bias20 = min(
+            float(profile.get("max_momentum_bias20", 1.30)),
+            float(profile.get("bt_max_momentum_bias20", profile.get("max_momentum_bias20", 1.30))),
+        )
+        tuned_first_limit_bias20 = min(
+            float(profile.get("max_momentum_bias20", 1.30)),
+            float(profile.get("bt_first_limit_max_bias20", profile.get("max_momentum_bias20", 1.30))),
+        )
 
         # 1. 经典趋势突破策略 (Trend Breakout)
         # 条件：站上20日线，20日线向上，20日跌幅在可控范围内，且非缩量接近新高
@@ -660,8 +709,9 @@ class StockScreener:
             and ma20 >= ma60 * 0.98
             and float(profile["ret20_min"]) <= ret20 <= float(profile["ret20_max"])
             and ret5 >= float(profile["ret5_min"])
+            and ret5 <= float(profile.get("bt_trend_ret5_max", 12.0))
             and change_pct < float(profile["limit_up_change_pct"])
-            and bias20 <= float(profile.get("max_trend_bias20", 1.22))
+            and bias20 <= tuned_trend_bias20
             and (high60_distance < -3 or volume_ratio >= float(profile["min_volume_ratio_near_high60"]))
         ):
             confidence = 0.62
@@ -686,9 +736,10 @@ class StockScreener:
         if (
             close > ma5 > ma10 > ma20 > ma60
             and abs(close / ma5 - 1) <= 0.06
-            and bias20 <= float(profile.get("max_momentum_bias20", 1.30))
-            and ret20 >= 20
-            and ret5 >= 3
+            and bias20 <= tuned_momentum_bias20
+            and ret20 >= float(profile.get("bt_momentum_ret20_min", 24.0))
+            and ret5 >= float(profile.get("bt_momentum_ret5_min", 4.0))
+            and ret5 <= float(profile.get("bt_momentum_ret5_max", 12.0))
             and change_pct < float(profile["limit_up_change_pct"])
             and volume_ratio >= 1.1
             and volume5_ratio >= 1.05
@@ -759,7 +810,9 @@ class StockScreener:
             ma20 >= ma60 * 0.98
             and ret10 > -8
             and (abs(close / ma20 - 1) <= 0.03 or abs(close / ma60 - 1) <= 0.04)
-            and volume_ratio <= 0.85
+            and volume_ratio <= float(profile.get("bt_support_max_volume_ratio", 0.78))
+            and ret1 <= float(profile.get("bt_support_ret1_max", 3.0))
+            and intraday_position >= float(profile.get("bt_support_min_intraday_position", 0.52))
             and change_pct > float(profile["limit_down_change_pct"]) / 2
             and bullish_pullback_candle
         ):
@@ -778,6 +831,7 @@ class StockScreener:
             and ret1 <= -5
             and volume_ratio >= 0.7
             and volume5_ratio >= 0.9
+            and intraday_position >= float(profile.get("bt_dragon_min_intraday_position", 0.38))
         ):
             confidence = 0.64
             confidence += 0.08 if abs(close / ma5 - 1) <= 0.025 else 0.0
@@ -794,8 +848,8 @@ class StockScreener:
         if (
             first_limit_up_breakout
             and close >= ma20
-            and ret20 <= float(profile["ret20_max"])
-            and bias20 <= float(profile.get("max_momentum_bias20", 1.30))
+            and ret20 <= min(float(profile["ret20_max"]), float(profile.get("bt_first_limit_ret20_max", 28.0)))
+            and bias20 <= tuned_first_limit_bias20
             and volume_ratio >= 1.2
         ):
             confidence = 0.63
@@ -930,16 +984,16 @@ class StockScreener:
         score += 3 * max(0, len(strategy_matches) - 1)
 
         if primary == "trend_breakout":
-            score += max(-10, min(20, ret20)) * 1.4
-            score += max(-5, min(12, ret5)) * 1.2
+            score += max(-10, min(18, ret20)) * 1.2
+            score += max(-5, min(10, ret5)) * 1.0
             score += 10 if close >= ma5 >= ma10 >= ma20 else 0
             score += 8 if ma20 >= ma60 else 0
             score += max(-10, min(8, high60_distance + 8))
         elif primary == "momentum_leader":
-            score += min(32, max(0, ret20)) * 1.1
-            score += min(14, max(0, ret5)) * 1.0
-            score += 14 if close > ma5 > ma10 > ma20 > ma60 else 0
-            score += max(0, 8 - abs(close / ma5 - 1) * 100)
+            score += min(28, max(0, ret20)) * 0.85
+            score += min(10, max(0, ret5)) * 0.75
+            score += 10 if close > ma5 > ma10 > ma20 > ma60 else 0
+            score += max(0, 6 - abs(close / ma5 - 1) * 100)
         elif primary == "value_bottom":
             score += max(0, 12 - low60_distance) * 1.4
             score += 8 if close < ma20 else 4
@@ -950,12 +1004,12 @@ class StockScreener:
             score += 8 if pe_ttm is not None and 0 < pe_ttm <= 15 else 4
             score += 5 if pb is not None and 0 < pb <= 2 else 0
         elif primary == "dragon_pullback":
-            score += max(0, 10 - abs(close / ma5 - 1) * 100)
-            score += min(14, abs(min(ret5, 0))) * 0.7
+            score += max(0, 8 - abs(close / ma5 - 1) * 100)
+            score += min(12, abs(min(ret5, 0))) * 0.55
             score += 8 if close >= ma10 else 3
         elif primary == "first_limit_up_breakout":
-            score += min(24, max(0, ret20)) * 1.0
-            score += 10 if close >= ma5 >= ma10 >= ma20 else 4
+            score += min(20, max(0, ret20)) * 0.8
+            score += 8 if close >= ma5 >= ma10 >= ma20 else 3
             score += 6 if ma20 >= ma60 * 0.98 else 0
         else:
             score += 10 if ma20 >= ma60 else 0
@@ -988,6 +1042,7 @@ class StockScreener:
             risk_penalty += 10.0
 
         if primary in {"momentum_leader", "first_limit_up_breakout"}:
+            risk_penalty += 4.0
             if ret5 > 12:
                 risk_penalty += min(10.0, (ret5 - 12) * 0.9)
             if ret20 > 35:
@@ -996,6 +1051,12 @@ class StockScreener:
                 risk_penalty += min(8.0, (float(vol_ratio) - 2.8) * 4.0)
             if ret1 > 7:
                 risk_penalty += min(6.0, (ret1 - 7) * 1.0)
+        elif primary == "support_pullback":
+            risk_penalty += 3.0
+            if intraday_position < 0.6:
+                risk_penalty += 3.0
+        elif primary == "dragon_pullback":
+            risk_penalty += 2.0
 
         return max(0.0, score - risk_penalty)
 

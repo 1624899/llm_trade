@@ -1166,6 +1166,50 @@ class StockScreenerTests(unittest.TestCase):
 
         os.remove(db_path)
 
+    def test_technical_screening_uses_market_bars_without_daily_quotes(self):
+        temp_dir = os.path.join(PROJECT_ROOT, ".test_tmp", f"bars_only_{uuid.uuid4().hex}")
+        os.makedirs(temp_dir, exist_ok=True)
+        db = StockDatabase(db_path=os.path.join(temp_dir, "stock_lake.db"))
+        self.assertTrue(
+            db.upsert_dataframe(
+                "stock_basic",
+                pd.DataFrame([{"code": "000001", "name": "bars only", "industry": "bank", "update_date": "2026-04-25"}]),
+                key_columns=["code"],
+            )
+        )
+
+        rows = []
+        for i in range(90):
+            close = 10 + i * 0.08
+            rows.append(
+                {
+                    "code": "000001",
+                    "period": "daily",
+                    "trade_date": f"2026{(i // 28) + 1:02d}{(i % 28) + 1:02d}",
+                    "open": close - 0.1,
+                    "high": close + 0.2,
+                    "low": close - 0.2,
+                    "close": close,
+                    "adj_close": close,
+                    "volume": 1_000_000 + i * 1000,
+                    "amount": 120_000_000 + i * 1_000_000,
+                    "source": "unit_test",
+                    "fetched_at": "2026-04-25 18:00:00",
+                }
+            )
+        self.assertTrue(db.upsert_dataframe("market_bars", pd.DataFrame(rows), key_columns=["code", "period", "trade_date"]))
+
+        screener = StockScreener(db=db, profile="balanced")
+        screener.theme_scorer = MagicMock()
+        screener.theme_scorer.score_candidates.side_effect = lambda candidates: candidates
+
+        result = screener.run_technical_screening(top_n=5, as_of_date="20260327", apply_backtest_weights=False)
+
+        self.assertEqual([item["code"] for item in result], ["000001"])
+        self.assertGreater(result[0]["price"], 0)
+        self.assertGreater(result[0]["change_pct"], 0)
+        shutil.rmtree(temp_dir)
+
     def test_technical_screening_allows_missing_industry_to_fill_top_n(self):
         ranked = [
                 {
