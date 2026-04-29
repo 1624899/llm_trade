@@ -3,7 +3,7 @@
 `LLM-TRADE` 是一个面向 A 股的多 Agent 选股、模拟交易、复盘与观察仓管理系统。它的核心思路是：
 
 ```text
-数据入湖 -> 多策略规则雷达 -> 多 Agent 深度复核 -> 决策输出 -> 观察仓候选池 -> 交易仓模拟调仓 -> 亏损反思沉淀
+数据入湖 -> 遮盖式走步回测 -> 多策略规则雷达前置校准 -> 多 Agent 深度复核 -> 决策输出 -> 观察仓候选池 -> 交易仓模拟调仓 -> 亏损反思沉淀
 ```
 
 系统不会把所有判断都交给大模型。确定性的行情、财务、技术和风控规则先由代码计算，LLM 负责做最后的综合解释、取舍和报告生成。
@@ -24,6 +24,7 @@
 - 模拟交易账户表：`trading_account`
 - 模拟交易持仓表：`trading_positions`
 - 模拟交易流水表：`trade_orders`
+- 回测信号快照表：`backtest_signal_snapshots`
 - 旧版观察仓兼容表：`paper_trades`
 
 行情快照优先使用腾讯/新浪等免费接口。日线 K 线主源为 Tushare，日常 `--sync`
@@ -56,7 +57,23 @@
 
 `MarketRegimeDetector` 还会统计最高连板高度、当日涨停/跌停数量。系统不会直接追买高位连板股，但会把连板高度作为市场情绪温度计：最高连板达到 7 板以上时偏向 aggressive；最高连板只有 2 板且跌停压力明显时偏向 conservative 或空仓防守。
 
-### 3. 深度财务数据
+### 3. 回测模块
+
+回测模块是一个独立评估层，当前优先服务多策略选股雷达。它不直接替代 Agent 决策，也不让当前候选“自证”，而是用历史截面做遮盖式走步回测：先遮住某个历史交易日之后的数据，只允许选股器读取该日及以前的信息生成候选，再揭开后续行情计算胜率与收益表现。
+
+回测结果会沉淀为 `walk_forward_masked` 来源的策略级权重。真实 `--pick` 时，`StockScreener` 会在规则雷达阶段读取这些权重，直接校准 `technical_score`；`QuickFilterAgent` 只消费已经校准过的候选快照，再结合宏观环境做轻量精筛。这样避免把本轮候选拿来反向证明本轮候选，也避免把回测逻辑散落到 Agent Prompt 里。
+
+第一阶段目标：
+
+- 按 `strategy_tags`、市场状态、行业主题、技术形态和财务质量等维度拆分样本，统计不同因子组合的胜率、收益回撤比、最大回撤、持有周期收益分布和信号衰减速度。
+- 对多策略雷达输出的 `strategy_confidence`、主题加分、技术确认、风险扣分等因子做权重评估，识别哪些因子在不同 market regime 下更有效。
+- 形成可回放的候选股入选快照，避免只用当前数据库状态复盘历史信号。
+- 输出因子权重建议和策略表现摘要，优先前置应用到 `StockScreener` 的多策略雷达分数中；精筛 Agent 和决策 Agent 读取的是校准后的候选池与审计信息。
+- 沉淀低效或反向有效的信号，例如高位放量滞涨、假突破、财报错杀失效、龙回头失败形态等，反向补充到规则过滤和风险提示中。
+
+回测模块的定位是“评估与校准”，不是“事后拟合”。走步回测生成历史样本时会关闭已有回测权重，确保每个历史截面只使用当时可见的信息；每次调节权重都应保留原始样本、统计口径和生效时间，方便后续比较新旧规则的真实效果。
+
+### 4. 深度财务数据
 
 `FinancialDataProvider` 位于 `src/financial_data.py`。
 
@@ -79,7 +96,7 @@
 
 `FundamentalAgent` 会把这些结构化财务摘要放进 Prompt，避免基本面分析退化成单纯的新闻阅读理解。
 
-### 4. 量化技术信号
+### 5. 量化技术信号
 
 `TechnicalSignalProvider` 位于 `src/technical_indicators.py`。
 
@@ -106,7 +123,7 @@
 
 `TechnicalAgent` 会优先使用这些确定性指标，再结合多周期 K 线摘要和宏观环境给出买点、止损和风险判断。
 
-### 5. 退出机制闭环
+### 6. 退出机制闭环
 
 `ExitAgent` 位于 `src/agent/exit_agent.py`。
 
@@ -120,7 +137,7 @@
 
 `PaperTrading` 会保留原有收益率止盈止损规则，并在 `ExitAgent` 给出更严重信号时自动升级动作。
 
-### 6. 观察仓与交易仓
+### 7. 观察仓与交易仓
 
 `Watchlist` 位于 `src/evaluation/watchlist.py`，负责维护最多 10 只观察标的。`--pick` 只会把最终推荐和完整分析写入观察仓候选池，不再等同于模拟买入。
 
@@ -142,16 +159,17 @@
 
 `AgentCoordinator` 统一调度完整选股流程：
 
-1. `StockScreener` 进行多策略规则海选，按主策略分组配额生成约 20 只候选池，避免单一策略霸榜。
-2. `MacroAgent` 判断市场状态、风险偏好和主线方向。
-3. `QuickFilterAgent` 读取宏观上下文和候选股极简快照，轻量精筛出最多 8 只进入深度复核；候选不足时直接放行。
-4. `FundamentalAgent` 结合财务数据和公告做基本面复核。
-5. `TechnicalAgent` 结合量化技术信号和 K 线摘要做技术复核。
-6. `NewsRiskAgent` 检查公告、新闻和重大风险词。
-7. `DecisionAgent` 综合排序，输出最终推荐报告。
-8. `Watchlist` 将推荐和分析沉淀为观察仓候选池。
-9. `TradingAgent` 在 `--trade` 中基于观察仓和交易仓执行模拟调仓。
-10. `ExitAgent` 和 `ReflectionAgent` 在盘后进行持仓诊断与亏损反思。
+1. `StockScreener` 读取 `walk_forward_masked` 回测权重，进行多策略规则海选和技术分前置校准，按主策略分组配额生成约 20 只候选池，避免单一策略霸榜。
+2. `AgentCoordinator` 记录本轮海选信号快照，供未来持有周期完成后进入回测样本；本轮精筛不使用当前候选做“自证”。
+3. `MacroAgent` 判断市场状态、风险偏好和主线方向。
+4. `QuickFilterAgent` 读取宏观上下文和已校准的候选股极简快照，轻量精筛出最多 8 只进入深度复核；候选不足时直接放行。
+5. `FundamentalAgent` 结合财务数据和公告做基本面复核。
+6. `TechnicalAgent` 结合量化技术信号和 K 线摘要做技术复核。
+7. `NewsRiskAgent` 检查公告、新闻和重大风险词。
+8. `DecisionAgent` 综合排序，输出最终推荐报告。
+9. `Watchlist` 将推荐和分析沉淀为观察仓候选池。
+10. `TradingAgent` 在 `--trade` 中基于观察仓和交易仓执行模拟调仓。
+11. `ExitAgent` 和 `ReflectionAgent` 在盘后进行持仓诊断与亏损反思。
 
 ## 快速开始
 
@@ -209,6 +227,7 @@ python main.py --derive-bars
 python main.py --backfill-bars
 python main.py --derive-bars
 python main.py --sync
+python main.py --backtest
 ```
 
 当前默认数据源策略：
@@ -238,7 +257,20 @@ python main.py --pick
 
 `--pick` 会同步更新 `watchlist_items`，但不会直接买入交易仓。
 
-### 5. 执行模拟交易
+### 5. 运行遮盖式走步回测
+
+```bash
+python main.py --backtest
+```
+
+该命令会从历史交易日中选取多个截面，对每个截面只开放当日及以前的数据给 `StockScreener`，生成当时可见的候选池；随后再用被遮盖的后续 K 线计算 3/5/10/20 日等持有周期的胜率、平均收益和回撤代理指标。结果会写入：
+
+- `backtest_signal_snapshots`：历史截面的候选信号快照。
+- `outputs/latest_backtest_report.json`：策略表现、样本数量、收益统计和权重建议。
+
+真实选股时，`StockScreener` 会读取 `walk_forward_masked` 来源的策略权重并前置校准技术分；走步回测自身生成样本时会关闭该权重，避免未来样本污染历史推演。
+
+### 6. 执行模拟交易
 
 ```bash
 python main.py --trade
@@ -254,7 +286,7 @@ python main.py --trade
 - 由 `TradingAccount` 校验现金、100 股一手、最多 5 只持仓、最短持有期和卖出冷却期。
 - 写入 `trade_orders`，并输出交易仓执行报告。
 
-### 6. 指定股票单独分析
+### 7. 指定股票单独分析
 
 如果已经有几只想重点看的股票，可以跳过规则海选和观察仓更新，只复用现有 Agent 做逐只分析：
 
@@ -280,7 +312,7 @@ python main.py --analyze sh600519,sz000001
 - `outputs/latest_targeted_analysis.md`
 - `outputs/latest_targeted_analysis_audit.json`
 
-### 7. 报告内容口径
+### 8. 报告内容口径
 
 `outputs/latest_report.md` 是完整选股流程的最终决策报告，结论是候选池内的相对排序，不等同于所有入选股票都是同一强度的买入建议。报告统一使用以下分层：
 
@@ -291,7 +323,7 @@ python main.py --analyze sh600519,sz000001
 
 `outputs/latest_targeted_analysis.md` 是指定股票的绝对诊断报告，不参与候选池相对排名，也不会自动加入观察仓。因此同一只股票可能在选股报告里属于“配置/轻仓验证”，但在单独分析里显示为中性、谨慎或等待买点；这表示它是弱市下的防御型备选，而不是进攻型强推荐。
 
-### 8. 盘后观察仓与交易仓诊断
+### 9. 盘后观察仓与交易仓诊断
 
 ```bash
 python main.py --post
@@ -322,6 +354,7 @@ python main.py --post
 - `outputs/latest_report.md`：最近一次选股报告。
 - `outputs/latest_workflow_audit.json`：最近一次完整工作流审计。
 - `outputs/screener_audit.json`：规则预筛审计。
+- `outputs/latest_backtest_report.json`：回测模块生成的策略表现和权重参考。
 - `outputs/latest_agent_trace.jsonl`：Agent 调用轨迹。
 - `data/rules_book.txt`：亏损反思沉淀出的风控规则。
 - `watchlist_items`：观察仓候选池，最多 10 只。
@@ -335,6 +368,7 @@ python main.py --post
 python -m unittest test.test_financial_data
 python -m unittest test.test_technical_indicators
 python -m unittest test.test_exit_agent
+python -m unittest test.test_backtest_engine
 python -m unittest test.test_database_and_screener.TradingAccountLifecycleTests
 python -m unittest test.test_database_and_screener.WatchlistTests
 python -m unittest test.test_runtime_regressions.TradingAgentTests
@@ -354,6 +388,8 @@ python -m unittest discover -s test
 - `StockScreener` 已补充 RSI/MACD 反转共振、MA20 乖离率约束、支撑回踩 K 线承接确认，降低假突破和接飞刀风险。
 - 新增次新股 aggressive 特别通道、`dragon_pullback` 龙回头策略和 `first_limit_up_breakout` 底部首板强突策略。
 - `MarketRegimeDetector` 新增最高连板高度、涨停/跌停数量监测，把市场情绪热度纳入 profile 自动切换。
+- 新增遮盖式走步回测模块：用历史截面隐藏未来数据生成候选，再揭开后续行情统计胜率、收益和策略权重。
+- `StockScreener` 已接入 `walk_forward_masked` 回测权重，真实选股时前置校准技术分；回测生成样本时关闭该权重，避免未来信息污染。
 - 新增 `QuickFilterAgent`，形成“规则分策略海选 → AI 轻量精筛 → Agent 深度复核”的三段式漏斗。
 - 新增东方财富财务报表接入和 `financial_metrics` 表。
 - `FundamentalAgent` 已接入近几期财务趋势摘要。

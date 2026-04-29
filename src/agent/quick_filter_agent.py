@@ -14,15 +14,17 @@ from src.agent.tools import tools
 
 
 class QuickFilterAgent:
-    """结合宏观环境，从多策略候选池中快速精选少量标的。"""
+    """结合宏观环境和回测权重，从多策略候选池中快速精选少量标的。"""
 
     def filter_candidates(
         self,
         candidates: List[Dict[str, Any]],
         macro_context: Dict[str, Any] | None = None,
         target_n: int = 8,
+        backtest_context: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         target_n = max(1, int(target_n or 8))
+        backtest_context = backtest_context or {}
         if len(candidates) <= target_n:
             return {
                 "selected_candidates": candidates,
@@ -30,35 +32,49 @@ class QuickFilterAgent:
                 "mode": "pass_through",
                 "reason": "候选池数量不超过轻量精筛目标数，直接放行。",
                 "evaluations": [],
+                "backtest_context": backtest_context,
             }
 
         macro_context = macro_context or {}
         system_prompt = f"""
-你是 A 股盘后快速精筛助手。请结合宏观环境和候选股短表，从海选池选出最多 {target_n} 只进入深度复核。
-规则：必须覆盖检查全部候选；偏弱/退潮市少追高，优先防守、低吸、回踩确认；强势市可提高突破/主升浪权重；不得编造未提供信息。
+你是 A 股盘后快速精筛助手。请结合宏观环境、回测权重和候选股短表，从海选池选出最多 {target_n} 只进入深度复核。
+规则：必须覆盖检查全部候选；偏弱/退潮市少追高，优先防守、低吸、回踩确认；强势市可提高突破/主升浪权重；回测权重只作为参考，样本不足时不要过度依赖；不得编造未提供信息。
 只输出紧凑 JSON：{{"evaluations":[{{"code":"000001","score":82,"keep":true,"reason":"短理由"}}],"selected_codes":["000001"],"summary":"短总结"}}
 """
-        user_prompt = self._build_compact_prompt(candidates, macro_context, target_n)
+        user_prompt = self._build_compact_prompt(candidates, macro_context, target_n, backtest_context)
 
         raw = tools.call_llm(system_prompt, user_prompt, temperature=0.15)
         parsed = self._parse_llm_json(raw)
         if not parsed:
             logger.warning("[QuickFilter] LLM 精筛失败，降级为规则排序。")
-            return self._rule_based_fallback(candidates, target_n, macro_context, reason="LLM 精筛失败，使用宏观适配规则降级。")
+            return self._rule_based_fallback(
+                candidates,
+                target_n,
+                macro_context,
+                backtest_context,
+                reason="LLM 精筛失败，使用宏观适配和回测权重规则降级。",
+            )
 
         selected_codes = self._normalize_selected_codes(parsed.get("selected_codes"), candidates, target_n)
         if not selected_codes:
             logger.warning("[QuickFilter] LLM 未返回有效代码，降级为规则排序。")
-            return self._rule_based_fallback(candidates, target_n, macro_context, reason="LLM 未返回有效代码，使用宏观适配规则降级。")
+            return self._rule_based_fallback(
+                candidates,
+                target_n,
+                macro_context,
+                backtest_context,
+                reason="LLM 未返回有效代码，使用宏观适配和回测权重规则降级。",
+            )
 
         selected_candidates = self._select_candidates_by_code(candidates, selected_codes)
         return {
             "selected_candidates": selected_candidates,
             "selected_codes": [item.get("code") for item in selected_candidates],
             "mode": "llm",
-            "reason": str(parsed.get("summary") or "LLM 结合宏观环境完成轻量精筛。"),
+            "reason": str(parsed.get("summary") or "LLM 结合宏观环境和回测参考完成轻量精筛。"),
             "evaluations": parsed.get("evaluations") if isinstance(parsed.get("evaluations"), list) else [],
             "raw_response": raw,
+            "backtest_context": backtest_context,
         }
 
     def _build_compact_prompt(
@@ -66,16 +82,23 @@ class QuickFilterAgent:
         candidates: List[Dict[str, Any]],
         macro_context: Dict[str, Any],
         target_n: int,
+        backtest_context: Dict[str, Any] | None = None,
     ) -> str:
         """构建短表格式 Prompt，避免轻量精筛请求因为上下文过长而超时。"""
         macro_brief = self._format_macro_brief(macro_context)
-        header = "序号|代码|名称|行业|主策略|置信|技分|题材|涨幅|5日|20日|量比|PE|PB|市值亿"
-        rows = [self._format_candidate_row(idx, item) for idx, item in enumerate(candidates, start=1)]
+        backtest_brief = self._format_backtest_brief(backtest_context or {})
+        header = "序号|代码|名称|行业|主策略|置信|技分|题材|校准|涨幅|5日|20日|量比|PE|PB|市值亿"
+        rows = [
+            self._format_candidate_row(idx, item, backtest_context or {})
+            for idx, item in enumerate(candidates, start=1)
+        ]
         return "\n".join(
             [
                 f"目标数量: {target_n}",
                 "宏观摘要:",
                 macro_brief,
+                "回测权重参考:",
+                backtest_brief,
                 "候选短表:",
                 header,
                 *rows,
@@ -100,7 +123,31 @@ class QuickFilterAgent:
             lines.append(f"{label}: {self._compact_value(value, max_len=80)}")
         return "\n".join(lines[:7]) or "无明确宏观摘要"
 
-    def _format_candidate_row(self, idx: int, item: Dict[str, Any]) -> str:
+    def _format_backtest_brief(self, backtest_context: Dict[str, Any]) -> str:
+        sample_count = int(backtest_context.get("sample_count") or 0)
+        if sample_count <= 0:
+            return "遮盖式走步回测权重已在雷达技术分中前置应用；精筛阶段只读取校准后的候选快照。"
+        adjustments = backtest_context.get("strategy_weight_adjustments")
+        if not isinstance(adjustments, dict):
+            return str(backtest_context.get("summary") or "回测摘要不完整。")
+        lines = [str(backtest_context.get("summary") or "")]
+        ranked = sorted(
+            adjustments.items(),
+            key=lambda pair: float(pair[1].get("effect_score") or 0),
+            reverse=True,
+        )
+        for strategy, item in ranked[:5]:
+            lines.append(
+                f"{strategy}: multiplier={item.get('multiplier')}, samples={item.get('sample_count')}, {item.get('reason')}"
+            )
+        return "\n".join(line for line in lines if line).strip()
+
+    def _format_candidate_row(
+        self,
+        idx: int,
+        item: Dict[str, Any],
+        backtest_context: Dict[str, Any] | None = None,
+    ) -> str:
         snapshot = self._build_candidate_snapshot(item)
         return "|".join(
             [
@@ -112,6 +159,7 @@ class QuickFilterAgent:
                 self._fmt_num(snapshot.get("strategy_confidence"), 2),
                 self._fmt_num(snapshot.get("technical_score"), 1),
                 self._fmt_num(snapshot.get("theme_score"), 1),
+                self._fmt_num(snapshot.get("backtest_weight_bonus"), 1),
                 self._fmt_num(snapshot.get("change_pct"), 1),
                 self._fmt_num(snapshot.get("ret5"), 1),
                 self._fmt_num(snapshot.get("ret20"), 1),
@@ -133,6 +181,7 @@ class QuickFilterAgent:
             "strategy_confidence": item.get("strategy_confidence"),
             "technical_score": item.get("technical_score"),
             "theme_score": item.get("theme_score", 0.0),
+            "backtest_weight_bonus": item.get("backtest_weight_bonus", 0.0),
             "price": item.get("price"),
             "change_pct": item.get("change_pct"),
             "ret5": item.get("ret5", metrics.get("ret5")),
@@ -149,11 +198,12 @@ class QuickFilterAgent:
         candidates: List[Dict[str, Any]],
         target_n: int,
         macro_context: Dict[str, Any] | None = None,
+        backtest_context: Dict[str, Any] | None = None,
         reason: str = "使用宏观适配规则降级。",
     ) -> Dict[str, Any]:
         ranked = sorted(
             candidates,
-            key=lambda item: self._fallback_score(item, macro_context or {}),
+            key=lambda item: self._fallback_score(item, macro_context or {}, backtest_context or {}),
             reverse=True,
         )
         selected = ranked[:target_n]
@@ -165,19 +215,24 @@ class QuickFilterAgent:
             "evaluations": [
                 {
                     "code": str(item.get("code", "")).zfill(6),
-                    "score": round(self._fallback_score(item, macro_context or {}), 2),
+                    "score": round(self._fallback_score(item, macro_context or {}, backtest_context or {}), 2),
                     "keep": idx < target_n,
-                    "reason": "按宏观风格、策略置信度、技术分和题材分降级排序。",
+                    "reason": "按宏观风格、策略置信度、技术分、题材分和回测权重降级排序。",
                 }
                 for idx, item in enumerate(ranked)
             ],
+            "backtest_context": backtest_context or {},
         }
 
-    def _fallback_score(self, item: Dict[str, Any], macro_context: Dict[str, Any]) -> float:
+    def _fallback_score(
+        self,
+        item: Dict[str, Any],
+        macro_context: Dict[str, Any],
+        backtest_context: Dict[str, Any] | None = None,
+    ) -> float:
         score = float(item.get("technical_score") or 0)
         score += float(item.get("strategy_confidence") or 0) * 1000
         score += float(item.get("theme_score") or 0)
-
         primary = self._primary_strategy(item)
         macro_text = json.dumps(macro_context, ensure_ascii=False).lower()
         weak_market = any(token in macro_text for token in ("偏弱", "退潮", "防守", "谨慎", "risk-off", "weak"))
@@ -195,6 +250,15 @@ class QuickFilterAgent:
             if primary in {"trend_breakout", "momentum_leader"}:
                 score += 8
         return score
+
+    def _candidate_backtest_bonus(self, code: str, backtest_context: Dict[str, Any]) -> float:
+        adjustments = backtest_context.get("candidate_adjustments")
+        if not isinstance(adjustments, dict):
+            return 0.0
+        item = adjustments.get(str(code).zfill(6))
+        if not isinstance(item, dict):
+            return 0.0
+        return self._safe_float(item.get("score_bonus")) or 0.0
 
     def _parse_llm_json(self, text: str) -> Dict[str, Any]:
         if not text:

@@ -34,6 +34,7 @@ from src.database import StockDatabase
 from src.evaluation.paper_trading import PaperTrading
 from src.evaluation.trading_account import TradingAccount
 from src.evaluation.watchlist import Watchlist
+from src.evaluation.backtest import BacktestEngine
 
 
 DEFAULT_CANDIDATE_ANALYSIS_MAX_WORKERS = 3
@@ -66,6 +67,7 @@ class AgentCoordinator:
         self.trading_account = TradingAccount(db=self.db)
         self.exit_agent = ExitAgent(db=self.db)
         self.trading_agent = TradingAgent()
+        self.backtest_engine = BacktestEngine(db=self.db)
 
     def run_picking_workflow(self, max_candidates: Optional[int] = None) -> str:
         """
@@ -88,6 +90,20 @@ class AgentCoordinator:
         logger.info(f"规则海选完成，{len(prefilter_candidates)} 只候选进入宏观适配精筛。")
 
         logger.info("[Step 2] 宏观环境分析...")
+        backtest_context: Dict[str, Any] = {"enabled": True, "source": "stock_screener"}
+        try:
+            saved_count = self.backtest_engine.record_signal_snapshot(
+                prefilter_candidates,
+                market_regime=getattr(self.screener, "market_regime", {}),
+            )
+            logger.info(
+                "[Backtest] signal snapshots saved={}; walk_forward weights are applied inside StockScreener.",
+                saved_count,
+            )
+        except Exception as exc:
+            logger.warning("[Backtest] 回测信号快照记录失败: {}", exc)
+            backtest_context = {"enabled": False, "source": "stock_screener", "summary": f"回测信号快照记录失败: {exc}"}
+
         candidate_brief = ", ".join(
             f"{item.get('name')}({item.get('code')}) score={item.get('technical_score', '-')}"
             for item in prefilter_candidates
@@ -151,6 +167,7 @@ class AgentCoordinator:
             candidates=candidates,
             macro_context=macro_context,
             quick_filter_result=quick_filter_result,
+            backtest_context=backtest_context,
             detailed_reports=detailed_reports,
             selected_codes=selected_codes,
             analysis_errors=analysis_errors,
@@ -168,6 +185,7 @@ class AgentCoordinator:
         candidates: List[Dict[str, Any]],
         macro_context: Dict[str, Any],
         quick_filter_result: Dict[str, Any],
+        backtest_context: Dict[str, Any],
         detailed_reports: List[Dict[str, Any]],
         selected_codes: List[str],
         analysis_errors: List[Dict[str, str]],
@@ -185,6 +203,7 @@ class AgentCoordinator:
             "candidates": candidates,
             "macro_context": macro_context,
             "quick_filter_result": quick_filter_result,
+            "backtest_context": backtest_context,
             "detailed_reports": detailed_reports,
             "selected_codes": selected_codes,
             "analysis_errors": analysis_errors,

@@ -5,6 +5,7 @@ from loguru import logger
 
 from src.data_pipeline import DataPipeline
 from src.agent.coordinator import AgentCoordinator
+from src.evaluation.backtest import BacktestEngine
 
 def setup_logger():
     """初始化终端日志显示格式"""
@@ -28,9 +29,10 @@ def main():
     parser.add_argument("--post", action="store_true", help="【盘后清算】运行盘后例行维护：虚拟观察仓结算 + 失败错题反思并沉淀风控规则")
     
     parser.add_argument("--analyze", nargs="+", help="【指定分析】对指定 A 股代码做单独深度分析，例如：python main.py --analyze 600519 000001")
+    parser.add_argument("--backtest", action="store_true", help="遮盖旧数据做走步回测，生成因子权重参考")
     args = parser.parse_args()
     
-    if not any([args.sync, args.backfill_bars, args.derive_bars, args.pick, args.trade, args.analyze, args.post]):
+    if not any([args.sync, args.backfill_bars, args.derive_bars, args.pick, args.trade, args.analyze, args.post, args.backtest]):
         parser.print_help()
         logger.info("\n没有输入任何指令。例如执行每日选股： python main.py --pick")
         return
@@ -95,6 +97,11 @@ def main():
         coordinator.run_post_market_routine()
         
     logger.info("============== 任务序列执行完毕 ==============")
+
+    if args.backtest:
+        logger.info(">>> 收到回测指令：遮盖历史截面之后的数据，执行走步推演 ...")
+        report = BacktestEngine().run_walk_forward_backtest()
+        print(f"回测完成，窗口数={report.get('window_count')}，样本数={report.get('evaluated_count')}，摘要：{report.get('summary')}")
 
 if __name__ == "__main__":
     main()

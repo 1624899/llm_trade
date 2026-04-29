@@ -113,7 +113,13 @@ class StockScreener:
         self.last_audit: Dict[str, Any] = {}
         self.theme_scorer = self._build_theme_scorer()
 
-    def run_technical_screening(self, top_n: int = 10, lookback_days: int = 90) -> List[Dict[str, Any]]:
+    def run_technical_screening(
+        self,
+        top_n: int = 10,
+        lookback_days: int = 90,
+        as_of_date: str | None = None,
+        apply_backtest_weights: bool = True,
+    ) -> List[Dict[str, Any]]:
         """
         执行技术面筛选主流程。
         1. 检查市场环境（风控）。
@@ -126,6 +132,7 @@ class StockScreener:
         profile = self.screening_profile
         top_n = max(5, min(int(top_n or profile.get("top_n", 10)), int(profile.get("max_top_n", 10))))
         lookback_days = max(60, int(lookback_days or 90))
+        as_of_date = self._normalize_as_of_date(as_of_date)
 
         if bool(self.market_regime.get("allow_empty")):
             # 如果检测到极端市场风险，返回空列表
@@ -134,15 +141,22 @@ class StockScreener:
             logger.warning("[Screener] 检测到极端市场风险；返回空候选列表。")
             return []
 
-        latest_dates = self.db.query_to_dataframe(
-            """
+        latest_dates_sql = """
                 SELECT DISTINCT trade_date
                 FROM market_bars
                 WHERE period = 'daily'
+            """
+        latest_dates_params: tuple[Any, ...] = ()
+        if as_of_date:
+            latest_dates_sql += " AND trade_date <= ?"
+            latest_dates_params = (as_of_date,)
+        latest_dates_sql += """
                 ORDER BY trade_date DESC
                 LIMIT ?
-            """,
-            (lookback_days,),
+            """
+        latest_dates = self.db.query_to_dataframe(
+            latest_dates_sql,
+            latest_dates_params + (lookback_days,),
         )
         if latest_dates is None or latest_dates.empty:
             logger.warning("[Screener] 未找到日线行情数据。")
@@ -159,6 +173,7 @@ class StockScreener:
                 JOIN (
                     SELECT MAX(trade_date) AS trade_date
                     FROM daily_quotes
+                    WHERE (? IS NULL OR trade_date <= ?)
                 ) latest ON q.trade_date = latest.trade_date
             ),
             valuation_quotes AS (
@@ -174,9 +189,10 @@ class StockScreener:
                             ORDER BY q.trade_date DESC
                         ) AS rn
                     FROM daily_quotes q
-                    WHERE q.pe_ttm IS NOT NULL
+                    WHERE (q.pe_ttm IS NOT NULL
                        OR q.pb IS NOT NULL
-                       OR q.total_market_cap IS NOT NULL
+                       OR q.total_market_cap IS NOT NULL)
+                       AND (? IS NULL OR q.trade_date <= ?)
                 )
                 WHERE rn = 1
             )
@@ -207,29 +223,56 @@ class StockScreener:
                 END AS close,
                 mb.volume,
                 mb.amount AS bar_amount,
-                q.price,
-                q.change_pct,
-                q.amount AS quote_amount,
-                q.turnover_rate,
+                CASE
+                    WHEN mb.trade_date = q.trade_date AND q.price IS NOT NULL
+                    THEN q.price
+                    ELSE mb.close
+                END AS price,
+                CASE
+                    WHEN mb.trade_date = q.trade_date
+                    THEN q.change_pct
+                    ELSE NULL
+                END AS change_pct,
+                CASE
+                    WHEN mb.trade_date = q.trade_date AND q.amount IS NOT NULL
+                    THEN q.amount
+                    ELSE mb.amount
+                END AS quote_amount,
+                CASE
+                    WHEN mb.trade_date = q.trade_date
+                    THEN q.turnover_rate
+                    ELSE NULL
+                END AS turnover_rate,
                 COALESCE(q.pe_ttm, v.pe_ttm) AS pe_ttm,
                 COALESCE(q.pb, v.pb) AS pb,
                 COALESCE(q.total_market_cap, v.total_market_cap) AS total_market_cap
             FROM market_bars mb
-            JOIN latest_quotes q ON mb.code = q.code
+            LEFT JOIN latest_quotes q ON mb.code = q.code
             LEFT JOIN valuation_quotes v ON mb.code = v.code
             LEFT JOIN stock_basic b ON mb.code = b.code
             WHERE mb.period = 'daily'
               AND mb.trade_date >= ?
+              AND (? IS NULL OR mb.trade_date <= ?)
               AND mb.code NOT LIKE '300%'
               AND mb.code NOT LIKE '301%'
               AND mb.code NOT LIKE '688%'
               AND mb.code NOT LIKE '689%'
               AND mb.code NOT LIKE '8%'
               AND mb.code NOT LIKE '4%'
-              AND q.price > 0
+              AND COALESCE(
+                    CASE
+                        WHEN mb.trade_date = q.trade_date AND q.price IS NOT NULL
+                        THEN q.price
+                        ELSE mb.close
+                    END,
+                    0
+                  ) > 0
             ORDER BY mb.code, mb.trade_date
         """
-        df = self.db.query_to_dataframe(query, (min_trade_date,))
+        df = self.db.query_to_dataframe(
+            query,
+            (as_of_date, as_of_date, as_of_date, as_of_date, min_trade_date, as_of_date, as_of_date),
+        )
         if df is None or df.empty:
             logger.warning("[Screener] 股票池查询后无可用数据。")
             return []
@@ -366,8 +409,9 @@ class StockScreener:
                 reject("recent_limit_down", code, name, {"limit_down_change_pct": profile["limit_down_change_pct"]})
                 continue
 
+            # 回测历史截面可能没有 daily_quotes 快照，此时用日线 K 线计算出的单日涨跌幅兜底。
             change_pct = latest.get("change_pct")
-            change_pct = float(change_pct) if pd.notna(change_pct) else 0.0
+            change_pct = float(change_pct) if pd.notna(change_pct) else float(ret1)
             turnover_rate = latest.get("turnover_rate")
             turnover_rate = float(turnover_rate) if pd.notna(turnover_rate) else None
             if turnover_rate is not None and (
@@ -1256,6 +1300,14 @@ class StockScreener:
         if isinstance(tags, list) and tags:
             return str(tags[0] or "unknown")
         return "unknown"
+
+    @staticmethod
+    def _normalize_as_of_date(value: Any) -> str | None:
+        """规范化回测截面日期，确保筛选器只读取该日期及以前的数据。"""
+        if value in (None, ""):
+            return None
+        text = str(value).strip().replace("-", "")
+        return text if len(text) == 8 and text.isdigit() else None
 
     def _get_table_columns(self, table_name: str) -> set:
         """获取数据库表的列名，用于动态构建查询语句。"""

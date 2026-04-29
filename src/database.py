@@ -256,6 +256,24 @@ class StockDatabase:
                 created_at TEXT
             )
             """,
+            """
+            CREATE TABLE IF NOT EXISTS backtest_signal_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                signal_date TEXT NOT NULL,
+                code TEXT NOT NULL,
+                name TEXT,
+                source TEXT,
+                primary_strategy TEXT,
+                strategy_tags TEXT,
+                strategy_confidence REAL,
+                technical_score REAL,
+                theme_score REAL,
+                key_metrics TEXT,
+                market_regime TEXT,
+                created_at TEXT,
+                UNIQUE(signal_date, code, source)
+            )
+            """,
         ]
 
         try:
@@ -346,6 +364,14 @@ class StockDatabase:
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_trade_orders_account_created "
             "ON trade_orders (account_id, created_at)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_backtest_signal_date "
+            "ON backtest_signal_snapshots (signal_date)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_backtest_signal_strategy "
+            "ON backtest_signal_snapshots (primary_strategy, signal_date)"
         )
 
     def insert_dataframe(self, table_name: str, df: pd.DataFrame, if_exists: str = "replace") -> bool:
