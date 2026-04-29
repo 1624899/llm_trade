@@ -43,13 +43,34 @@ class TechnicalSignalProvider:
 
     def load_daily_bars(self, code: str, lookback: int = 120) -> pd.DataFrame:
         query = """
-            SELECT trade_date, open, high, low, close, volume, amount
-            FROM market_bars
-            WHERE code = ? AND period = 'daily'
-            ORDER BY trade_date DESC
-            LIMIT ?
+            WITH recent_bars AS (
+                SELECT trade_date, open, high, low, close, volume, amount
+                FROM market_bars
+                WHERE code = ? AND period = 'daily'
+                ORDER BY trade_date DESC
+                LIMIT ?
+            )
+            SELECT
+                b.trade_date,
+                b.open,
+                CASE
+                    WHEN q.price IS NOT NULL AND (b.high IS NULL OR q.price > b.high) THEN q.price
+                    ELSE b.high
+                END AS high,
+                CASE
+                    WHEN q.price IS NOT NULL AND (b.low IS NULL OR q.price < b.low) THEN q.price
+                    ELSE b.low
+                END AS low,
+                COALESCE(q.price, b.close) AS close,
+                b.volume,
+                b.amount
+            FROM recent_bars b
+            LEFT JOIN daily_quotes q
+              ON q.code = ? AND q.trade_date = b.trade_date AND q.price > 0
+            ORDER BY b.trade_date DESC
         """
-        df = self.db.query_to_dataframe(query, (str(code).zfill(6), int(lookback)))
+        normalized_code = str(code).zfill(6)
+        df = self.db.query_to_dataframe(query, (normalized_code, int(lookback), normalized_code))
         if df is None or df.empty:
             return pd.DataFrame()
         return df.sort_values("trade_date").reset_index(drop=True)

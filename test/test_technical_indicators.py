@@ -1,7 +1,16 @@
+import os
+import shutil
+import sys
 import unittest
+import uuid
 
 import pandas as pd
 
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from src.database import StockDatabase
 from src.technical_indicators import TechnicalSignalProvider
 
 
@@ -56,6 +65,57 @@ class TechnicalSignalProviderTests(unittest.TestCase):
 
         self.assertFalse(report.metrics["available"])
         self.assertIn("K线样本不足", report.risk_flags)
+
+
+    def test_load_daily_bars_overlays_same_day_quote_price(self):
+        temp_dir = os.path.join(PROJECT_ROOT, ".test_tmp", f"technical_{uuid.uuid4().hex}")
+        os.makedirs(temp_dir, exist_ok=True)
+        db = StockDatabase(db_path=os.path.join(temp_dir, "stock_lake.db"))
+        try:
+            bars = pd.DataFrame(
+                [
+                    {
+                        "code": "000001",
+                        "period": "daily",
+                        "trade_date": "20260425",
+                        "open": 10.0,
+                        "high": 10.8,
+                        "low": 9.8,
+                        "close": 10.5,
+                        "adj_close": 10.5,
+                        "volume": 1000,
+                        "amount": 10000,
+                        "source": "unit_test",
+                        "fetched_at": "2026-04-25 18:00:00",
+                    }
+                ]
+            )
+            quotes = pd.DataFrame(
+                [
+                    {
+                        "code": "000001",
+                        "trade_date": "20260425",
+                        "price": 9.9,
+                        "change_pct": -1.0,
+                        "volume": 1000,
+                        "amount": 10000,
+                        "turnover_rate": 1.0,
+                        "pe_ttm": 10,
+                        "pb": 1,
+                        "total_market_cap": 1000000000,
+                    }
+                ]
+            )
+            self.assertTrue(db.upsert_dataframe("market_bars", bars, key_columns=["code", "period", "trade_date"]))
+            self.assertTrue(db.upsert_dataframe("daily_quotes", quotes, key_columns=["code", "trade_date"]))
+
+            loaded = TechnicalSignalProvider(db=db).load_daily_bars("000001", lookback=5)
+
+            self.assertEqual(float(loaded.iloc[-1]["close"]), 9.9)
+            self.assertEqual(float(loaded.iloc[-1]["low"]), 9.8)
+            self.assertEqual(float(loaded.iloc[-1]["high"]), 10.8)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

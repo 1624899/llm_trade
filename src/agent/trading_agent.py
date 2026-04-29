@@ -98,7 +98,10 @@ class TradingAgent:
 3. 禁止频繁交易，默认按 1-3 个月中期波段/配置视角持有，除非风险恶化，不要因为短期波动反复买卖。
 4. 低风险、基本面和技术面未恶化、中期预期收益大于 15% 的股票，应偏向 HOLD/BUY，不要因为宏观环境短期偏弱或微小浮盈就 SELL。
 5. SELL 只允许在黑天鹅、基本面反转/恶化、资讯硬风险、技术硬破位/趋势失效、或已接近/达到中期止盈目标时使用。
-6. 只输出 JSON，不要输出 Markdown。
+6. BUY 也必须受买点约束：观察仓标的已经达到明确买点，或出现突破确认、缩量回踩企稳、支撑低吸、站上关键均线/平台等触发信号时可以买入。
+7. 已持仓标的只有在趋势突破、强动量延续、回踩不破后再启动等二次确认信号出现时，才允许输出 BUY 作为加仓；普通“继续看好”只能 HOLD。
+8. 强推荐且基本面/资讯风险低、趋势未失效、中期空间大于 15% 的标的，可以忽略短期震荡或正常回踩，不要因为轻微波动过度 WATCH；但如果明确“买点未到/尚未触发/不宜追高/破位”，仍应 WATCH。
+9. 只输出 JSON，不要输出 Markdown。
 
 JSON 格式：
 {
@@ -173,11 +176,20 @@ JSON 格式：
 
             # 执行硬性业务约束
             if action == "BUY":
-                # 如果已持仓、不在观察仓、或买入次数超限，降级为观察（WATCH）
-                if code in position_map or code not in watch_map or buys >= self.max_buys_per_run:
+                # BUY 必须来自观察仓，且必须有明确买点/加仓触发；否则降级为观察（WATCH）。
+                is_add = code in position_map
+                slots = max(0, self.max_positions - len(positions))
+                quantity = self._normalized_buy_quantity(item.get("quantity"))
+                if (
+                    code not in watch_map
+                    or buys >= self.max_buys_per_run
+                    or (not is_add and slots <= 0)
+                    or not self._buy_allowed(item, watch, pos, reason)
+                ):
                     action = "WATCH"
                 else:
                     buys += 1
+                    item["quantity"] = quantity
             if action == "SELL":
                 # 未持仓、卖出次数超限、非硬退出，或不满足整手交易时，降级为持有（HOLD）。
                 quantity = self._normalized_sell_quantity(item.get("quantity"), pos)
@@ -257,6 +269,113 @@ JSON 格式：
             return_pct = self._to_float(position.get("return_pct"))
         return bool(level >= 2 and return_pct is not None and return_pct >= 15)
 
+    def _buy_allowed(
+        self,
+        decision: Dict[str, Any],
+        watch: Dict[str, Any],
+        position: Dict[str, Any],
+        reason: str,
+    ) -> bool:
+        """Only allow buys when the watch item has a concrete entry trigger."""
+        if not watch:
+            return False
+
+        tier = str(watch.get("tier") or "")
+        if tier not in {"强推荐", "配置/轻仓验证"}:
+            return False
+
+        text = " ".join(
+            str(value or "")
+            for value in (
+                reason,
+                decision.get("buy_trigger"),
+                decision.get("entry_trigger"),
+                watch.get("recommend_reason"),
+                watch.get("fundamental_analysis"),
+                watch.get("technical_analysis"),
+                watch.get("news_risk_analysis"),
+            )
+        )
+        risk_text = text
+        for neutral_phrase in (
+            "趋势未失效",
+            "趋势没有失效",
+            "未破位",
+            "没有破位",
+            "未跌破",
+            "没有跌破",
+            "未恶化",
+            "没有恶化",
+            "未发现减持",
+            "没有减持",
+            "未发现硬排除",
+            "没有硬排除",
+        ):
+            risk_text = risk_text.replace(neutral_phrase, "")
+
+        hard_avoid_words = (
+            "不宜追高",
+            "追高风险",
+            "高位接盘",
+            "放量滞涨",
+            "上影派发",
+            "趋势失效",
+            "跌破",
+            "破位",
+            "背离",
+            "恶化",
+            "减持",
+            "立案",
+            "硬排除",
+            "禁止",
+        )
+        if any(word in risk_text for word in hard_avoid_words):
+            return False
+
+        wait_words = ("等待触发", "尚未触发", "买点未到")
+        if any(word in text for word in wait_words):
+            return False
+
+        trigger_words = (
+            "达到买点",
+            "买点触发",
+            "触发买点",
+            "突破确认",
+            "趋势突破",
+            "放量突破",
+            "平台突破",
+            "站上",
+            "企稳",
+            "回踩不破",
+            "缩量回踩",
+            "支撑低吸",
+            "低吸",
+            "强动量延续",
+            "趋势延续",
+            "加仓",
+        )
+        has_trigger = any(word in text for word in trigger_words)
+
+        if position:
+            add_words = (
+                "加仓",
+                "突破确认",
+                "趋势突破",
+                "放量突破",
+                "平台突破",
+                "站上",
+                "回踩不破",
+                "强动量延续",
+                "趋势延续",
+            )
+            return any(word in text for word in add_words)
+
+        expected = self._to_float(watch.get("expected_return_pct"))
+        if tier == "强推荐":
+            # 强推荐允许忽略短期小波动；只要没有硬风险或明确买点未触发，就不因“等待确认”等保守措辞一票否决。
+            return expected is None or expected >= 15 or has_trigger
+        return has_trigger and (expected is None or expected >= 15)
+
     def _normalized_sell_quantity(self, requested: Any, position: Dict[str, Any]) -> int:
         """Round SELL quantity to A-share board lots; selling the full position is allowed as-is."""
         quantity_before = int(position.get("quantity") or 0)
@@ -266,6 +385,13 @@ JSON 格式：
             return 0
         if quantity == quantity_before:
             return quantity
+        return quantity - quantity % 100
+
+    def _normalized_buy_quantity(self, requested: Any) -> int:
+        """Round BUY quantity to A-share board lots; zero means target_cash will be used."""
+        quantity = self._to_int(requested) or 0
+        if quantity <= 0:
+            return 0
         return quantity - quantity % 100
 
     def _fallback_decisions(
@@ -331,15 +457,17 @@ JSON 格式：
         # 2. 遍历观察仓逻辑（补位买入）
         slots = max(0, self.max_positions - len(positions))
         buys = 0
+        position_map = {str(item.get("code")).zfill(6): item for item in positions}
         for item in watchlist:
-            if buys >= self.max_buys_per_run or buys >= slots:
+            if buys >= self.max_buys_per_run:
                 break
                 
             code = str(item.get("code")).zfill(6)
-            if code in held_codes:
+            is_add = code in held_codes
+            if not is_add and buys >= slots:
                 continue
                 
-            if not self._is_actionable_watch(item):
+            if not self._is_actionable_watch(item, position_map.get(code, {})):
                 # 不符合买入条件的观察标的标记为 WATCH
                 decisions.append(
                     {
@@ -348,23 +476,27 @@ JSON 格式：
                         "action": "WATCH",
                         "price": item.get("current_price"),
                         "linked_watchlist_id": item.get("id"),
-                        "reason": "观察仓标的尚未达到交易仓配置条件",
+                        "reason": "观察仓标的尚未达到明确买点或加仓触发条件",
                     }
                 )
                 continue
                 
-            # 符合条件的强标的，触发买入 BUY
-            decisions.append(
-                {
-                    "code": code,
-                    "name": item.get("name") or code,
-                    "action": "BUY",
-                    "target_cash": self._default_target_cash(account, positions),
-                    "price": item.get("current_price"),
-                    "linked_watchlist_id": item.get("id"),
-                    "reason": "观察仓为强推荐/配置标的，风险未恶化，进入交易仓试配",
-                }
-            )
+            buy_decision = {
+                "code": code,
+                "name": item.get("name") or code,
+                "action": "BUY",
+                "target_cash": self._default_target_cash(account, positions),
+                "price": item.get("current_price"),
+                "linked_watchlist_id": item.get("id"),
+                "reason": "观察仓标的出现明确买点/趋势触发，风险未恶化，进入交易仓试配或加仓",
+            }
+            if is_add:
+                for index, decision in enumerate(decisions):
+                    if str(decision.get("code")).zfill(6) == code:
+                        decisions[index] = {**decision, **buy_decision}
+                        break
+            else:
+                decisions.append(buy_decision)
             buys += 1
             
         return decisions
@@ -406,27 +538,9 @@ JSON 格式：
             sell_count += 1
         return decisions
 
-    def _is_actionable_watch(self, item: Dict[str, Any]) -> bool:
+    def _is_actionable_watch(self, item: Dict[str, Any], position: Optional[Dict[str, Any]] = None) -> bool:
         """检查观察仓标的是否可以作为“买入点”。(由兜底逻辑调用)"""
-        tier = str(item.get("tier") or "")
-        # 仅限强推荐或验证级
-        if tier not in {"强推荐", "配置/轻仓验证"}:
-            return False
-            
-        # 检查理由和风险分析中是否有负面关键词
-        text = " ".join(
-            str(item.get(key) or "")
-            for key in ("recommend_reason", "fundamental_analysis", "technical_analysis", "news_risk_analysis")
-        )
-        bad_words = ("立案", "减持", "破位", "恶化", "背离", "放量滞涨", "趋势失效", "禁止")
-        if any(word in text for word in bad_words):
-            return False
-            
-        expected = self._to_float(item.get("expected_return_pct"))
-        if tier == "强推荐":
-            return True
-        # 配置档位需要预期收益 >= 15%
-        return expected is None or expected >= 15
+        return self._buy_allowed({}, item, position or {}, "观察仓买点触发检查")
 
     def _default_target_cash(self, account: Dict[str, Any], positions: List[Dict[str, Any]]) -> float:
         """计算单一标的的最大可用购买金额（平铺到剩余仓位槽）。"""

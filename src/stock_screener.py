@@ -186,9 +186,25 @@ class StockScreener:
                 {industry_expr} AS industry,
                 mb.trade_date,
                 mb.open,
-                mb.high,
-                mb.low,
-                mb.close,
+                CASE
+                    WHEN mb.trade_date = q.trade_date
+                         AND q.price IS NOT NULL
+                         AND (mb.high IS NULL OR q.price > mb.high)
+                    THEN q.price
+                    ELSE mb.high
+                END AS high,
+                CASE
+                    WHEN mb.trade_date = q.trade_date
+                         AND q.price IS NOT NULL
+                         AND (mb.low IS NULL OR q.price < mb.low)
+                    THEN q.price
+                    ELSE mb.low
+                END AS low,
+                CASE
+                    WHEN mb.trade_date = q.trade_date AND q.price IS NOT NULL
+                    THEN q.price
+                    ELSE mb.close
+                END AS close,
                 mb.volume,
                 mb.amount AS bar_amount,
                 q.price,

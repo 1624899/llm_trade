@@ -1040,6 +1040,24 @@ class DataPipeline:
             clean_df[col] = pd.to_numeric(clean_df.get(col), errors="coerce")
 
         clean_df = clean_df.dropna(subset=["code", "trade_date", "close"])
+        before_ohlc_check = len(clean_df)
+        ohlc_cols = ["open", "high", "low", "close"]
+        clean_df = clean_df.dropna(subset=ohlc_cols)
+        valid_ohlc = (
+            (clean_df["high"] >= clean_df["low"])
+            & (clean_df["open"] <= clean_df["high"])
+            & (clean_df["open"] >= clean_df["low"])
+            & (clean_df["close"] <= clean_df["high"])
+            & (clean_df["close"] >= clean_df["low"])
+        )
+        invalid_count = before_ohlc_check - int(valid_ohlc.sum())
+        if invalid_count:
+            logger.warning(
+                "Dropped {} {} market_bars rows with inconsistent OHLC values",
+                invalid_count,
+                period,
+            )
+        clean_df = clean_df[valid_ohlc]
         retention_days = self._market_bars_retention_days(period)
         if retention_days >= 0:
             cutoff = (datetime.now() - timedelta(days=retention_days)).strftime("%Y%m%d")

@@ -209,6 +209,49 @@ class DataPipelineNormalizationTests(unittest.TestCase):
         self.assertEqual(rows[0]["source"], "efinance")
         self.assertEqual(rows[0]["adj_close"], "10.30")
 
+    def test_clean_market_bars_drops_inconsistent_ohlc_rows(self):
+        pipeline = DataPipeline.__new__(DataPipeline)
+        pipeline.market_bars_daily_retention_days = 540
+        pipeline.market_bars_weekly_retention_days = 1825
+        pipeline.market_bars_monthly_retention_days = 3650
+
+        raw = pd.DataFrame(
+            [
+                {
+                    "code": "000001",
+                    "period": "daily",
+                    "trade_date": "20260425",
+                    "open": 10.0,
+                    "high": 10.5,
+                    "low": 9.8,
+                    "close": 10.2,
+                    "adj_close": 10.2,
+                    "volume": 1000,
+                    "amount": 10000,
+                    "source": "unit_test",
+                    "fetched_at": "2026-04-25 18:00:00",
+                },
+                {
+                    "code": "000002",
+                    "period": "daily",
+                    "trade_date": "20260425",
+                    "open": 11.0,
+                    "high": 10.5,
+                    "low": 9.8,
+                    "close": 10.2,
+                    "adj_close": 10.2,
+                    "volume": 1000,
+                    "amount": 10000,
+                    "source": "unit_test",
+                    "fetched_at": "2026-04-25 18:00:00",
+                },
+            ]
+        )
+
+        clean = pipeline._clean_market_bars(raw, "daily")
+
+        self.assertEqual(clean["code"].tolist(), ["000001"])
+
     @patch("src.data_pipeline.ak.stock_zh_index_daily")
     def test_sync_index_bars_writes_market_regime_indices(self, mock_index_daily):
         db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))

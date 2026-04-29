@@ -900,13 +900,25 @@ class AgentTools:
         try:
             db = StockDatabase()
             query = """
-                SELECT trade_date, close, volume, amount
-                FROM market_bars
-                WHERE code = ? AND period = ?
-                ORDER BY trade_date DESC
-                LIMIT ?
+                WITH recent_bars AS (
+                    SELECT trade_date, close, volume, amount
+                    FROM market_bars
+                    WHERE code = ? AND period = ?
+                    ORDER BY trade_date DESC
+                    LIMIT ?
+                )
+                SELECT
+                    b.trade_date,
+                    COALESCE(q.price, b.close) AS close,
+                    b.volume,
+                    b.amount
+                FROM recent_bars b
+                LEFT JOIN daily_quotes q
+                  ON q.code = ? AND q.trade_date = b.trade_date AND q.price > 0
+                ORDER BY b.trade_date DESC
             """
-            df = db.query_to_dataframe(query, (str(symbol).zfill(6), period, limit))
+            normalized_symbol = str(symbol).zfill(6)
+            df = db.query_to_dataframe(query, (normalized_symbol, period, limit, normalized_symbol))
             if df is None or df.empty:
                 return ""
 

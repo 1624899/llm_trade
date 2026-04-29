@@ -773,7 +773,8 @@ class TradingAgentTests(unittest.TestCase):
                     "tier": "强推荐",
                     "current_price": 10.0,
                     "expected_return_pct": 18,
-                    "recommend_reason": "基本面稳定，趋势未失效",
+                    "recommend_reason": "基本面稳定，缩量回踩后企稳，达到买点",
+                    "technical_analysis": "买点/触发：缩量回踩不破支撑，适合低吸。",
                 }
             ],
             positions=[
@@ -850,6 +851,95 @@ class TradingAgentTests(unittest.TestCase):
         )
 
         self.assertEqual(decisions[0]["action"], "HOLD")
+        self.assertEqual(decisions[0]["quantity"], 0)
+
+    @patch.object(TradingAgent, "_llm_decisions", return_value=[])
+    def test_fallback_strong_watch_without_buy_trigger_stays_watch(self, _mock_llm):
+        agent = TradingAgent(max_positions=5, max_buys_per_run=2, max_sells_per_run=2)
+
+        decisions = agent.decide(
+            watchlist=[
+                {
+                    "id": 1,
+                    "code": "000001",
+                    "name": "wait sample",
+                    "tier": "强推荐",
+                    "current_price": 10.0,
+                    "expected_return_pct": 18,
+                    "recommend_reason": "基本面稳定，但等待确认后再考虑。",
+                    "technical_analysis": "买点/触发：等待突破确认，不宜追高。",
+                }
+            ],
+            positions=[],
+            account={"cash": 10000},
+            exit_signals={},
+            macro_context={},
+        )
+
+        self.assertEqual(decisions[0]["action"], "WATCH")
+
+    @patch.object(TradingAgent, "_llm_decisions", return_value=[])
+    def test_fallback_strong_recommendation_can_ignore_short_term_noise(self, _mock_llm):
+        agent = TradingAgent(max_positions=5, max_buys_per_run=2, max_sells_per_run=2)
+
+        decisions = agent.decide(
+            watchlist=[
+                {
+                    "id": 1,
+                    "code": "000001",
+                    "name": "strong sample",
+                    "tier": "强推荐",
+                    "current_price": 10.0,
+                    "expected_return_pct": 18,
+                    "recommend_reason": "基本面稳定，低风险，中期空间充足。",
+                    "technical_analysis": "趋势未失效，短期震荡属于正常回踩。",
+                    "news_risk_analysis": "未发现明确负面关键词/公告硬风险。",
+                }
+            ],
+            positions=[],
+            account={"cash": 10000},
+            exit_signals={},
+            macro_context={},
+        )
+
+        self.assertEqual(decisions[0]["action"], "BUY")
+
+    @patch.object(
+        TradingAgent,
+        "_llm_decisions",
+        return_value=[
+            {
+                "code": "000001",
+                "name": "breakout sample",
+                "action": "BUY",
+                "quantity": 50,
+                "price": 10.0,
+                "reason": "趋势突破且站上平台，适合加仓",
+            }
+        ],
+    )
+    def test_llm_buy_requires_trigger_and_normalizes_lot_size(self, _mock_llm):
+        agent = TradingAgent(max_positions=5, max_buys_per_run=2, max_sells_per_run=2)
+
+        decisions = agent.decide(
+            watchlist=[
+                {
+                    "id": 1,
+                    "code": "000001",
+                    "name": "breakout sample",
+                    "tier": "强推荐",
+                    "current_price": 10.0,
+                    "expected_return_pct": 18,
+                    "technical_analysis": "买点/触发：趋势突破，站上平台。",
+                }
+            ],
+            positions=[],
+            account={"cash": 10000},
+            exit_signals={},
+            macro_context={},
+        )
+
+        self.assertEqual(decisions[0]["action"], "BUY")
         self.assertEqual(decisions[0]["quantity"], 0)
 
 
