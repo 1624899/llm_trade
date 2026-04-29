@@ -137,6 +137,53 @@ class BacktestEngineTests(unittest.TestCase):
         self.assertEqual(report["evaluated_count"], 1)
         self.assertEqual(report["evaluations"][0]["return_3d"], 8.0)
 
+    @patch("src.stock_screener.StockScreener")
+    def test_walk_forward_backtest_clears_stale_snapshots_for_same_dates(self, mock_screener_class):
+        self._seed_bars(
+            "000001",
+            ["20260420", "20260421", "20260422", "20260423"],
+            [10, 10.1, 10.2, 10.3],
+        )
+        self._seed_bars(
+            "000002",
+            ["20260420", "20260421", "20260422", "20260423"],
+            [20, 20.4, 20.8, 21.2],
+        )
+        self.engine.record_signal_snapshot(
+            [
+                {
+                    "code": "000001",
+                    "name": "stale sample",
+                    "strategy_tags": ["trend_breakout"],
+                    "strategy_confidence": 0.9,
+                    "technical_score": 80,
+                }
+            ],
+            signal_date="20260420",
+            source="walk_forward_masked",
+        )
+
+        mock_screener = mock_screener_class.return_value
+        mock_screener.run_technical_screening.return_value = [
+            {
+                "code": "000002",
+                "name": "fresh sample",
+                "strategy_tags": ["trend_breakout"],
+                "strategy_confidence": 0.9,
+                "technical_score": 80,
+            }
+        ]
+
+        report = self.engine.run_walk_forward_backtest(
+            as_of_dates=["20260420"],
+            holding_days=(3,),
+            top_n=5,
+        )
+
+        self.assertEqual(report["snapshot_count"], 1)
+        self.assertEqual(report["evaluated_count"], 1)
+        self.assertEqual(report["evaluations"][0]["code"], "000002")
+
     def _seed_bars(self, code, dates, closes):
         rows = []
         for trade_date, close in zip(dates, closes):

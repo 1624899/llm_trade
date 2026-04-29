@@ -144,6 +144,7 @@ class BacktestEngine:
 
         total_saved = 0
         windows: List[Dict[str, Any]] = []
+        self._clear_walk_forward_snapshots(source=source, signal_dates=dates)
         for as_of_date in dates:
             screener = StockScreener(db=self.db, profile=profile, config_path=screener_config_path)
             screener.theme_scorer = None
@@ -404,6 +405,24 @@ class BacktestEngine:
             """,
             tuple([min_signal_date] + code_list),
         )
+
+    def _clear_walk_forward_snapshots(self, *, source: str, signal_dates: Sequence[str]) -> None:
+        """清理本次走步窗口的旧快照，避免多轮调参后旧候选残留污染新报告。"""
+        dates = [self._normalize_trade_date(date) for date in signal_dates]
+        dates = [date for date in dates if date]
+        if not dates:
+            return
+        placeholders = ",".join(["?"] * len(dates))
+        ok = self.db.execute_non_query(
+            f"""
+            DELETE FROM backtest_signal_snapshots
+            WHERE source = ?
+              AND signal_date IN ({placeholders})
+            """,
+            tuple([source] + dates),
+        )
+        if not ok:
+            logger.warning("[Backtest] 清理旧走步快照失败，source={}", source)
 
     def _latest_trade_date(self) -> str | None:
         df = self.db.query_to_dataframe(
