@@ -82,3 +82,46 @@
 ### 方案文档
 
 详细设计见：`交易Agent与观察仓重构实施方案.md`
+
+
+后面建议按这个顺序推进：
+
+1. 重新跑干净回测  
+   刚修了旧快照残留问题，所以先跑：
+   ```powershell
+   python main.py --backtest
+   ```
+   重点确认 `snapshot_count`、`evaluated_count`、`saved_signal_count` 是否接近，不再混入旧参数样本。
+
+2. 对比新旧参数效果  
+   看 `outputs/latest_backtest_report.json` 里各策略的：
+   ```text
+   sample_count
+   return_3d / return_5d / return_10d / return_20d
+   win_rate
+   max_drawdown_proxy
+   effect_score
+   ```
+   如果整体仍偏负，说明不是单纯调阈值能解决，需要调整策略定义或退出周期。
+
+3. 把回测报告版本化  
+   现在每次只覆盖 `latest_backtest_report.json`，建议后面加 `outputs/backtest_report_YYYYMMDD_HHMMSS.json`，方便比较每次参数改动是否真的变好。
+
+4. 修正评分口径  
+   当前 `effect_score` 对极端大涨样本比较敏感，同时最大回撤代理也很粗。建议加入中位数收益、分位数收益、盈亏比、3/5/10/20 日分策略最佳周期，而不是只看默认 10 日。
+
+5. 降低无效策略暴露  
+   如果干净回测里 `momentum_leader` 仍最弱，可以进一步：
+   - 降低它的策略配额
+   - 提高进入门槛
+   - 或先不作为主策略，只保留为辅助标签
+
+6. 增加历史题材快照  
+   现在 `theme_score` 在回测里是 0，因为实时题材不能直接用于历史截面。后面可以做 `theme_snapshots`，让题材分也能进入无未来函数的回测。
+
+7. 再跑 `--pick` 验证实盘候选质量  
+   干净回测稳定后，再跑：
+   ```powershell
+   python main.py --pick
+   ```
+   看实际候选是否过少、是否仍有明显追高、是否行业过于集中。
