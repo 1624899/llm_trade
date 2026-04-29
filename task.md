@@ -84,44 +84,42 @@
 详细设计见：`交易Agent与观察仓重构实施方案.md`
 
 
-后面建议按这个顺序推进：
+已按刚才说的方法实现了：
 
-1. 重新跑干净回测  
-   刚修了旧快照残留问题，所以先跑：
-   ```powershell
-   python main.py --backtest
-   ```
-   重点确认 `snapshot_count`、`evaluated_count`、`saved_signal_count` 是否接近，不再混入旧参数样本。
+src/evaluation/backtest.py
 
-2. 对比新旧参数效果  
-   看 `outputs/latest_backtest_report.json` 里各策略的：
-   ```text
-   sample_count
-   return_3d / return_5d / return_10d / return_20d
-   win_rate
-   max_drawdown_proxy
-   effect_score
-   ```
-   如果整体仍偏负，说明不是单纯调阈值能解决，需要调整策略定义或退出周期。
+新增分策略主评价周期：
+dragon_pullback: 5 日
+first_limit_up_breakout: 5 日
+support_pullback: 3 日
+trend_breakout: 10 日
+momentum_leader: 5 日
+之后报告里的 preferred_horizon 和 effect_score 不再统一按 10 日算。
+src/stock_screener.py
 
-3. 把回测报告版本化  
-   现在每次只覆盖 `latest_backtest_report.json`，建议后面加 `outputs/backtest_report_YYYYMMDD_HHMMSS.json`，方便比较每次参数改动是否真的变好。
+进一步收紧 momentum_leader：
+要求 ret20 更强、ret10 不能太弱
+限制短期过热和放量过猛
+要求日内位置更强
+降低 momentum 的技术加分
+额外增加 momentum 风险惩罚
+config/stock_picking.yaml
 
-4. 修正评分口径  
-   当前 `effect_score` 对极端大涨样本比较敏感，同时最大回撤代理也很粗。建议加入中位数收益、分位数收益、盈亏比、3/5/10/20 日分策略最佳周期，而不是只看默认 10 日。
+同步调整 balanced 的 momentum 参数：
+bt_max_momentum_bias20: 1.18
+bt_momentum_ret20_min: 28.0
+bt_momentum_ret10_min: 10.0
+bt_momentum_ret5_max: 9.0
+bt_momentum_min_intraday_position: 0.55
+bt_momentum_max_volume_ratio: 2.6
+test/test_backtest_engine.py
 
-5. 降低无效策略暴露  
-   如果干净回测里 `momentum_leader` 仍最弱，可以进一步：
-   - 降低它的策略配额
-   - 提高进入门槛
-   - 或先不作为主策略，只保留为辅助标签
+增加测试，确保以后不会退回“所有策略统一按 10 日评价”。
+验证已通过：
 
-6. 增加历史题材快照  
-   现在 `theme_score` 在回测里是 0，因为实时题材不能直接用于历史截面。后面可以做 `theme_snapshots`，让题材分也能进入无未来函数的回测。
+python -m unittest test.test_backtest_engine
+python -m unittest test.test_database_and_screener.StockScreenerTests
+下一步可以直接再跑：
 
-7. 再跑 `--pick` 验证实盘候选质量  
-   干净回测稳定后，再跑：
-   ```powershell
-   python main.py --pick
-   ```
-   看实际候选是否过少、是否仍有明显追高、是否行业过于集中。
+python main.py --backtest
+这轮重点看两件事：momentum_leader 样本数是否明显下降，以及 first_limit_up_breakout / dragon_pullback 在 5 日评价下是否继续改善。
