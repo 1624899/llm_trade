@@ -62,6 +62,7 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
         self.enable_database_vacuum = False
         self.derive_period_bars_on_sync = False
         self.backfill_history_on_sync = False
+        self.enable_daily_bars_incremental_fill = True
         self.market_data_retention_days = 30
         self.macro_events_retention_days = 30
         self.output_retention_days = 30
@@ -141,6 +142,7 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
             return False
 
         all_success = True
+        refreshed_daily_codes = set()
         for period in periods:
             period = self._normalize_period(period)
             pending_codes = self._filter_codes_needing_bars(codes, period)
@@ -153,10 +155,22 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
 
             if period == "daily":
                 ok = self.sync_daily_bars_incremental(pending_codes)
+                if ok:
+                    refreshed_daily_codes.update(str(code).zfill(6) for code in pending_codes)
                 all_success = all_success and ok
                 continue
 
-            daily_ok = self.sync_daily_bars_incremental(pending_codes)
+            missing_daily_refresh_codes = [
+                code for code in pending_codes
+                if str(code).zfill(6) not in refreshed_daily_codes
+            ]
+            if missing_daily_refresh_codes:
+                daily_ok = self.sync_daily_bars_incremental(missing_daily_refresh_codes)
+                if daily_ok:
+                    refreshed_daily_codes.update(str(code).zfill(6) for code in missing_daily_refresh_codes)
+            else:
+                daily_ok = True
+                logger.info(f"{period} K line reuses daily refresh from current sync")
             if not daily_ok:
                 logger.warning(f"{period} K line will use existing local daily bars because daily refresh failed")
             start_date = self._current_period_start_date(period)
@@ -248,6 +262,13 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
             return True
 
         target_date = str(end_date or self._expected_latest_trade_date("daily")).replace("-", "")[:8]
+        if not getattr(self, "enable_daily_bars_incremental_fill", True):
+            logger.info(
+                "daily K 线增量补齐已关闭，仅更新目标交易日；"
+                f"target_date={target_date}, codes={len(codes)}"
+            )
+            return self.sync_daily_bars_by_trade_date(codes, trade_date=target_date)
+
         latest_dates = self._latest_bar_dates(codes, "daily")
         parsed_latest = {
             code: self._parse_trade_date(latest_dates.get(code))

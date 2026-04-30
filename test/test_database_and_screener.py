@@ -615,6 +615,23 @@ class DataPipelineNormalizationTests(unittest.TestCase):
             ],
         )
 
+    def test_sync_daily_bars_incremental_can_skip_gap_fill(self):
+        pipeline = DataPipeline.__new__(DataPipeline)
+        pipeline.enable_daily_bars_incremental_fill = False
+        pipeline._expected_latest_trade_date = MagicMock(return_value="20260429")
+        pipeline._latest_bar_dates = MagicMock()
+        pipeline._resolve_tushare_trade_dates = MagicMock()
+        pipeline.sync_daily_bars_by_trade_date = MagicMock(return_value=True)
+
+        self.assertTrue(pipeline.sync_daily_bars_incremental(["000001", "000002"]))
+
+        pipeline._latest_bar_dates.assert_not_called()
+        pipeline._resolve_tushare_trade_dates.assert_not_called()
+        pipeline.sync_daily_bars_by_trade_date.assert_called_once_with(
+            ["000001", "000002"],
+            trade_date="20260429",
+        )
+
     def test_build_weekly_bars_from_daily_qfq(self):
         db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))
         pipeline = DataPipeline.__new__(DataPipeline)

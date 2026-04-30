@@ -41,6 +41,9 @@ web_search:
 
 data:
   enable_cleanup: true
+  derive_period_bars_on_sync: false
+  backfill_history_on_sync: true
+  enable_daily_bars_incremental_fill: true
   market_data_retention_days: 30
   macro_events_retention_days: 30
   output_retention_days: 30

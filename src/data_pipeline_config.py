@@ -37,6 +37,9 @@ class PipelineConfigMixin:
         self.backfill_history_on_sync = bool(
             data_cfg.get("backfill_history_on_sync", self.backfill_history_on_sync)
         )
+        self.enable_daily_bars_incremental_fill = bool(
+            data_cfg.get("enable_daily_bars_incremental_fill", self.enable_daily_bars_incremental_fill)
+        )
         self.market_data_retention_days = int(
             data_cfg.get("market_data_retention_days", self.market_data_retention_days)
         )

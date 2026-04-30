@@ -90,8 +90,6 @@ class PeriodBarDerivationMixin:
             storage_df,
             key_columns=["code", "trade_date"],
         )
-        if ok:
-            logger.info(f"Successfully upserted {len(storage_df)} rows into {table_name}")
         return ok
 
     def _build_period_bars_from_daily(
