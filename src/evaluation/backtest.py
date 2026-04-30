@@ -16,11 +16,11 @@ from src.database import StockDatabase
 
 DEFAULT_HOLDING_DAYS = (3, 5, 10, 20)
 DEFAULT_STRATEGY_HORIZONS = {
-    "dragon_pullback": 5,
-    "first_limit_up_breakout": 5,
-    "support_pullback": 3,
-    "trend_breakout": 10,
-    "momentum_leader": 5,
+    "dragon_pullback": 10,
+    "first_limit_up_breakout": 10,
+    "support_pullback": 10,
+    "trend_breakout": 20,
+    "momentum_leader": 20,
 }
 
 
@@ -390,17 +390,27 @@ class BacktestEngine:
         sample_count = int(report.get("evaluated_count") or 0)
         if sample_count <= 0:
             return "暂无完成持有周期的历史信号，回测权重保持中性。"
+        reliable = {
+            strategy: adjustment
+            for strategy, adjustment in adjustments.items()
+            if adjustment.get("confidence") != "low"
+        }
         ranked = sorted(
-            adjustments.items(),
+            reliable.items(),
             key=lambda pair: float(pair[1].get("effect_score") or 0),
             reverse=True,
         )
+        low_sample_count = len(adjustments) - len(reliable)
+        low_sample_note = f"；{low_sample_count} 个策略样本不足未参与优劣排名" if low_sample_count > 0 else ""
+        if not ranked:
+            return f"已评估 {sample_count} 条历史信号；所有策略样本仍不足，暂不判断相对优劣。"
         best = ranked[0] if ranked else ("unknown", {"effect_score": 0})
         worst = ranked[-1] if ranked else ("unknown", {"effect_score": 0})
         return (
             f"已评估 {sample_count} 条历史信号；"
             f"相对较优策略 {best[0]}(effect={best[1].get('effect_score')})，"
-            f"相对偏弱策略 {worst[0]}(effect={worst[1].get('effect_score')})。"
+            f"相对偏弱策略 {worst[0]}(effect={worst[1].get('effect_score')})"
+            f"{low_sample_note}。"
         )
 
     def _load_snapshots(self, *, source: str) -> pd.DataFrame:
@@ -519,7 +529,7 @@ class BacktestEngine:
         avg_return = self._safe_float(stat.get("avg_return_pct")) or 0.0
         win_rate = self._safe_float(stat.get("win_rate")) or 0.0
         drawdown = self._safe_float(stat.get("max_drawdown_proxy")) or 0.0
-        return avg_return * 1.5 + (win_rate - 0.5) * 12.0 + min(0.0, drawdown) * 0.4
+        return avg_return * 2.0 + (win_rate - 0.5) * 20.0 + min(0.0, drawdown) * 0.25
 
     @staticmethod
     def _normalize_trade_date(value: Any) -> str | None:

@@ -35,6 +35,7 @@ from src.evaluation.paper_trading import PaperTrading
 from src.evaluation.trading_account import TradingAccount
 from src.evaluation.watchlist import Watchlist
 from src.evaluation.backtest import BacktestEngine
+from src.quote_sources import fetch_latest_prices
 
 
 DEFAULT_CANDIDATE_ANALYSIS_MAX_WORKERS = 3
@@ -361,7 +362,7 @@ class AgentCoordinator:
         return normalized
 
     def _build_target_candidates(self, codes: List[str]) -> List[Dict[str, Any]]:
-        """从本地数据湖补齐股票名称和最近行情，缺失时仍允许继续分析。"""
+        """从本地数据湖补齐股票名称和行情；指定分析优先用实时价格覆盖本地快照。"""
         placeholders = ",".join(["?"] * len(codes))
         basic_df = self.db.query_to_dataframe(
             f"SELECT code, name FROM stock_basic WHERE code IN ({placeholders})",
@@ -385,17 +386,25 @@ class AgentCoordinator:
 
         basic_map = {row["code"]: row for _, row in basic_df.iterrows()} if not basic_df.empty else {}
         quote_map = {row["code"]: row for _, row in quote_df.iterrows()} if not quote_df.empty else {}
+        realtime_prices = fetch_latest_prices(codes)
+        if realtime_prices:
+            logger.info(
+                "[TargetedAnalysis] 实时行情覆盖 {} / {} 只指定标的价格",
+                len(realtime_prices),
+                len(codes),
+            )
 
         candidates = []
         for code in codes:
             basic = basic_map.get(code, {})
             quote = quote_map.get(code, {})
+            realtime_price = realtime_prices.get(code)
             candidates.append(
                 {
                     "code": code,
                     "name": basic.get("name") or code,
                     "industry": basic.get("industry", "") or "",
-                    "price": quote.get("price"),
+                    "price": realtime_price if realtime_price is not None else quote.get("price"),
                     "change_pct": quote.get("change_pct"),
                     "volume": quote.get("volume"),
                     "amount": quote.get("amount"),

@@ -130,7 +130,7 @@ DEFAULT_SCREENING_PROFILES: Dict[str, Dict[str, Any]] = {
         "min_new_stock_history_days": 30,
         "allow_new_stock_channel": True,
         "turnover_rate_min": 0.3,
-        "turnover_rate_max": 35.0,
+        "turnover_rate_max": 80.0,
         "max_per_industry": 4,
         "limit_up_change_pct": 9.8,
         "limit_down_change_pct": -9.8,
@@ -207,40 +207,22 @@ class StockScreener:
             logger.warning("[Screener] 未找到日线行情数据。")
             return []
         min_trade_date = str(latest_dates["trade_date"].min())
+        latest_quote_date_df = self.db.query_to_dataframe(
+            """
+            SELECT MAX(trade_date) AS trade_date
+            FROM daily_quotes
+            WHERE (? IS NULL OR trade_date <= ?)
+            """,
+            (as_of_date, as_of_date),
+        )
+        latest_quote_date = None
+        if latest_quote_date_df is not None and not latest_quote_date_df.empty:
+            latest_quote_date = latest_quote_date_df.iloc[0].get("trade_date")
 
         stock_basic_columns = self._get_table_columns("stock_basic")
         name_expr = "COALESCE(b.name, mb.code)" if "name" in stock_basic_columns else "mb.code"
         industry_expr = "b.industry" if "industry" in stock_basic_columns else "NULL"
         query = f"""
-            WITH latest_quotes AS (
-                SELECT q.*
-                FROM daily_quotes q
-                JOIN (
-                    SELECT MAX(trade_date) AS trade_date
-                    FROM daily_quotes
-                    WHERE (? IS NULL OR trade_date <= ?)
-                ) latest ON q.trade_date = latest.trade_date
-            ),
-            valuation_quotes AS (
-                SELECT code, pe_ttm, pb, total_market_cap
-                FROM (
-                    SELECT
-                        q.code,
-                        q.pe_ttm,
-                        q.pb,
-                        q.total_market_cap,
-                        ROW_NUMBER() OVER (
-                            PARTITION BY q.code
-                            ORDER BY q.trade_date DESC
-                        ) AS rn
-                    FROM daily_quotes q
-                    WHERE (q.pe_ttm IS NOT NULL
-                       OR q.pb IS NOT NULL
-                       OR q.total_market_cap IS NOT NULL)
-                       AND (? IS NULL OR q.trade_date <= ?)
-                )
-                WHERE rn = 1
-            )
             SELECT
                 mb.code,
                 {name_expr} AS name,
@@ -288,12 +270,11 @@ class StockScreener:
                     THEN q.turnover_rate
                     ELSE NULL
                 END AS turnover_rate,
-                COALESCE(q.pe_ttm, v.pe_ttm) AS pe_ttm,
-                COALESCE(q.pb, v.pb) AS pb,
-                COALESCE(q.total_market_cap, v.total_market_cap) AS total_market_cap
+                q.pe_ttm,
+                q.pb,
+                q.total_market_cap
             FROM market_bars mb
-            LEFT JOIN latest_quotes q ON mb.code = q.code
-            LEFT JOIN valuation_quotes v ON mb.code = v.code
+            LEFT JOIN daily_quotes q ON mb.code = q.code AND q.trade_date = ?
             LEFT JOIN stock_basic b ON mb.code = b.code
             WHERE mb.period = 'daily'
               AND mb.trade_date >= ?
@@ -316,11 +297,37 @@ class StockScreener:
         """
         df = self.db.query_to_dataframe(
             query,
-            (as_of_date, as_of_date, as_of_date, as_of_date, min_trade_date, as_of_date, as_of_date),
+            (latest_quote_date, min_trade_date, as_of_date, as_of_date),
         )
         if df is None or df.empty:
             logger.warning("[Screener] 股票池查询后无可用数据。")
             return []
+
+        valuation_df = self.db.query_to_dataframe(
+            """
+            SELECT code, pe_ttm, pb, total_market_cap
+            FROM daily_quotes
+            WHERE (? IS NULL OR trade_date <= ?)
+              AND (pe_ttm IS NOT NULL OR pb IS NOT NULL OR total_market_cap IS NOT NULL)
+            ORDER BY code, trade_date
+            """,
+            (as_of_date, as_of_date),
+        )
+        if valuation_df is not None and not valuation_df.empty:
+            valuation_df = valuation_df.groupby("code", sort=False).tail(1)
+            valuation_df = valuation_df.rename(
+                columns={
+                    "pe_ttm": "valuation_pe_ttm",
+                    "pb": "valuation_pb",
+                    "total_market_cap": "valuation_total_market_cap",
+                }
+            )
+            df = df.merge(valuation_df, on="code", how="left")
+            for col in ("pe_ttm", "pb", "total_market_cap"):
+                valuation_col = f"valuation_{col}"
+                if valuation_col in df.columns:
+                    df[col] = df[col].combine_first(df[valuation_col])
+                    df = df.drop(columns=[valuation_col])
 
         picks: List[Dict[str, Any]] = []
         rejected_counts: Counter[str] = Counter()
@@ -351,9 +358,11 @@ class StockScreener:
             "pb",
             "total_market_cap",
         ]
+        for col in numeric_columns:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
 
         for code, bars in df.groupby("code", sort=False):
-            bars = bars.sort_values("trade_date").copy()
             # 1. 历史长度检查
             min_history_days = int(profile["min_history_days"])
             min_new_stock_history_days = int(profile.get("min_new_stock_history_days", 30) or 30)
@@ -361,10 +370,6 @@ class StockScreener:
             if len(bars) < min_history_days and not is_new_stock_channel:
                 reject("history_too_short", code, metrics={"bar_count": len(bars), "min_history_days": min_history_days})
                 continue
-
-            for col in numeric_columns:
-                if col in bars.columns:
-                    bars[col] = pd.to_numeric(bars[col], errors="coerce")
 
             # 2. 排除 ST 和退市股
             latest = bars.iloc[-1]
@@ -397,12 +402,6 @@ class StockScreener:
             ret5 = (close / closes.iloc[-6] - 1) * 100 if len(closes) >= 6 and closes.iloc[-6] else 0
             ret10 = (close / closes.iloc[-11] - 1) * 100 if len(closes) >= 11 and closes.iloc[-11] else 0
             ret20 = (close / closes.iloc[-21] - 1) * 100 if len(closes) >= 21 and closes.iloc[-21] else 0
-            rsi14 = self._calculate_rsi(closes, 14)
-            macd_hist = self._calculate_macd_histogram(closes)
-            macd_hist_latest = float(macd_hist.iloc[-1]) if len(macd_hist) and pd.notna(macd_hist.iloc[-1]) else None
-            macd_hist_prev = float(macd_hist.iloc[-2]) if len(macd_hist) >= 2 and pd.notna(macd_hist.iloc[-2]) else None
-            macd_hist_rising = macd_hist_latest is not None and macd_hist_prev is not None and macd_hist_latest > macd_hist_prev
-            macd_bullish_divergence = self._has_macd_bullish_divergence(closes, macd_hist)
 
             # 4. 波动率检查
             daily_returns = closes.pct_change()
@@ -458,7 +457,7 @@ class StockScreener:
             change_pct = latest.get("change_pct")
             change_pct = float(change_pct) if pd.notna(change_pct) else float(ret1)
             turnover_rate = latest.get("turnover_rate")
-            turnover_rate = float(turnover_rate) if pd.notna(turnover_rate) else None
+            turnover_rate = self._normalize_turnover_rate(turnover_rate)
             if turnover_rate is not None and (
                 turnover_rate < float(profile["turnover_rate_min"])
                 or turnover_rate > float(profile["turnover_rate_max"])
@@ -497,6 +496,12 @@ class StockScreener:
                 close=close,
                 intraday_position=intraday_position,
             )
+            rsi14 = self._calculate_rsi(closes, 14)
+            macd_hist = self._calculate_macd_histogram(closes)
+            macd_hist_latest = float(macd_hist.iloc[-1]) if len(macd_hist) and pd.notna(macd_hist.iloc[-1]) else None
+            macd_hist_prev = float(macd_hist.iloc[-2]) if len(macd_hist) >= 2 and pd.notna(macd_hist.iloc[-2]) else None
+            macd_hist_rising = macd_hist_latest is not None and macd_hist_prev is not None and macd_hist_latest > macd_hist_prev
+            macd_bullish_divergence = self._has_macd_bullish_divergence(closes, macd_hist)
 
             strategy_matches = self._detect_strategy_matches(
                 profile=profile,
@@ -632,11 +637,6 @@ class StockScreener:
             logger.warning("[Screener] 无股票通过筛选。")
             return []
 
-        if self.theme_scorer is not None:
-            picks = self.theme_scorer.score_candidates(picks)
-        else:
-            picks = self._attach_disabled_theme_score(picks)
-
         ranked = sorted(picks, key=lambda item: item["technical_score"], reverse=True)
         candidates = self._apply_strategy_quota(
             ranked,
@@ -644,6 +644,11 @@ class StockScreener:
             max_per_industry=int(profile["max_per_industry"]),
             reject=reject,
         )
+        if self.theme_scorer is not None:
+            candidates = self.theme_scorer.score_candidates(candidates)
+            candidates = sorted(candidates, key=lambda item: float(item.get("technical_score") or 0), reverse=True)
+        else:
+            candidates = self._attach_disabled_theme_score(candidates)
 
         self.last_audit = self._build_audit_record(df, candidates, rejected_counts, rejected_stocks, top_n)
         self._write_screener_audit(self.last_audit)
@@ -903,6 +908,15 @@ class StockScreener:
         return amount.fillna(closes * volumes)
 
     @staticmethod
+    def _normalize_turnover_rate(value: Any) -> float | None:
+        if value in (None, "") or pd.isna(value):
+            return None
+        turnover = float(value)
+        if 0 < turnover <= 1.0:
+            return turnover * 100.0
+        return turnover
+
+    @staticmethod
     def _calculate_rsi(closes: pd.Series, period: int = 14) -> float | None:
         if len(closes) <= period:
             return None
@@ -1052,6 +1066,10 @@ class StockScreener:
         )
         if high_volume_stall:
             risk_penalty += 10.0
+
+        turnover = float(turnover_rate or 0.0)
+        if turnover > 35.0:
+            risk_penalty += min(12.0, (turnover - 35.0) * 0.35)
 
         if primary in {"momentum_leader", "first_limit_up_breakout"}:
             risk_penalty += 4.0

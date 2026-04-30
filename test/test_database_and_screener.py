@@ -1617,6 +1617,11 @@ class StockScreenerTests(unittest.TestCase):
 
         os.remove(config_path)
 
+    def test_screener_normalizes_decimal_turnover_rate_to_percent(self):
+        self.assertEqual(self.screener._normalize_turnover_rate(0.01), 1.0)
+        self.assertEqual(self.screener._normalize_turnover_rate(1.2), 1.2)
+        self.assertIsNone(self.screener._normalize_turnover_rate(None))
+
     def test_screener_audit_records_reject_reasons_and_candidates(self):
         temp_dir = os.path.join(PROJECT_ROOT, ".test_tmp", f"audit_{uuid.uuid4().hex}")
         os.makedirs(temp_dir, exist_ok=True)

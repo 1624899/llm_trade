@@ -137,7 +137,7 @@ profiles:
     min_new_stock_history_days: 30
     allow_new_stock_channel: true
     turnover_rate_min: 0.3
-    turnover_rate_max: 35.0
+    turnover_rate_max: 80.0
     max_per_industry: 4
     limit_up_change_pct: 9.8
     limit_down_change_pct: -9.8
