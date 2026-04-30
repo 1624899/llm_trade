@@ -574,6 +574,35 @@ class DataPipelineNormalizationTests(unittest.TestCase):
         mock_efinance.assert_called_once_with(["000001"], "daily")
         self.assertEqual(rows[["code", "period", "trade_date", "close", "source"]].values.tolist(), [["000001", "daily", "20260424", 10.5, "tushare_daily"]])
 
+    def test_sync_market_bars_reuses_daily_refresh_for_derived_periods(self):
+        pipeline = DataPipeline.__new__(DataPipeline)
+        pipeline._load_stock_codes_from_lake = MagicMock(return_value=["000001"])
+        pipeline._filter_codes_needing_bars = MagicMock(return_value=["000001"])
+        pipeline.sync_daily_bars_incremental = MagicMock(return_value=True)
+        pipeline._current_period_start_date = MagicMock(return_value="20260427")
+        pipeline._build_period_bars_from_daily = MagicMock(
+            return_value=pd.DataFrame(
+                [
+                    {
+                        "code": "000001",
+                        "period": "weekly",
+                        "trade_date": "20260430",
+                        "open": 10,
+                        "high": 11,
+                        "low": 9,
+                        "close": 10.5,
+                    }
+                ]
+            )
+        )
+        pipeline._clean_market_bars = MagicMock(side_effect=lambda df, _period: df)
+        pipeline._upsert_derived_period_bars = MagicMock(return_value=True)
+
+        self.assertTrue(pipeline.sync_market_bars(periods=("daily", "weekly", "monthly")))
+
+        pipeline.sync_daily_bars_incremental.assert_called_once_with(["000001"])
+        self.assertEqual(pipeline._build_period_bars_from_daily.call_count, 2)
+
     def test_sync_daily_bars_incremental_fills_missing_trade_dates(self):
         db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))
         pipeline = DataPipeline.__new__(DataPipeline)

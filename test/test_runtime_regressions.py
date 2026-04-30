@@ -715,6 +715,25 @@ class CoordinatorConcurrencyTests(unittest.TestCase):
         self.assertFalse(failed_report["news_risk_analysis"]["hard_exclude"])
 
 
+    def test_candidate_analysis_skips_deep_review_after_news_hard_exclude(self):
+        coordinator = self._build_coordinator(max_workers=1)
+        coordinator.news_risk_agent.analyze.return_value = {
+            "risk_level": "high",
+            "action": "hard_exclude",
+            "hard_exclude": True,
+            "summary": "mock high risk",
+        }
+
+        report = coordinator._analyze_single_candidate(
+            {"code": "000002", "name": "blocked"},
+            {"risk_appetite": "neutral"},
+        )
+
+        coordinator.fundamental_agent.analyze.assert_not_called()
+        coordinator.technical_agent.analyze.assert_not_called()
+        self.assertTrue(report["news_risk_analysis"]["hard_exclude"])
+        self.assertIn("硬风控", report["fundamental_analysis"])
+
     def test_target_code_normalizer_keeps_order_and_dedupes(self):
         coordinator = AgentCoordinator.__new__(AgentCoordinator)
 
@@ -1007,6 +1026,28 @@ class NewsRiskDecisionTests(unittest.TestCase):
         self.assertTrue(result["hard_exclude"])
         self.assertEqual(result["action"], "hard_exclude")
         self.assertIn("减持", [item["keyword"] for item in result["matched_keywords"]])
+
+    def test_news_risk_does_not_flag_increase_holding_change_summary_as_reduce_holding(self):
+        agent = NewsRiskAgent()
+
+        neutral = agent.assess_keyword_risk(
+            "证券之星消息，海康威视（002415）最新董监高及相关人员股份变动情况："
+            "2026年4月28日公司高管、董秘奉玮共增持公司股份7.29万股。"
+            "海康威视近半年内的董监高及核心技术人员增减持详情如下。",
+            code="002415",
+            name="海康威视",
+        )
+        risky = agent.assess_keyword_risk(
+            "海康威视公告：控股股东拟减持公司股份，减持计划已披露。",
+            code="002415",
+            name="海康威视",
+        )
+
+        self.assertEqual(neutral["risk_level"], "low")
+        self.assertFalse(neutral["hard_exclude"])
+        self.assertEqual(neutral["matched_keywords"], [])
+        self.assertEqual(risky["risk_level"], "high")
+        self.assertTrue(risky["hard_exclude"])
 
     def test_news_risk_does_not_flag_neutral_earnings_preview_phrase(self):
         agent = NewsRiskAgent()

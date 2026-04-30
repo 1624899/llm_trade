@@ -76,7 +76,7 @@ class AgentCoordinator:
         """
         端到端全链路自动化选股流程。
 
-        流程：多策略规则海选 → 宏观分析 → AI 轻量精筛 → 个股深度分析 → 决策输出。
+        流程：多策略规则海选 → 宏观分析 → AI 轻量精筛 → 资讯硬风控 → 个股深度分析 → 决策输出。
         """
         logger.info("=== 开始选股任务 ===")
         start_time = time.time()
@@ -134,7 +134,7 @@ class AgentCoordinator:
             quick_filter_result.get("selected_codes"),
         )
 
-        logger.info("[Step 4] 进入深度个案分析阶段...")
+        logger.info("[Step 4] 进入资讯硬风控与深度个案分析阶段...")
         detailed_reports, analysis_errors = self._analyze_candidates_concurrently(candidates, macro_context)
 
         if analysis_errors:
@@ -262,10 +262,6 @@ class AgentCoordinator:
         name = stock["name"]
         logger.info(f"  -> 正在分析: {name}({code})")
 
-        fund_report = self.fundamental_agent.analyze(code, name, macro_context=macro_context)
-        logger.info(f"  -> Fundamental done: {name}({code}), chars={len(str(fund_report or ''))}")
-        tech_report = self.technical_agent.analyze(code, name, macro_context=macro_context)
-        logger.info(f"  -> Technical done: {name}({code}), chars={len(str(tech_report or ''))}")
         news_risk_report = self.news_risk_agent.analyze(code, name, macro_context=macro_context)
         logger.info(
             f"  -> NewsRisk done: {name}({code}), "
@@ -273,6 +269,23 @@ class AgentCoordinator:
             f"action={news_risk_report.get('action') if isinstance(news_risk_report, dict) else 'unknown'}, "
             f"hard_exclude={news_risk_report.get('hard_exclude') if isinstance(news_risk_report, dict) else 'unknown'}"
         )
+        if isinstance(news_risk_report, dict) and bool(news_risk_report.get("hard_exclude")):
+            skip_reason = (
+                "资讯硬风控已拦截，跳过基本面和技术面深度复核，"
+                "避免继续消耗分析资源。"
+            )
+            logger.warning(f"  -> NewsRisk hard exclude: {name}({code}); skip deep review.")
+            return {
+                "asset_info": stock,
+                "fundamental_analysis": skip_reason,
+                "technical_analysis": skip_reason,
+                "news_risk_analysis": news_risk_report,
+            }
+
+        fund_report = self.fundamental_agent.analyze(code, name, macro_context=macro_context)
+        logger.info(f"  -> Fundamental done: {name}({code}), chars={len(str(fund_report or ''))}")
+        tech_report = self.technical_agent.analyze(code, name, macro_context=macro_context)
+        logger.info(f"  -> Technical done: {name}({code}), chars={len(str(tech_report or ''))}")
 
         return {
             "asset_info": stock,

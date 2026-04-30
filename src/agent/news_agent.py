@@ -145,7 +145,7 @@ class NewsRiskAgent:
         matched = []
         for level, keywords in RISK_KEYWORDS.items():
             for keyword in keywords:
-                if keyword in text:
+                if self._contains_risk_keyword(text, keyword):
                     matched.append({"keyword": keyword, "level": level})
 
         if any(item["level"] == "block" for item in matched):
@@ -200,11 +200,32 @@ class NewsRiskAgent:
             line = re.sub(r"\s+", " ", raw_line).strip()
             if not line:
                 continue
-            if any(keyword in line for keyword in keywords):
+            if any(self._contains_risk_keyword(line, keyword) for keyword in keywords):
                 lines.append(line[:260])
             if len(lines) >= limit:
                 break
         return lines
+
+    def _contains_risk_keyword(self, text: str, keyword: str) -> bool:
+        """Match risk words while ignoring explicit neutral contexts."""
+        if not text or not keyword:
+            return False
+        for match in re.finditer(re.escape(keyword), text):
+            if not self._is_neutral_keyword_context(text, keyword, match.start(), match.end()):
+                return True
+        return False
+
+    def _is_neutral_keyword_context(self, text: str, keyword: str, start: int, end: int) -> bool:
+        context = text[max(0, start - 12) : min(len(text), end + 12)]
+        neutral_prefixes = ("无", "未", "没有", "暂无", "不存在", "未发现", "未披露")
+        if any(prefix in text[max(0, start - 6) : start] for prefix in neutral_prefixes):
+            return True
+        if keyword == "减持":
+            if "增减持" in context:
+                return True
+            if "增持" in context and not any(marker in context for marker in ("拟减持", "计划减持", "减持计划", "减持公告")):
+                return True
+        return False
 
     def _filter_relevant_news(self, text: str, code: str = "", name: str = "", limit: int = 5) -> str:
         """保留直接提到当前股票代码或名称的新闻，降低原始个股页噪音。"""

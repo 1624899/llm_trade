@@ -33,12 +33,12 @@ class DecisionAgent:
         综合多维报告并选出最终胜出者。
         返回：Markdown 格式的决策报告，以及选中的股票代码列表。
         """
-        logger.info(
-            f"[Decision Agent] 正在综合 {len(detailed_reports)} 只候选股，目标 Top {pick_n}。"
-        )
-
         # 1. 资讯硬风控过滤：在进入 LLM 之前，先根据 NewsRiskAgent 的结果剔除高危股
         eligible_reports, blocked_reports = self._split_news_risk_candidates(detailed_reports)
+        logger.info(
+            f"[Decision Agent] 收到 {len(detailed_reports)} 只候选股，"
+            f"{len(eligible_reports)} 只通过资讯硬风控进入综合排序，目标 Top {pick_n}。"
+        )
         if blocked_reports:
             logger.warning(
                 f"[Decision Agent] 资讯硬风控剔除以下候选: "
