@@ -41,6 +41,7 @@ class MarketSentiment:
         snapshot = self.build_snapshot(top_n=top_n)
         market = snapshot["market"]
         lines = [
+            f"快照时间: {snapshot['as_of']}, 数据源: {snapshot['source']}, 样本数: {market.get('stock_count', 0)}",
             f"市场情绪: {snapshot['label']} ({snapshot['score']:.1f}/100)",
             f"涨/跌家数: {market.get('up_count', 0)}/{market.get('down_count', 0)}, "
             f"涨停(估): {market.get('limit_up_count', 0)}, "

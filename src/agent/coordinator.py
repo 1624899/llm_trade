@@ -8,6 +8,7 @@
 """
 
 import json
+import math
 import os
 import re
 import time
@@ -17,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
+import akshare as ak
 from loguru import logger
 
 from src.agent.decision_agent import DecisionAgent
@@ -365,7 +367,7 @@ class AgentCoordinator:
         """从本地数据湖补齐股票名称和行情；指定分析优先用实时价格覆盖本地快照。"""
         placeholders = ",".join(["?"] * len(codes))
         basic_df = self.db.query_to_dataframe(
-            f"SELECT code, name FROM stock_basic WHERE code IN ({placeholders})",
+            f"SELECT code, name, industry FROM stock_basic WHERE code IN ({placeholders})",
             tuple(codes),
         )
         quote_df = self.db.query_to_dataframe(
@@ -399,25 +401,121 @@ class AgentCoordinator:
             basic = basic_map.get(code, {})
             quote = quote_map.get(code, {})
             realtime_price = realtime_prices.get(code)
+            profile_fallback = self._fetch_target_profile_fallback(code, quote)
+            industry = self._first_present(
+                basic.get("industry"),
+                profile_fallback.get("industry"),
+            )
+            pb = self._first_present(
+                quote.get("pb"),
+                profile_fallback.get("pb"),
+            )
+            total_market_cap = self._first_present(
+                quote.get("total_market_cap"),
+                profile_fallback.get("total_market_cap"),
+            )
             candidates.append(
                 {
                     "code": code,
-                    "name": basic.get("name") or code,
-                    "industry": basic.get("industry", "") or "",
+                    "name": basic.get("name") or profile_fallback.get("name") or code,
+                    "industry": industry or "",
                     "price": realtime_price if realtime_price is not None else quote.get("price"),
                     "change_pct": quote.get("change_pct"),
                     "volume": quote.get("volume"),
                     "amount": quote.get("amount"),
                     "turnover_rate": quote.get("turnover_rate"),
                     "pe_ttm": quote.get("pe_ttm"),
-                    "pb": quote.get("pb"),
-                    "total_market_cap": quote.get("total_market_cap"),
+                    "pb": pb,
+                    "total_market_cap": total_market_cap,
                     "trade_date": quote.get("trade_date"),
                     "analysis_mode": "targeted",
                     "screen_reason": "用户指定股票，跳过规则海选。",
                 }
             )
         return candidates
+
+    def _fetch_target_profile_fallback(self, code: str, quote: Dict[str, Any]) -> Dict[str, Any]:
+        """指定分析兜底补齐行业和 PB；只在本地字段缺失时按需触发。"""
+        fallback: Dict[str, Any] = {}
+        if self._is_missing(quote.get("pb")):
+            fallback.update(self._fetch_target_valuation_fallback(code, quote.get("trade_date")))
+        if not fallback.get("total_market_cap") and not self._is_missing(quote.get("total_market_cap")):
+            fallback["total_market_cap"] = quote.get("total_market_cap")
+
+        if not fallback.get("industry"):
+            fallback.update(self._fetch_target_basic_fallback(code))
+        return fallback
+
+    def _fetch_target_basic_fallback(self, code: str) -> Dict[str, Any]:
+        try:
+            df = ak.stock_individual_info_em(symbol=str(code).zfill(6))
+        except Exception as exc:
+            logger.warning("[TargetedAnalysis] 个股基础信息兜底失败 {}: {}", code, exc)
+            return {}
+        if df is None or df.empty or "item" not in df.columns or "value" not in df.columns:
+            return {}
+
+        info = {str(row.get("item", "")).strip(): row.get("value") for _, row in df.iterrows()}
+        return {
+            "name": info.get("股票简称"),
+            "industry": info.get("行业"),
+            "total_market_cap": self._to_float(info.get("总市值")),
+        }
+
+    def _fetch_target_valuation_fallback(self, code: str, trade_date: Any = None) -> Dict[str, Any]:
+        try:
+            df = ak.stock_value_em(symbol=str(code).zfill(6))
+        except Exception as exc:
+            logger.warning("[TargetedAnalysis] 个股估值兜底失败 {}: {}", code, exc)
+            return {}
+        if df is None or df.empty:
+            return {}
+
+        date_col = "数据日期"
+        if date_col in df.columns:
+            df = df.copy()
+            df[date_col] = df[date_col].astype(str).str.replace("-", "", regex=False)
+            target_date = str(trade_date or "").replace("-", "")
+            if target_date:
+                matched = df[df[date_col] <= target_date].tail(1)
+                if not matched.empty:
+                    df = matched
+                else:
+                    df = df.tail(1)
+            else:
+                df = df.tail(1)
+        row = df.iloc[-1]
+        return {
+            "pb": self._to_float(row.get("市净率")),
+            "total_market_cap": self._to_float(row.get("总市值")),
+            "pe_ttm": self._to_float(row.get("PE(TTM)")),
+        }
+
+    @staticmethod
+    def _first_present(*values: Any) -> Any:
+        for value in values:
+            if not AgentCoordinator._is_missing(value):
+                return value
+        return None
+
+    @staticmethod
+    def _is_missing(value: Any) -> bool:
+        if value is None:
+            return True
+        if isinstance(value, str):
+            return not value.strip() or value.strip().lower() in {"nan", "none", "null", "未知", "n/a"}
+        if isinstance(value, float):
+            return math.isnan(value)
+        return False
+
+    @staticmethod
+    def _to_float(value: Any) -> float | None:
+        try:
+            if AgentCoordinator._is_missing(value):
+                return None
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
     def _format_targeted_analysis_report(
         self,
@@ -457,11 +555,11 @@ class AgentCoordinator:
                     "",
                     f"- 行业：{asset.get('industry') or '未知'}",
                     f"- 最新交易日：{asset.get('trade_date') or '本地行情缺失'}",
-                    f"- 最新价：{asset.get('price') if asset.get('price') is not None else '未知'}",
-                    f"- 涨跌幅：{asset.get('change_pct') if asset.get('change_pct') is not None else '未知'}",
-                    f"- 换手率：{asset.get('turnover_rate') if asset.get('turnover_rate') is not None else '未知'}",
-                    f"- PE(TTM)：{asset.get('pe_ttm') if asset.get('pe_ttm') is not None else '未知'}",
-                    f"- PB：{asset.get('pb') if asset.get('pb') is not None else '未知'}",
+                    f"- 最新价：{self._format_snapshot_number(asset.get('price'))}",
+                    f"- 涨跌幅：{self._format_snapshot_number(asset.get('change_pct'), suffix='%')}",
+                    f"- 换手率：{self._format_snapshot_number(asset.get('turnover_rate'), suffix='%')}",
+                    f"- PE(TTM)：{self._format_snapshot_number(asset.get('pe_ttm'))}",
+                    f"- PB：{self._format_snapshot_number(asset.get('pb'))}",
                     "",
                     "### 基本面 Agent",
                     "",
@@ -487,6 +585,13 @@ class AgentCoordinator:
 
         lines.append("> 本报告仅用于研究、复盘和工程实验，不构成任何投资建议。")
         return "\n".join(lines)
+
+    def _format_snapshot_number(self, value: Any, *, suffix: str = "", digits: int = 2) -> str:
+        number = self._to_float(value)
+        if number is None:
+            return "未知"
+        text = f"{number:.{digits}f}".rstrip("0").rstrip(".")
+        return f"{text}{suffix}"
 
     def _format_targeted_summary(self, detailed_reports: List[Dict[str, Any]]) -> List[str]:
         """生成指定股票分析的总评表，避免报告只有明细没有结论。"""

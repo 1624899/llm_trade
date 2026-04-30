@@ -1472,7 +1472,8 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
         success_basic = self.sync_stock_basic()
         success_quotes = self.sync_daily_quotes()
         success_index_bars = self.sync_index_bars()
-        if success_basic and self.backfill_history_on_sync and self._market_bars_needs_history_init():
+        needs_history_init = self._market_bars_needs_history_init() if success_basic else False
+        if success_basic and self.backfill_history_on_sync and needs_history_init:
             logger.info(
                 "market_bars history is incomplete; initializing 10-year daily history "
                 "from Tushare and deriving weekly/monthly bars"
@@ -1481,7 +1482,10 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
         else:
             sync_periods = ("daily", "weekly", "monthly") if self.derive_period_bars_on_sync else ("daily",)
             if not self.derive_period_bars_on_sync:
-                logger.info("在每日同步中跳过每周/每月的推导计算，以节省时间；如果需要完整历史，请启用 backfill_history_on_sync")
+                if self.backfill_history_on_sync and not needs_history_init:
+                    logger.info("本地 market_bars 历史已完成初始化；每日同步仅更新日线，跳过每周/每月推导以节省时间")
+                else:
+                    logger.info("在每日同步中跳过每周/每月的推导计算，以节省时间；如果需要完整历史，请启用 backfill_history_on_sync")
             success_bars = self.sync_market_bars(periods=sync_periods) if success_basic else False
         
         if cleanup_ok and success_basic and success_quotes and success_index_bars and success_bars:
