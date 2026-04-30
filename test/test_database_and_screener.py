@@ -5,7 +5,7 @@ import sqlite3
 import uuid
 import unittest
 from datetime import datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pandas as pd
 
@@ -574,6 +574,47 @@ class DataPipelineNormalizationTests(unittest.TestCase):
         mock_efinance.assert_called_once_with(["000001"], "daily")
         self.assertEqual(rows[["code", "period", "trade_date", "close", "source"]].values.tolist(), [["000001", "daily", "20260424", 10.5, "tushare_daily"]])
 
+    def test_sync_daily_bars_incremental_fills_missing_trade_dates(self):
+        db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))
+        pipeline = DataPipeline.__new__(DataPipeline)
+        pipeline.db = db
+        rows = pd.DataFrame(
+            [
+                {
+                    "code": "000001",
+                    "period": "daily",
+                    "trade_date": "20260424",
+                    "open": 10,
+                    "high": 11,
+                    "low": 9,
+                    "close": 10.5,
+                    "adj_close": 10.5,
+                    "volume": 1000,
+                    "amount": 10000,
+                    "source": "tushare_daily",
+                    "fetched_at": "2026-04-24 18:00:00",
+                }
+            ]
+        )
+        self.assertTrue(db.upsert_dataframe("market_bars", rows, key_columns=["code", "period", "trade_date"]))
+        pipeline._expected_latest_trade_date = MagicMock(return_value="20260429")
+        pipeline._resolve_tushare_trade_dates = MagicMock(
+            return_value=["20260427", "20260428", "20260429"]
+        )
+        pipeline.sync_daily_bars_by_trade_date = MagicMock(return_value=True)
+
+        self.assertTrue(pipeline.sync_daily_bars_incremental(["000001"]))
+
+        pipeline._resolve_tushare_trade_dates.assert_called_once_with("20260425", "20260429")
+        self.assertEqual(
+            pipeline.sync_daily_bars_by_trade_date.call_args_list,
+            [
+                call(["000001"], trade_date="20260427"),
+                call(["000001"], trade_date="20260428"),
+                call(["000001"], trade_date="20260429"),
+            ],
+        )
+
     def test_build_weekly_bars_from_daily_qfq(self):
         db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))
         pipeline = DataPipeline.__new__(DataPipeline)
@@ -622,6 +663,93 @@ class DataPipelineNormalizationTests(unittest.TestCase):
         self.assertEqual(weekly.iloc[0]["close"], 11.5)
         self.assertEqual(weekly.iloc[0]["volume"], 300)
         self.assertEqual(weekly.iloc[0]["source"], "derived_daily_qfq")
+
+    def test_build_weekly_bars_can_use_incremental_daily_window(self):
+        db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))
+        pipeline = DataPipeline.__new__(DataPipeline)
+        pipeline.db = db
+        rows = pd.DataFrame(
+            [
+                {
+                    "code": "000001",
+                    "period": "daily",
+                    "trade_date": "20260417",
+                    "open": 8,
+                    "high": 9,
+                    "low": 7,
+                    "close": 8.5,
+                    "adj_close": 8.5,
+                    "volume": 1000,
+                    "amount": 10000,
+                    "source": "efinance",
+                    "fetched_at": "2026-04-17 18:00:00",
+                },
+                {
+                    "code": "000001",
+                    "period": "daily",
+                    "trade_date": "20260420",
+                    "open": 10,
+                    "high": 11,
+                    "low": 9.5,
+                    "close": 10.8,
+                    "adj_close": 10.8,
+                    "volume": 100,
+                    "amount": 1000,
+                    "source": "efinance",
+                    "fetched_at": "2026-04-20 18:00:00",
+                },
+                {
+                    "code": "000001",
+                    "period": "daily",
+                    "trade_date": "20260421",
+                    "open": 10.8,
+                    "high": 12,
+                    "low": 10.6,
+                    "close": 11.5,
+                    "adj_close": 11.5,
+                    "volume": 200,
+                    "amount": 2200,
+                    "source": "efinance",
+                    "fetched_at": "2026-04-21 18:00:00",
+                },
+            ]
+        )
+        self.assertTrue(db.upsert_dataframe("market_bars", rows, key_columns=["code", "period", "trade_date"]))
+
+        weekly = pipeline._build_period_bars_from_daily(["000001"], "weekly", start_date="20260420")
+
+        self.assertEqual(len(weekly), 1)
+        self.assertEqual(weekly.iloc[0]["trade_date"], "20260421")
+        self.assertEqual(weekly.iloc[0]["open"], 10)
+        self.assertEqual(weekly.iloc[0]["volume"], 300)
+
+    def test_filter_codes_needing_weekly_bars_uses_dedicated_table(self):
+        db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))
+        pipeline = DataPipeline.__new__(DataPipeline)
+        pipeline.db = db
+        expected_date = pipeline._expected_latest_trade_date("daily")
+        rows = pd.DataFrame(
+            [
+                {
+                    "code": "000001",
+                    "trade_date": expected_date,
+                    "open": 10,
+                    "high": 11,
+                    "low": 9,
+                    "close": 10.5,
+                    "adj_close": 10.5,
+                    "volume": 1000,
+                    "amount": 10000,
+                    "source": "derived_daily_qfq",
+                    "fetched_at": "2026-04-25 18:00:00",
+                }
+            ]
+        )
+        self.assertTrue(db.upsert_dataframe("market_bars_weekly", rows, key_columns=["code", "trade_date"]))
+
+        pending = pipeline._filter_codes_needing_bars(["000001", "000002"], "weekly")
+
+        self.assertEqual(pending, ["000002"])
 
     def test_prune_database_history_keeps_recent_analysis_window(self):
         db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))

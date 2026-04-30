@@ -152,14 +152,16 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
             logger.info(f"Start syncing {period} bars: pending={len(pending_codes)}, skipped={skipped_count}")
 
             if period == "daily":
-                ok = self.sync_daily_bars_by_trade_date(pending_codes)
+                ok = self.sync_daily_bars_incremental(pending_codes)
                 all_success = all_success and ok
                 continue
 
-            daily_ok = self.sync_daily_bars_by_trade_date(pending_codes)
+            daily_ok = self.sync_daily_bars_incremental(pending_codes)
             if not daily_ok:
                 logger.warning(f"{period} K line will use existing local daily bars because daily refresh failed")
-            bars_df = self._build_period_bars_from_daily(pending_codes, period)
+            start_date = self._current_period_start_date(period)
+            logger.info(f"{period} K line incremental derivation window: start_date={start_date}")
+            bars_df = self._build_period_bars_from_daily(pending_codes, period, start_date=start_date)
 
             if bars_df is None or bars_df.empty:
                 logger.error(f"{period} K line sync failed")
@@ -209,11 +211,11 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
         if bars_df is None or bars_df.empty:
             if not getattr(self, "enable_akshare_daily_fallback", False):
                 logger.warning(
-                    "daily K line has no usable rows for requested missing codes; "
-                    "AKShare fallback is disabled, treating as non-fatal"
+                    "每日 K 线图没有可用的行来处理请求的缺失代码 "
+                    "AKShare 的回退功能已禁用，将其视为非致命错误"
                 )
                 return True
-            logger.error("daily K line sync failed: Tushare and AKShare returned no usable rows")
+            logger.error("每日 K 线同步失败：Tushare 和 AKShare 返回无可用行")
             return False
 
         if getattr(self, "enable_efinance_validation", True):
@@ -237,13 +239,60 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
             key_columns=["code", "period", "trade_date"],
         )
 
+    def sync_daily_bars_incremental(self, codes=None, end_date: str = None) -> bool:
+        """
+        补齐每只股票从本地最新日线之后到目标交易日之间的缺口。
+        """
+        codes = [str(code).zfill(6) for code in (codes or self._load_stock_codes_from_lake())]
+        if not codes:
+            return True
+
+        target_date = str(end_date or self._expected_latest_trade_date("daily")).replace("-", "")[:8]
+        latest_dates = self._latest_bar_dates(codes, "daily")
+        parsed_latest = {
+            code: self._parse_trade_date(latest_dates.get(code))
+            for code in codes
+        }
+        target = datetime.strptime(target_date, "%Y%m%d").date()
+
+        dated_codes = {}
+        stale_dates = [latest for latest in parsed_latest.values() if latest is not None and latest < target]
+        trade_dates = []
+        if stale_dates:
+            start_date = (min(stale_dates) + timedelta(days=1)).strftime("%Y%m%d")
+            trade_dates = self._resolve_tushare_trade_dates(start_date, target_date)
+
+        for code in codes:
+            latest = parsed_latest.get(code)
+            if latest is None or latest >= target:
+                dated_codes.setdefault(target_date, []).append(code)
+                continue
+            for trade_date in trade_dates:
+                parsed_trade_date = self._parse_trade_date(trade_date)
+                if parsed_trade_date and latest < parsed_trade_date <= target:
+                    dated_codes.setdefault(trade_date, []).append(code)
+
+        if not dated_codes:
+            logger.info("daily K 线没有需要补齐的交易日")
+            return True
+
+        total_requests = sum(len(batch_codes) for batch_codes in dated_codes.values())
+        logger.info(
+            f"daily K 线增量补齐: dates={len(dated_codes)}, code-date pairs={total_requests}, "
+            f"end_date={target_date}"
+        )
+        all_success = True
+        for trade_date in sorted(dated_codes):
+            all_success = self.sync_daily_bars_by_trade_date(dated_codes[trade_date], trade_date=trade_date) and all_success
+        return all_success
+
     def _sync_daily_bars_by_trade_date(self, codes) -> bool:
         """Backward-compatible wrapper for daily bar refresh."""
-        return self.sync_daily_bars_by_trade_date(codes)
+        return self.sync_daily_bars_incremental(codes)
 
     def _sync_daily_bars_for_codes(self, codes) -> bool:
         """Backward-compatible wrapper for daily bar refresh."""
-        return self.sync_daily_bars_by_trade_date(codes)
+        return self.sync_daily_bars_incremental(codes)
 
     def sync_market_bars_history(
         self,
@@ -599,22 +648,11 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
         """
         通过对比数据库中的最新日期，筛选出需要更新 K 线数据的股票代码。
         """
-        target_date = self._expected_latest_trade_date(period)
+        target_period = "daily" if period in {"weekly", "monthly"} else period
+        target_date = self._expected_latest_trade_date(target_period)
         codes = [str(code).zfill(6) for code in codes]
 
-        sql = (
-            "SELECT mb.code, mb.trade_date AS latest_trade_date, mb.source "
-            "FROM market_bars mb "
-            "JOIN ("
-            "    SELECT code, MAX(trade_date) AS latest_trade_date "
-            "    FROM market_bars "
-            "    WHERE period = ? "
-            "    GROUP BY code"
-            ") latest "
-            "ON latest.code = mb.code AND latest.latest_trade_date = mb.trade_date "
-            "WHERE mb.period = ?"
-        )
-        latest_df = self.db.query_to_dataframe(sql, (period, period))
+        latest_df = self._latest_bar_status(period)
         if latest_df is None or latest_df.empty:
             logger.info("log message")
             return codes
@@ -630,6 +668,45 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
         ]
         logger.info(f"{period} bar freshness check: target={target_date}, existing={len(latest_map)}, pending={len(pending_codes)}")
         return pending_codes
+
+    def _latest_bar_status(self, period: str) -> pd.DataFrame:
+        if period == "daily":
+            sql = (
+                "SELECT mb.code, mb.trade_date AS latest_trade_date, mb.source "
+                "FROM market_bars mb "
+                "JOIN ("
+                "    SELECT code, MAX(trade_date) AS latest_trade_date "
+                "    FROM market_bars "
+                "    WHERE period = ? "
+                "    GROUP BY code"
+                ") latest "
+                "ON latest.code = mb.code AND latest.latest_trade_date = mb.trade_date "
+                "WHERE mb.period = ?"
+            )
+            return self.db.query_to_dataframe(sql, (period, period))
+
+        table_name = self._period_bar_table(period)
+        sql = (
+            "SELECT mb.code, mb.trade_date AS latest_trade_date, mb.source "
+            f"FROM {table_name} mb "
+            "JOIN ("
+            "    SELECT code, MAX(trade_date) AS latest_trade_date "
+            f"    FROM {table_name} "
+            "    GROUP BY code"
+            ") latest "
+            "ON latest.code = mb.code AND latest.latest_trade_date = mb.trade_date"
+        )
+        return self.db.query_to_dataframe(sql)
+
+    def _current_period_start_date(self, period: str) -> str:
+        latest_daily = datetime.strptime(self._expected_latest_trade_date("daily"), "%Y%m%d").date()
+        if period == "weekly":
+            start = latest_daily - timedelta(days=latest_daily.weekday())
+        elif period == "monthly":
+            start = latest_daily.replace(day=1)
+        else:
+            raise ValueError(f"Cannot derive incremental window for {period}")
+        return start.strftime("%Y%m%d")
 
     @staticmethod
     def _bar_source_is_trusted(period: str, source: str) -> bool:
@@ -1404,7 +1481,7 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
         else:
             sync_periods = ("daily", "weekly", "monthly") if self.derive_period_bars_on_sync else ("daily",)
             if not self.derive_period_bars_on_sync:
-                logger.info("Skip weekly/monthly derivation on daily sync")
+                logger.info("在每日同步中跳过每周/每月的推导计算，以节省时间；如果需要完整历史，请启用 backfill_history_on_sync")
             success_bars = self.sync_market_bars(periods=sync_periods) if success_basic else False
         
         if cleanup_ok and success_basic and success_quotes and success_index_bars and success_bars:

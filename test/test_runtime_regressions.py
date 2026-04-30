@@ -792,6 +792,9 @@ class QuickFilterAgentTests(unittest.TestCase):
         self.assertEqual(result["mode"], "llm")
         self.assertEqual(result["selected_codes"], ["000002", "000001"])
         self.assertEqual([item["code"] for item in result["selected_candidates"]], ["000002", "000001"])
+        system_prompt, user_prompt = mock_call_llm.call_args.args[:2]
+        self.assertNotIn("回测", system_prompt)
+        self.assertNotIn("回测", user_prompt)
 
     @patch("src.agent.quick_filter_agent.tools.call_llm", return_value="")
     def test_quick_filter_falls_back_to_rule_order(self, _mock_call_llm):

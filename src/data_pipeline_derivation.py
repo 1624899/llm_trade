@@ -94,7 +94,13 @@ class PeriodBarDerivationMixin:
             logger.info(f"Successfully upserted {len(storage_df)} rows into {table_name}")
         return ok
 
-    def _build_period_bars_from_daily(self, codes, period: str) -> pd.DataFrame:
+    def _build_period_bars_from_daily(
+        self,
+        codes,
+        period: str,
+        start_date: str = None,
+        end_date: str = None,
+    ) -> pd.DataFrame:
         """基于本地日线聚合生成指定周期 K 线。"""
         if period not in {"weekly", "monthly"}:
             raise ValueError(f"Cannot derive {period} bars from daily bars")
@@ -103,26 +109,33 @@ class PeriodBarDerivationMixin:
         if not codes:
             return pd.DataFrame()
 
-        daily_df = self._load_daily_bars_for_derivation(codes)
+        daily_df = self._load_daily_bars_for_derivation(codes, start_date=start_date, end_date=end_date)
         if daily_df is None or daily_df.empty:
             return pd.DataFrame()
 
         return self._aggregate_daily_bars(daily_df, period)
 
-    def _load_daily_bars_for_derivation(self, codes) -> pd.DataFrame:
+    def _load_daily_bars_for_derivation(self, codes, start_date: str = None, end_date: str = None) -> pd.DataFrame:
         """一次性读取本地日线，周线/月线派生可复用，避免重复扫库。"""
         codes = [str(code).zfill(6) for code in codes]
         if not codes:
             return pd.DataFrame()
 
         placeholders = ",".join("?" for _ in codes)
+        params = list(codes)
         sql = (
             "SELECT code, trade_date, open, high, low, close, adj_close, volume, amount, fetched_at "
             "FROM market_bars "
             f"WHERE period = 'daily' AND code IN ({placeholders}) "
-            "ORDER BY code, trade_date"
         )
-        return self.db.query_to_dataframe(sql, tuple(codes))
+        if start_date:
+            sql += "AND trade_date >= ? "
+            params.append(str(start_date).replace("-", "")[:8])
+        if end_date:
+            sql += "AND trade_date <= ? "
+            params.append(str(end_date).replace("-", "")[:8])
+        sql += "ORDER BY code, trade_date"
+        return self.db.query_to_dataframe(sql, tuple(params))
 
     def _aggregate_daily_bars(self, daily_df: pd.DataFrame, period: str) -> pd.DataFrame:
         """将日线 OHLCV 数据向量化聚合为周线或月线。"""

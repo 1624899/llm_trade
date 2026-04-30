@@ -46,7 +46,7 @@ data:
   enable_database_cleanup: false
   enable_database_vacuum: false
   derive_period_bars_on_sync: false
-  backfill_history_on_sync: false
+  backfill_history_on_sync: true
   market_data_retention_days: 30
   macro_events_retention_days: 30
   output_retention_days: 30
