@@ -177,6 +177,9 @@
 
 ```bash
 pip install -r requirements.txt
+cd frontend
+npm install
+cd ..
 ```
 
 ### 2. 配置环境变量
@@ -336,6 +339,76 @@ python main.py --post
 - 调用宏观环境判断。
 - 通过 `ExitAgent` 评估是否减仓或清仓。
 - 对观察仓亏损和交易仓亏损案例生成反思并沉淀到规则本。
+
+### 10. 启动可视化工作台
+
+工作台前端已迁移到 `frontend/`，使用 Vue + Vite 开发，后端 `--dashboard` 会托管 `frontend/dist` 中的构建产物。
+
+首次启动或修改前端后，先构建前端：
+
+```bash
+cd frontend
+npm install
+npm run build
+cd ..
+```
+
+然后启动本地工作台：
+
+```bash
+python main.py --dashboard
+```
+
+默认访问地址：
+
+- <http://127.0.0.1:8765>
+
+工作台会直接读取本地 `outputs` 和 `data/stock_lake.db`，展示最新研报、观察仓、交易仓、交易流水、规则筛选审计、回测摘要和个股近期走势。也可以指定监听地址和端口：
+
+```bash
+python main.py --dashboard --dashboard-host 127.0.0.1 --dashboard-port 8765
+```
+
+前端源码位于 `frontend/`：
+
+- `frontend/src/`：Vue 页面、组件、样式和 API 调用。
+- `frontend/public/`：静态资源。
+- `frontend/dist/`：`npm run build` 生成的构建产物，供 `python main.py --dashboard` 托管。
+- `frontend/package.json`：前端依赖和开发脚本。
+
+如果要单独调试前端，可以在一个终端启动后端 API：
+
+```bash
+python main.py --dashboard
+```
+
+另一个终端启动 Vite 开发服务：
+
+```bash
+cd frontend
+npm run dev
+```
+
+当前工作台已经从“只读展示”落地为可操作前端：
+
+- 可以直接查看观察仓、交易仓、交易流水、最新研报、审计摘要、回测摘要和个股近期走势。
+- 可以在二级运行配置窗口中编辑 `config/config.yaml` 的中文化参数表单。
+- 可以通过按钮触发原来的 bash 命令，包括同步数据、补历史日线、派生周/月线、执行选股、走步回测、模拟调仓和盘后诊断。
+- 可以输入股票代码触发指定分析，相当于执行 `python main.py --analyze 600519 000001`。
+- 每个从前端触发的任务会写入 `outputs/dashboard_jobs/*.log`，页面会展示任务状态和日志尾部。
+
+前端触发任务走本地白名单 API，不接收任意 shell 字符串。对应关系如下：
+
+| 前端按钮 | 后端触发 |
+| --- | --- |
+| 同步数据 | `python main.py --sync` |
+| 补历史日线 | `python main.py --backfill-bars` |
+| 派生周/月线 | `python main.py --derive-bars` |
+| 执行选股 | `python main.py --pick` |
+| 走步回测 | `python main.py --backtest` |
+| 模拟调仓 | `python main.py --trade` |
+| 盘后诊断 | `python main.py --post` |
+| 指定分析 | `python main.py --analyze <codes...>` |
 
 ## 配置文件
 

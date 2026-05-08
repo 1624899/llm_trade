@@ -70,8 +70,8 @@ data:
   tushare_token: "env:TUSHARE_TOKEN"
   tushare_anomaly_pct: 15.0
   tushare_history_start_date: "auto_10y"
-  tushare_request_interval: 0.1
-  tushare_history_max_workers: 4
+  tushare_request_interval: 0.3
+  tushare_history_max_workers: 1
   tushare_max_retries: 3
   tushare_fetch_adj_factor: false
   enable_akshare_daily_fallback: false

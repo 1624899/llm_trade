@@ -3,9 +3,7 @@ import sys
 import os
 from loguru import logger
 
-from src.data_pipeline import DataPipeline
-from src.agent.coordinator import AgentCoordinator
-from src.evaluation.backtest import BacktestEngine
+from src.dashboard import run_dashboard
 
 def setup_logger():
     """初始化终端日志显示格式"""
@@ -15,7 +13,7 @@ def setup_logger():
         except Exception:
             pass
     logger.remove()
-    logger.add(sys.stdout, format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{message}</cyan>", level="INFO")
+    logger.add(sys.stdout, format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{message}</cyan>", level="INFO", colorize=True)
 
 def main():
     setup_logger()
@@ -27,25 +25,37 @@ def main():
     parser.add_argument("--pick", action="store_true", help="【自动选股】执行技术面预筛选 + 多 Agent 深度分析选股流程")
     parser.add_argument("--trade", action="store_true", help="【模拟交易】根据观察仓推荐和交易仓状态运行 TradingAgent 调仓")
     parser.add_argument("--post", action="store_true", help="【盘后清算】运行盘后例行维护：虚拟观察仓结算 + 失败错题反思并沉淀风控规则")
+    parser.add_argument("--dashboard", action="store_true", help="【可视化工作台】启动本地 Web 工作台，展示报告、观察仓、交易仓和审计摘要")
+    parser.add_argument("--dashboard-host", default="127.0.0.1", help="工作台监听地址，默认 127.0.0.1")
+    parser.add_argument("--dashboard-port", type=int, default=8765, help="工作台端口，默认 8765")
+    parser.add_argument("--open-browser", action="store_true", help="启动工作台后自动打开浏览器")
     
     parser.add_argument("--analyze", nargs="+", help="【指定分析】对指定 A 股代码做单独深度分析，例如：python main.py --analyze 600519 000001")
     parser.add_argument("--backtest", action="store_true", help="遮盖旧数据做走步回测，生成因子权重参考")
     args = parser.parse_args()
     
-    if not any([args.sync, args.backfill_bars, args.derive_bars, args.pick, args.trade, args.analyze, args.post, args.backtest]):
+    if not any([args.sync, args.backfill_bars, args.derive_bars, args.pick, args.trade, args.analyze, args.post, args.backtest, args.dashboard]):
         parser.print_help()
         logger.info("\n没有输入任何指令。例如执行每日选股： python main.py --pick")
+        return
+
+    if args.dashboard:
+        run_dashboard(host=args.dashboard_host, port=args.dashboard_port, open_browser=args.open_browser)
         return
 
     logger.info("============== LLM-TRADE 智能引擎启动 ==============")
 
     # 1. 盘后数据兜底与同步
     if args.sync:
+        from src.data_pipeline import DataPipeline
+
         logger.info(">>> 收到指令：全量同步云端市场数据至本地 SQLite ...")
         pipeline = DataPipeline()
         pipeline.run_all()
 
     if args.backfill_bars:
+        from src.data_pipeline import DataPipeline
+
         logger.info(">>> 收到指令：补全本地缺失的历史日线 K 线 ...")
         pipeline = DataPipeline()
         ok = pipeline.sync_market_bars_history(derive_periods=())
@@ -55,6 +65,8 @@ def main():
             logger.warning("历史日线 K 线补洞完成，但存在部分缺失日期")
 
     if args.derive_bars:
+        from src.data_pipeline import DataPipeline
+
         logger.info(">>> 收到指令：基于本地日线派生周线/月线 ...")
         pipeline = DataPipeline()
         ok = pipeline.derive_period_bars(periods=("weekly", "monthly"))
@@ -65,6 +77,8 @@ def main():
         
     # 2. 端到端多 Agent 选股执行
     if args.pick:
+        from src.agent.coordinator import AgentCoordinator
+
         logger.info(">>> 收到选股指令：技术预筛 + 多 Agent 深度分析")
         coordinator = AgentCoordinator()
         report = coordinator.run_picking_workflow(max_candidates=10)
@@ -82,16 +96,22 @@ def main():
     # 3. 闭环虚拟仓管理与大模型自我反思进化
     # 3. 用户指定股票的单独深度分析
     if args.analyze:
+        from src.agent.coordinator import AgentCoordinator
+
         logger.info(f">>> 收到指定分析指令：{args.analyze}")
         coordinator = AgentCoordinator()
         report = coordinator.run_targeted_analysis(args.analyze)
 
     if args.trade:
+        from src.agent.coordinator import AgentCoordinator
+
         logger.info(">>> 收到模拟交易指令：TradingAgent 根据观察仓与交易仓执行调仓")
         coordinator = AgentCoordinator()
         coordinator.run_trading_workflow()
 
     if args.post:
+        from src.agent.coordinator import AgentCoordinator
+
         logger.info(">>> 收到指令：执行盘后仓位结算与 AI 错题反思...")
         coordinator = AgentCoordinator()
         coordinator.run_post_market_routine()
@@ -99,6 +119,8 @@ def main():
     logger.info("============== 任务序列执行完毕 ==============")
 
     if args.backtest:
+        from src.evaluation.backtest import BacktestEngine
+
         logger.info(">>> 收到回测指令：遮盖历史截面之后的数据，执行走步推演 ...")
         report = BacktestEngine().run_walk_forward_backtest()
         print(f"回测完成，窗口数={report.get('window_count')}，样本数={report.get('evaluated_count')}，摘要：{report.get('summary')}")

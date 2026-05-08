@@ -390,6 +390,25 @@ class DataPipelineNormalizationTests(unittest.TestCase):
             [(["000001"], "6mo")],
         )
 
+    def test_latest_open_trade_date_uses_trade_calendar(self):
+        pipeline = DataPipeline.__new__(DataPipeline)
+        pipeline._resolve_trade_dates = MagicMock(return_value=["20260429", "20260430"])
+
+        self.assertEqual(pipeline._latest_open_trade_date("20260505"), "20260430")
+        pipeline._resolve_trade_dates.assert_called_once_with("20260321", "20260505")
+
+    def test_current_period_start_date_uses_first_trade_date(self):
+        pipeline = DataPipeline.__new__(DataPipeline)
+        pipeline._expected_latest_trade_date = MagicMock(return_value="20260506")
+        pipeline._resolve_trade_dates = MagicMock(return_value=["20260506"])
+
+        self.assertEqual(pipeline._current_period_start_date("weekly"), "20260506")
+        pipeline._resolve_trade_dates.assert_called_once_with("20260504", "20260506")
+
+        pipeline._resolve_trade_dates.reset_mock()
+        self.assertEqual(pipeline._current_period_start_date("monthly"), "20260506")
+        pipeline._resolve_trade_dates.assert_called_once_with("20260501", "20260506")
+
     def test_daily_quotes_fresh_when_latest_trade_date_exists(self):
         db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))
         pipeline = DataPipeline.__new__(DataPipeline)
@@ -627,14 +646,14 @@ class DataPipelineNormalizationTests(unittest.TestCase):
         )
         self.assertTrue(db.upsert_dataframe("market_bars", rows, key_columns=["code", "period", "trade_date"]))
         pipeline._expected_latest_trade_date = MagicMock(return_value="20260429")
-        pipeline._resolve_tushare_trade_dates = MagicMock(
+        pipeline._resolve_trade_dates = MagicMock(
             return_value=["20260427", "20260428", "20260429"]
         )
         pipeline.sync_daily_bars_by_trade_date = MagicMock(return_value=True)
 
         self.assertTrue(pipeline.sync_daily_bars_incremental(["000001"]))
 
-        pipeline._resolve_tushare_trade_dates.assert_called_once_with("20260425", "20260429")
+        pipeline._resolve_trade_dates.assert_called_once_with("20260425", "20260429")
         self.assertEqual(
             pipeline.sync_daily_bars_by_trade_date.call_args_list,
             [
@@ -649,13 +668,13 @@ class DataPipelineNormalizationTests(unittest.TestCase):
         pipeline.enable_daily_bars_incremental_fill = False
         pipeline._expected_latest_trade_date = MagicMock(return_value="20260429")
         pipeline._latest_bar_dates = MagicMock()
-        pipeline._resolve_tushare_trade_dates = MagicMock()
+        pipeline._resolve_trade_dates = MagicMock()
         pipeline.sync_daily_bars_by_trade_date = MagicMock(return_value=True)
 
         self.assertTrue(pipeline.sync_daily_bars_incremental(["000001", "000002"]))
 
         pipeline._latest_bar_dates.assert_not_called()
-        pipeline._resolve_tushare_trade_dates.assert_not_called()
+        pipeline._resolve_trade_dates.assert_not_called()
         pipeline.sync_daily_bars_by_trade_date.assert_called_once_with(
             ["000001", "000002"],
             trade_date="20260429",
@@ -1041,6 +1060,25 @@ class TradingAccountLifecycleTests(unittest.TestCase):
         cooldown_buy = account.buy({"code": "000001", "name": "cooldown", "quantity": 100, "price": 9.4})
         self.assertEqual(cooldown_buy["status"], "REJECTED")
         self.assertIn("冷却期", cooldown_buy["reason"])
+
+    @patch("src.evaluation.trading_account.fetch_latest_prices", return_value={"000001": 9.5})
+    def test_trading_report_shows_unrealized_amount_and_return_pct(self, _mock_prices):
+        account = TradingAccount(db=self.db)
+        account.buy(
+            {
+                "code": "000001",
+                "name": "unit sample",
+                "action": "BUY",
+                "quantity": 100,
+                "price": 10.0,
+                "reason": "unit buy",
+            }
+        )
+
+        report = account.format_report([])
+
+        self.assertIn("浮动盈亏: -50.0", report)
+        self.assertIn("| unit sample | 000001 | 100 | 10.0 | 9.5 | -50.0 (-5.0%) |", report)
 
 
 class WatchlistTests(unittest.TestCase):
