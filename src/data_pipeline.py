@@ -281,7 +281,7 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
         trade_dates = []
         if stale_dates:
             start_date = (min(stale_dates) + timedelta(days=1)).strftime("%Y%m%d")
-            trade_dates = self._resolve_tushare_trade_dates(start_date, target_date)
+            trade_dates = self._resolve_trade_dates(start_date, target_date)
 
         for code in codes:
             latest = parsed_latest.get(code)
@@ -332,7 +332,7 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
 
         start_date = str(start_date or getattr(self, "tushare_history_start_date", "20000101")).replace("-", "")[:8]
         end_date = str(end_date or self._expected_latest_trade_date("daily")).replace("-", "")[:8]
-        trade_dates = self._resolve_tushare_trade_dates(start_date, end_date)
+        trade_dates = self._resolve_trade_dates(start_date, end_date)
         if not trade_dates:
             logger.error(f"No trade dates resolved for {start_date}..{end_date}")
             return False
@@ -488,35 +488,12 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
             return None
         return self._drop_anomalous_daily_bars(df)
 
-    def _resolve_tushare_trade_dates(self, start_date: str, end_date: str) -> list:
+    def _resolve_trade_dates(self, start_date: str, end_date: str) -> list:
         """
-        解析 A 股交易日，优先使用 Tushare 的交易日历 API。
+        解析 A 股交易日，优先使用 AKShare 交易日历，最后用工作日兜底。
         """
         start_date = str(start_date).replace("-", "")[:8]
         end_date = str(end_date).replace("-", "")[:8]
-        token = str(
-            getattr(self, "tushare_token", "")
-            or os.getenv("TUSHARE_TOKEN")
-            or os.getenv("TUSHARE_API_KEY")
-            or ""
-        ).strip()
-
-        if token:
-            try:
-                import tushare as ts
-
-                pro = ts.pro_api(token)
-                cal = self._call_tushare_api(
-                    pro.trade_cal,
-                    exchange="",
-                    start_date=start_date,
-                    end_date=end_date,
-                    is_open="1",
-                )
-                if cal is not None and not cal.empty and "cal_date" in cal.columns:
-                    return sorted(cal["cal_date"].astype(str).str.replace("-", "", regex=False).tolist())
-            except Exception as exc:
-                logger.warning(f"Tushare trade_cal fetch failed, fallback to weekday calendar: {exc}")
 
         ak_dates = self._resolve_akshare_trade_dates(start_date, end_date)
         if ak_dates:
@@ -526,7 +503,7 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
         return [day.strftime("%Y%m%d") for day in days if day.weekday() < 5]
 
     def _resolve_akshare_trade_dates(self, start_date: str, end_date: str) -> list:
-        """Resolve trade dates from AKShare when Tushare trade_cal is unavailable."""
+        """Resolve trade dates from AKShare."""
         try:
             cal = ak.tool_trade_date_hist_sina()
         except Exception as exc:
@@ -720,14 +697,20 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
         return self.db.query_to_dataframe(sql)
 
     def _current_period_start_date(self, period: str) -> str:
-        latest_daily = datetime.strptime(self._expected_latest_trade_date("daily"), "%Y%m%d").date()
+        latest_daily_str = self._expected_latest_trade_date("daily")
+        latest_daily = datetime.strptime(latest_daily_str, "%Y%m%d").date()
         if period == "weekly":
             start = latest_daily - timedelta(days=latest_daily.weekday())
         elif period == "monthly":
             start = latest_daily.replace(day=1)
         else:
             raise ValueError(f"Cannot derive incremental window for {period}")
-        return start.strftime("%Y%m%d")
+
+        start_date = start.strftime("%Y%m%d")
+        trade_dates = self._resolve_trade_dates(start_date, latest_daily_str)
+        if trade_dates:
+            return trade_dates[0]
+        return start_date
 
     @staticmethod
     def _bar_source_is_trusted(period: str, source: str) -> bool:
@@ -816,9 +799,7 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
             expected = today
             if expected.weekday() < 5 and not self._is_after_daily_market_close():
                 expected -= timedelta(days=1)
-            while expected.weekday() >= 5:
-                expected -= timedelta(days=1)
-            return expected.strftime("%Y%m%d")
+            return self._latest_open_trade_date(expected.strftime("%Y%m%d"))
 
         if period == "weekly":
             return (today - timedelta(days=7)).strftime("%Y%m%d")
@@ -826,6 +807,46 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
         first_day_this_month = today.replace(day=1)
         first_day_prev_month = (first_day_this_month - timedelta(days=1)).replace(day=1)
         return first_day_prev_month.strftime("%Y%m%d")
+
+    def _latest_open_trade_date(self, candidate_date: str) -> str:
+        """
+        将候选日期回退到最近一个 A 股交易日。
+        """
+        candidate_date = str(candidate_date).replace("-", "")[:8]
+        candidate = datetime.strptime(candidate_date, "%Y%m%d").date()
+        start_date = (candidate - timedelta(days=45)).strftime("%Y%m%d")
+        trade_dates = self._existing_trade_dates_between(start_date, candidate_date)
+        if not trade_dates:
+            trade_dates = self._resolve_trade_dates(start_date, candidate_date)
+        if trade_dates:
+            return trade_dates[-1]
+
+        expected = candidate
+        while expected.weekday() >= 5:
+            expected -= timedelta(days=1)
+        return expected.strftime("%Y%m%d")
+
+    def _existing_trade_dates_between(self, start_date: str, end_date: str) -> list:
+        db = getattr(self, "db", None)
+        if db is None:
+            return []
+        try:
+            df = db.query_to_dataframe(
+                """
+                SELECT DISTINCT trade_date
+                FROM market_bars
+                WHERE period = 'daily'
+                  AND trade_date >= ?
+                  AND trade_date <= ?
+                ORDER BY trade_date
+                """,
+                (start_date, end_date),
+            )
+        except Exception:
+            return []
+        if df is None or df.empty or "trade_date" not in df.columns:
+            return []
+        return sorted(df["trade_date"].astype(str).str.replace("-", "", regex=False).str[:8].tolist())
 
     def _is_after_daily_market_close(self) -> bool:
         """

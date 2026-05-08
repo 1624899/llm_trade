@@ -383,7 +383,8 @@ class TradingAccount:
             f"- 现金: {round(float(account.get('cash') or 0), 2)} | "
             f"总市值: {round(float(account.get('total_market_value') or 0), 2)} | "
             f"总权益: {round(float(account.get('total_equity') or 0), 2)} | "
-            f"已实现盈亏: {round(float(account.get('realized_pnl') or 0), 2)}"
+            f"已实现盈亏: {round(float(account.get('realized_pnl') or 0), 2)} | "
+            f"浮动盈亏: {round(float(account.get('unrealized_pnl') or 0), 2)}"
         )
         lines.append("")
         
@@ -403,9 +404,11 @@ class TradingAccount:
         if not positions:
             lines.append("| 当前无持仓 | - | 0 | - | - | - |")
         for pos in positions:
+            unrealized_pnl = round(float(pos.get("unrealized_pnl") or 0), 2)
+            return_pct = round(float(pos.get("unrealized_return_pct") or 0), 2)
             lines.append(
                 f"| {pos.get('name')} | {pos.get('code')} | {pos.get('quantity')} | "
-                f"{pos.get('avg_cost')} | {pos.get('current_price')} | {pos.get('unrealized_return_pct')}% |"
+                f"{pos.get('avg_cost')} | {pos.get('current_price')} | {unrealized_pnl} ({return_pct}%) |"
             )
         return "\n".join(lines)
 
