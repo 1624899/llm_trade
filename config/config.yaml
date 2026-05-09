@@ -1,46 +1,33 @@
-﻿# LLM-TRADE runtime configuration.
-#
-# Do not store real API keys in this file. Use environment variables instead,
-# for example:
-#   set DEEPSEEK_API_KEY=...
-#   set TAVILY_API_KEY=...
-
 system:
   test_mode: false
-
 llm_models:
   deepseek:
-    api_key: "env:DEEPSEEK_API_KEY"
-    base_url: "https://api.deepseek.com/v1"
-    model: "deepseek-v4-flash"
+    api_key: env:DEEPSEEK_API_KEY
+    base_url: https://api.deepseek.com/v1
+    model: deepseek-v4-flash
     max_tokens: 8192
     temperature: 0.7
-
   qwen:
-    api_key: "env:QWEN_API_KEY"
-    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    model: "qwen-turbo"
+    api_key: env:QWEN_API_KEY
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    model: qwen-turbo
     max_tokens: 8000
     temperature: 0.7
-
-active_llm: "deepseek"
-
+active_llm: deepseek
 agent_workflow:
-  candidate_analysis_max_workers: 3
-
+  candidate_analysis_max_workers: 4
 web_search:
   enabled: true
-  provider: "tavily"
-  fallback_provider: "duckduckgo"
-  api_key: "env:TAVILY_API_KEY"
-  endpoint: "https://api.tavily.com/search"
-  topic: "finance"
-  search_depth: "basic"
+  provider: tavily
+  fallback_provider: duckduckgo
+  api_key: env:TAVILY_API_KEY
+  endpoint: https://api.tavily.com/search
+  topic: finance
+  search_depth: basic
   include_answer: false
   cache_ttl_seconds: 21600
   timeout: 30
   max_results: 5
-
 data:
   enable_cleanup: true
   enable_database_cleanup: false
@@ -63,24 +50,23 @@ data:
   yahoo_batch_pause: 0.2
   efinance_max_codes: 5000
   efinance_max_workers: 4
-  efinance_timeout: 5.0
+  efinance_timeout: 5
   efinance_request_pause: 0.05
   enable_efinance_validation: false
   enable_efinance_fallback: false
-  tushare_token: "env:TUSHARE_TOKEN"
-  tushare_anomaly_pct: 15.0
-  tushare_history_start_date: "auto_10y"
+  tushare_token: env:TUSHARE_TOKEN
+  tushare_anomaly_pct: 15
+  tushare_history_start_date: auto_10y
   tushare_request_interval: 0.3
   tushare_history_max_workers: 1
   tushare_max_retries: 3
   tushare_fetch_adj_factor: false
   enable_akshare_daily_fallback: false
-  daily_update_after_time: "15:30"
+  daily_update_after_time: '15:30'
   efinance_sample_size: 5
   retry_times: 3
   timeout: 30
   max_workers: 5
-
 indicators:
   ema:
     short: 12
@@ -101,9 +87,8 @@ indicators:
     std_dev: 2
   wr:
     period: 14
-
 logging:
-  level: "INFO"
-  file: "logs/llm_trade.log"
-  max_size: "10MB"
+  level: INFO
+  file: logs/llm_trade.log
+  max_size: 10MB
   backup_count: 5

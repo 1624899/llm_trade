@@ -9,7 +9,7 @@
         <div class="actions">
           <input v-model="stockInput" @keyup.enter="handleLoadStock" placeholder="输入代码" maxlength="6" />
           <button @click="handleLoadStock" :disabled="stockLoading">{{ stockLoading ? '读取中...' : '查看' }}</button>
-          <button @click="showConfig = true">运行配置</button>
+          <button @click="openConfig">运行配置</button>
           <button class="primary" @click="handleRefresh" :disabled="refreshing">{{ refreshing ? '刷新中...' : '刷新' }}</button>
         </div>
       </div>
@@ -26,7 +26,7 @@
       </section>
 
       <section class="layout">
-        <div class="stack">
+        <div class="stack left-column">
           <section class="panel">
             <h2>观察仓</h2>
             <div class="panel-body">
@@ -86,11 +86,14 @@
             </div>
           </section>
 
-          <section class="panel" v-show="activeStock">
+        </div>
+
+        <div class="stack main-column">
+          <section class="panel stock-panel" v-show="activeStock">
             <h2>个股详情 - {{ activeStockTitle }}</h2>
             <div class="panel-body">
               <div id="priceChart" class="chart-container"></div>
-              <div class="split">
+              <div class="split stock-summary">
                 <div class="card">
                   <div class="card-title">仓位与观察</div>
                   <div class="kv" v-if="activeStock">
@@ -104,8 +107,11 @@
                 </div>
                 <div class="card" v-if="activeStock">
                   <div class="card-title">最近财务</div>
-                  <div v-if="!activeStock.financials?.length" class="empty">暂无财务摘要</div>
-                  <div class="table-wrap" style="max-height: 200px" v-else>
+                  <div v-if="!activeStock.financials?.length && !activeStock.financial_summary" class="empty">暂无财务摘要</div>
+                  <div v-else-if="!activeStock.financials?.length" class="finance-summary">
+                    {{ activeStock.financial_summary }}
+                  </div>
+                  <div class="table-wrap finance-table" v-else>
                     <table>
                       <thead><tr><th>报告期</th><th>营收YoY</th><th>净利YoY</th><th>ROE</th></tr></thead>
                       <tbody>
@@ -122,20 +128,37 @@
               </div>
             </div>
           </section>
+
+          <section class="panel report-panel">
+            <div class="panel-tabs">
+              <button
+                v-for="tab in reportTabs"
+                :key="tab.name"
+                :class="['tab-button', { active: activeReportName === tab.name }]"
+                @click="loadReport(tab.name)"
+                :disabled="reportLoading && activeReportName === tab.name"
+              >
+                {{ tab.label }}
+              </button>
+            </div>
+            <div class="panel-body">
+              <div class="report markdown-body" id="report" v-html="reportHtml"></div>
+            </div>
+          </section>
         </div>
 
-        <div class="stack">
+        <div class="stack right-column">
           <section class="panel">
             <h2>任务控制台</h2>
             <div class="panel-body">
               <div class="task-grid">
-                <button v-for="task in availableTasks" :key="task.key" @click="handleTask(task.key)" :disabled="taskLoading[task.key]">
+                <button v-for="task in availableTasks" :key="task.key" @click="requestTaskConfirmation(task.key)" :disabled="taskLoading[task.key]">
                   {{ taskLoading[task.key] ? task.label + '...' : task.label }}
                 </button>
               </div>
               <div class="inline-form">
                 <input v-model="analyzeInput" placeholder="指定分析：600519, 000001" />
-                <button @click="handleTask('analyze')" :disabled="taskLoading['analyze']">
+                <button @click="requestTaskConfirmation('analyze')" :disabled="taskLoading['analyze']">
                   {{ taskLoading['analyze'] ? '分析...' : '分析' }}
                 </button>
               </div>
@@ -158,15 +181,6 @@
             </div>
           </section>
 
-          <section class="panel">
-            <h2>最新研报</h2>
-            <div class="panel-body">
-              <div class="report markdown-body" id="report" v-html="reportHtml"></div>
-            </div>
-          </section>
-        </div>
-
-        <div class="stack">
           <section class="panel">
             <h2>最近交易流水</h2>
             <div class="panel-body">
@@ -195,7 +209,7 @@
       正在连接后端数据湖，请稍候...
     </div>
 
-    <!-- Config Modal -->
+    <!-- 配置弹窗 -->
     <div :class="['modal-backdrop', { open: showConfig }]" @click.self="showConfig = false">
       <section class="modal-window" v-if="showConfig">
         <div class="modal-header">
@@ -210,9 +224,54 @@
           </div>
         </div>
         <div class="modal-body">
-          <div class="empty" v-if="!configState.data">暂无配置内容</div>
-          <!-- Since a full recursive YAML editor in Vue is complex for one file, we will fallback to a raw text editor or let the user edit the yaml file directly for now to save space, but let's provide a textarea. -->
-          <textarea v-else v-model="rawYaml" style="width: 100%; height: 500px; background: #111; color: #eee; padding: 12px; font-family: monospace; border-radius: 8px; border: 1px solid var(--line);"></textarea>
+          <div class="empty" v-if="configLoading">正在读取配置...</div>
+          <div class="empty" v-else-if="!configFields.length">暂无配置内容</div>
+          <div v-else class="config-form">
+            <section v-for="group in configGroups" :key="group.key" class="config-section">
+              <div class="config-section-title">{{ group.label }}</div>
+              <div class="config-grid">
+                <label v-for="field in group.fields" :key="field.path" class="config-field">
+                  <span class="config-label-row">
+                    <span class="config-label">{{ field.label }}</span>
+                    <span class="config-path">{{ field.path }}</span>
+                  </span>
+                  <span v-if="field.type === 'boolean'" class="switch-field">
+                    <input v-model="field.value" type="checkbox" />
+                    <span>{{ field.value ? '已启用' : '已关闭' }}</span>
+                  </span>
+                  <input
+                    v-else-if="field.type === 'integer' || field.type === 'number'"
+                    v-model.number="field.value"
+                    type="number"
+                    :step="field.type === 'integer' ? 1 : 0.01"
+                  />
+                  <input v-else v-model="field.value" type="text" />
+                </label>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- 任务确认弹窗 -->
+    <div :class="['modal-backdrop', { open: showTaskConfirm }]" @click.self="closeTaskConfirmation">
+      <section class="confirm-window" v-if="showTaskConfirm">
+        <div class="modal-header">
+          <div>
+            <h2>确认执行任务</h2>
+            <div class="subtle">任务会在本机后台启动</div>
+          </div>
+        </div>
+        <div class="modal-body">
+          <p class="confirm-title">{{ pendingTaskLabel }}</p>
+          <p class="confirm-detail">{{ pendingTaskDetail }}</p>
+          <div class="confirm-actions">
+            <button @click="closeTaskConfirmation" :disabled="taskLoading[pendingTaskKey]">取消</button>
+            <button class="primary" @click="confirmTask" :disabled="taskLoading[pendingTaskKey]">
+              {{ taskLoading[pendingTaskKey] ? '启动中...' : '确认执行' }}
+            </button>
+          </div>
         </div>
       </section>
     </div>
@@ -225,16 +284,17 @@ import { createChart } from 'lightweight-charts'
 import { marked } from 'marked'
 import * as api from './api'
 
-// Formatting utilities
+// 格式化工具
 const fmt = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 })
 const pct = val => val == null || val === "" ? "-" : `${fmt.format(Number(val))}%`
 const money = val => val == null || val === "" ? "-" : fmt.format(Number(val))
 const clsByNumber = val => Number(val || 0) >= 0 ? "good" : "bad"
 const statusClass = s => s === "failed" ? "bad" : s === "succeeded" ? "good" : "accent"
 
-// State
+// 页面状态
 const overview = ref({})
 const reportHtml = ref('暂无 report')
+const reportLoading = ref(false)
 const refreshing = ref(false)
 
 const account = computed(() => overview.value.account || {})
@@ -245,6 +305,11 @@ const audit = computed(() => overview.value.audit || {})
 const backtest = computed(() => overview.value.backtest || {})
 const orders = computed(() => overview.value.orders || [])
 const jobs = ref([])
+const reportTabs = [
+  { name: 'latest_report.md', label: '最新研报' },
+  { name: 'latest_targeted_analysis.md', label: '指定分析' }
+]
+const activeReportName = ref(reportTabs[0].name)
 
 const stockInput = ref('')
 const stockLoading = ref(false)
@@ -266,17 +331,44 @@ const availableTasks = [
 ]
 const taskLoading = ref({})
 const analyzeInput = ref('')
+const showTaskConfirm = ref(false)
+const pendingTaskKey = ref('')
+const pendingAnalyzeCodes = ref('')
 
 const currentJobId = ref(null)
 const currentLogHtml = ref('选择任务查看日志')
 
 const showConfig = ref(false)
 const configState = ref({})
-const rawYaml = ref('')
+const configFields = ref([])
+const configLoading = ref(false)
 const savingConfig = ref(false)
 
 let chartInstance = null
+let chartResizeObserver = null
 let pollInterval = null
+
+function connectSSE() {
+  api.subscribeEvents(
+    currentJobId.value,
+    (jobsData) => {
+      jobs.value = jobsData || [];
+    },
+    (jobId, excerpt, status) => {
+      if (jobId === currentJobId.value) {
+        const box = document.getElementById("jobLog");
+        let isBottom = false;
+        if (box) {
+          isBottom = box.scrollHeight - box.clientHeight <= box.scrollTop + 10;
+        }
+        currentLogHtml.value = ansiToHtml(excerpt || '日志尚未产生');
+        if (isBottom) {
+          nextTick(() => { if (box) box.scrollTop = box.scrollHeight; });
+        }
+      }
+    }
+  );
+}
 
 function formatRejects(arr) {
   if (!arr || !arr.length) return '-'
@@ -288,8 +380,7 @@ async function handleRefresh() {
   try {
     overview.value = await api.fetchOverview()
     jobs.value = overview.value.jobs || []
-    const reportData = await api.fetchReport()
-    reportHtml.value = marked.parse(reportData.content || '暂无 report')
+    await loadReport(activeReportName.value)
     
     const firstCode = watchlist.value[0]?.code || positions.value[0]?.code
     if (firstCode && !activeStock.value) {
@@ -299,6 +390,20 @@ async function handleRefresh() {
     console.error(e)
   } finally {
     refreshing.value = false
+  }
+}
+
+async function loadReport(name = activeReportName.value) {
+  activeReportName.value = name
+  reportLoading.value = true
+  try {
+    const reportData = await api.fetchReport(name)
+    reportHtml.value = marked.parse(reportData.content || '暂无 report')
+  } catch(e) {
+    console.error(e)
+    reportHtml.value = marked.parse('暂无 report')
+  } finally {
+    reportLoading.value = false
   }
 }
 
@@ -323,7 +428,12 @@ async function loadStockDetail(code) {
 function renderChart(rows) {
   const container = document.getElementById("priceChart");
   if (!container) return;
+  const rightPadding = 34;
   container.innerHTML = "";
+  if (chartResizeObserver) {
+    chartResizeObserver.disconnect();
+    chartResizeObserver = null;
+  }
   if (chartInstance) {
     chartInstance.remove();
     chartInstance = null;
@@ -334,10 +444,26 @@ function renderChart(rows) {
   }
   
   chartInstance = createChart(container, {
+    width: Math.max(240, container.clientWidth - rightPadding),
+    height: container.clientHeight,
     layout: { background: { type: 'solid', color: 'transparent' }, textColor: '#d1d4dc' },
     grid: { vertLines: { color: '#2b3139' }, horzLines: { color: '#2b3139' } },
-    timeScale: { timeVisible: true, borderColor: '#2b3139' },
-    rightPriceScale: { borderColor: '#2b3139' },
+    localization: {
+      dateFormat: 'yyyy-MM-dd',
+      priceFormatter: price => Number(price).toFixed(2),
+    },
+    timeScale: {
+      borderColor: '#2b3139',
+      timeVisible: false,
+      secondsVisible: false,
+      fixLeftEdge: true,
+      fixRightEdge: true,
+    },
+    rightPriceScale: {
+      borderColor: '#2b3139',
+      minimumWidth: 88,
+      entireTextOnly: true,
+    },
   });
 
   const candlestickSeries = chartInstance.addCandlestickSeries({
@@ -346,6 +472,11 @@ function renderChart(rows) {
     borderVisible: false,
     wickUpColor: '#f6465d',
     wickDownColor: '#2ebd85',
+    priceFormat: {
+      type: 'price',
+      precision: 2,
+      minMove: 0.01,
+    },
   });
 
   const dataMap = new Map();
@@ -355,7 +486,7 @@ function renderChart(rows) {
       t = `${t.slice(0, 4)}-${t.slice(4, 6)}-${t.slice(6, 8)}`;
     }
     dataMap.set(t, {
-      time: t,
+      time: toBusinessDay(t),
       open: Number(r.open),
       high: Number(r.high),
       low: Number(r.low),
@@ -363,17 +494,79 @@ function renderChart(rows) {
     });
   });
 
-  const data = Array.from(dataMap.values()).sort((a, b) => a.time.localeCompare(b.time));
+  const data = Array.from(dataMap.values()).sort((a, b) => businessDayKey(a.time).localeCompare(businessDayKey(b.time)));
 
   candlestickSeries.setData(data);
   chartInstance.timeScale().fitContent();
+  chartResizeObserver = new ResizeObserver(() => {
+    if (!chartInstance) return;
+    chartInstance.applyOptions({
+      width: Math.max(240, container.clientWidth - rightPadding),
+      height: container.clientHeight,
+    });
+  });
+  chartResizeObserver.observe(container);
 }
 
-async function handleTask(task) {
+function toBusinessDay(value) {
+  const text = String(value || '')
+  const parts = text.split('-').map(Number)
+  return { year: parts[0], month: parts[1], day: parts[2] }
+}
+
+function businessDayKey(value) {
+  return `${value.year}-${String(value.month).padStart(2, '0')}-${String(value.day).padStart(2, '0')}`
+}
+
+const taskLabelMap = computed(() => {
+  const rows = availableTasks.map(task => [task.key, task.label])
+  rows.push(['analyze', '指定分析'])
+  return Object.fromEntries(rows)
+})
+
+const pendingTaskLabel = computed(() => taskLabelMap.value[pendingTaskKey.value] || '任务')
+const pendingTaskDetail = computed(() => {
+  if (pendingTaskKey.value === 'analyze') {
+    return pendingAnalyzeCodes.value
+      ? `将分析：${pendingAnalyzeCodes.value}`
+      : '请输入至少一个股票代码后再执行指定分析'
+  }
+  return `将执行：${pendingTaskLabel.value}`
+})
+
+function requestTaskConfirmation(task) {
+  const codes = analyzeInput.value.trim()
+  if (task === 'analyze' && !codes) {
+    alert('请输入至少一个股票代码')
+    return
+  }
+  pendingTaskKey.value = task
+  pendingAnalyzeCodes.value = codes
+  showTaskConfirm.value = true
+}
+
+function closeTaskConfirmation() {
+  if (taskLoading.value[pendingTaskKey.value]) return
+  showTaskConfirm.value = false
+  pendingTaskKey.value = ''
+  pendingAnalyzeCodes.value = ''
+}
+
+async function confirmTask() {
+  const task = pendingTaskKey.value
+  const codes = pendingAnalyzeCodes.value
+  if (!task) return
+  await handleTask(task, codes)
+}
+
+async function handleTask(task, confirmedCodes = '') {
   taskLoading.value[task] = true
   try {
-    const res = await api.startTask(task, analyzeInput.value)
-    await pollJobs()
+    const codes = task === 'analyze' ? confirmedCodes : ''
+    const res = await api.startTask(task, codes)
+    showTaskConfirm.value = false
+    pendingTaskKey.value = ''
+    pendingAnalyzeCodes.value = ''
     viewJobLog(res.id)
   } catch(e) {
     alert(e.message)
@@ -382,17 +575,9 @@ async function handleTask(task) {
   }
 }
 
-async function pollJobs() {
-  try {
-    jobs.value = await api.fetchJobs()
-    if (currentJobId.value && jobs.value.some(r => r.id === currentJobId.value && r.status === 'running')) {
-      await viewJobLog(currentJobId.value)
-    }
-  } catch(e) {}
-}
-
 async function viewJobLog(id) {
   currentJobId.value = id
+  connectSSE() // 切换日志任务后重连 SSE
   try {
     const data = await api.fetchJob(id)
     const box = document.getElementById("jobLog")
@@ -431,21 +616,27 @@ function ansiToHtml(str) {
 }
 
 async function loadConfig() {
-  const data = await api.fetchConfig()
-  configState.value = data
-  rawYaml.value = data.content || ''
+  configLoading.value = true
+  try {
+    const data = await api.fetchConfig()
+    configState.value = data
+    configFields.value = (data.schema || []).map(field => ({ ...field }))
+  } finally {
+    configLoading.value = false
+  }
+}
+
+async function openConfig() {
+  showConfig.value = true
+  if (!configFields.value.length) {
+    await loadConfig()
+  }
 }
 
 async function handleSaveConfig() {
   savingConfig.value = true
   try {
-    // We send raw yaml content via a small hack to api:
-    const res = await fetch("/api/config", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: rawYaml.value })
-    });
-    if (!res.ok) throw new Error('保存失败')
+    await api.saveConfig(buildConfigFromFields())
     await loadConfig()
     showConfig.value = false
   } catch(e) {
@@ -455,12 +646,86 @@ async function handleSaveConfig() {
   }
 }
 
+const configGroups = computed(() => {
+  const groups = new Map()
+  for (const field of configFields.value) {
+    const parts = field.path.split('.')
+    const groupKey = parts.length > 1 ? parts.slice(0, -1).join('.') : 'root'
+    if (!groups.has(groupKey)) {
+      groups.set(groupKey, {
+        key: groupKey,
+        label: groupLabel(groupKey),
+        fields: []
+      })
+    }
+    groups.get(groupKey).fields.push(field)
+  }
+  return Array.from(groups.values())
+})
+
+function groupLabel(groupKey) {
+  if (groupKey === 'root') return '基础配置'
+  const sections = configState.value.sections || {}
+  const parts = groupKey.split('.')
+  return parts.map(part => sections[part] || fallbackLabel(part)).join(' / ')
+}
+
+function fallbackLabel(key) {
+  const labels = {
+    api: '接口',
+    key: '密钥',
+    url: '地址',
+    model: '模型',
+    max: '最大',
+    min: '最小',
+    workers: '并发',
+    timeout: '超时',
+    enabled: '启用',
+    enable: '启用',
+    retention: '保留',
+    days: '天数',
+    seconds: '秒数',
+    period: '周期',
+    size: '大小',
+    count: '数量',
+    level: '级别',
+    file: '文件',
+    provider: '服务',
+    fallback: '兜底',
+    search: '搜索',
+    depth: '深度'
+  }
+  return String(key).split('_').map(part => labels[part] || part).join(' ')
+}
+
+function buildConfigFromFields() {
+  const base = JSON.parse(JSON.stringify(configState.value.data || {}))
+  for (const field of configFields.value) {
+    const path = field.path.split('.')
+    let value = field.value
+    if (field.type === 'integer') value = Number.parseInt(value || 0, 10)
+    if (field.type === 'number') value = Number.parseFloat(value || 0)
+    setNestedValue(base, path, value)
+  }
+  return base
+}
+
+function setNestedValue(target, path, value) {
+  let cursor = target
+  for (const part of path.slice(0, -1)) {
+    if (!cursor[part] || typeof cursor[part] !== 'object') cursor[part] = {}
+    cursor = cursor[part]
+  }
+  cursor[path[path.length - 1]] = value
+}
+
 onMounted(() => {
   handleRefresh()
-  pollInterval = setInterval(pollJobs, 5000)
+  connectSSE()
 })
 
 onUnmounted(() => {
-  clearInterval(pollInterval)
+  if (chartResizeObserver) chartResizeObserver.disconnect()
+  api.closeEvents()
 })
 </script>

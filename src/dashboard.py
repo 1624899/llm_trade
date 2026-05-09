@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -160,6 +161,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     server_version = "LLMTradeDashboard/0.1"
 
+    def handle(self) -> None:
+        try:
+            super().handle()
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError, TimeoutError):
+            # 浏览器刷新、关闭页面或 SSE 重连时会主动断开连接，这类情况无需打印堆栈。
+            return
+        except OSError as exc:
+            if _is_client_disconnect(exc):
+                return
+            raise
+
     def do_GET(self) -> None:  # noqa: N802 - stdlib hook
         parsed = urlparse(self.path)
         try:
@@ -177,6 +189,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 query = parse_qs(parsed.query)
                 name = query.get("name", ["latest_report.md"])[0]
                 self._send_json(read_report(name))
+            elif parsed.path.startswith("/api/stream/events"):
+                self._stream_events()
             elif parsed.path.startswith("/api/jobs/"):
                 job_id = parsed.path.rsplit("/", 1)[-1]
                 self._send_json(get_job(job_id))
@@ -185,6 +199,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._send_json(build_stock_detail(code))
             else:
                 self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError, TimeoutError):
+            return
+        except OSError as exc:
+            if _is_client_disconnect(exc):
+                return
+            self._send_json({"error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
         except Exception as exc:  # keep the UI useful even when one panel fails
             self._send_json({"error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
 
@@ -204,6 +224,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self.send_error(HTTPStatus.NOT_FOUND, "Not found")
         except ValueError as exc:
             self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError, TimeoutError):
+            return
+        except OSError as exc:
+            if _is_client_disconnect(exc):
+                return
+            self._send_json({"error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
         except Exception as exc:
             self._send_json({"error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
 
@@ -264,6 +290,46 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_static_file(target)
             return
         self._send_static_file(WEB_DIR / "index.html")
+
+    def _stream_events(self) -> None:
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+        
+        parsed = urlparse(self.path)
+        query = parse_qs(parsed.query)
+        watch_job_id = query.get("watch_job", [None])[0]
+        
+        last_jobs_hash = None
+        last_log_size = -1
+        
+        while True:
+            try:
+                jobs_list = list_jobs(limit=5)
+                jobs_hash = str([(j["id"], j["status"]) for j in jobs_list])
+                if jobs_hash != last_jobs_hash:
+                    payload = json.dumps({"type": "jobs", "data": jobs_list}, ensure_ascii=False)
+                    self.wfile.write(f"data: {payload}\n\n".encode("utf-8"))
+                    self.wfile.flush()
+                    last_jobs_hash = jobs_hash
+                    
+                if watch_job_id:
+                    with JOBS_LOCK:
+                        job = JOBS.get(watch_job_id)
+                    if job:
+                        log_path = ROOT_DIR / job["log_path"]
+                        current_size = log_path.stat().st_size if log_path.exists() else 0
+                        if current_size != last_log_size:
+                            excerpt = _read_tail(log_path)
+                            payload = json.dumps({"type": "log", "job_id": watch_job_id, "excerpt": excerpt, "status": job["status"]}, ensure_ascii=False)
+                            self.wfile.write(f"data: {payload}\n\n".encode("utf-8"))
+                            self.wfile.flush()
+                            last_log_size = current_size
+            except Exception:
+                break
+            time.sleep(0.5)
 
 
 def build_overview() -> dict[str, Any]:
@@ -588,6 +654,7 @@ def build_stock_detail(code: str) -> dict[str, Any]:
         "position": position,
         "bars": bars,
         "financials": financials,
+        "financial_summary": _extract_financial_summary(watch),
     }
 
 
@@ -697,6 +764,30 @@ def _clean_value(value: Any) -> Any:
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return value
+
+
+def _extract_financial_summary(watch: dict[str, Any]) -> str:
+    text = str(watch.get("fundamental_analysis") or "")
+    if not text:
+        return ""
+
+    patterns = [
+        r"(?:\*\*)?财务趋势(?:\*\*)?[：:]\s*(.*?)(?=\n\s*(?:\*\*)?(?:盈利预期|质量风险|宏观适配|最终评级)(?:\*\*)?[：:]|\Z)",
+        r"(?:###\s*)?财务趋势\s*\n(.*?)(?=\n\s*(?:###\s*)?(?:盈利预期|质量风险|宏观适配|最终评级)\b|\Z)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.S)
+        if match:
+            return re.sub(r"\s+", " ", match.group(1)).strip()
+    return ""
+
+
+def _is_client_disconnect(exc: OSError) -> bool:
+    winerror = getattr(exc, "winerror", None)
+    if winerror in {10053, 10054, 10058}:
+        return True
+    errno = getattr(exc, "errno", None)
+    return errno in {32, 54, 10053, 10054, 10058}
 
 
 def _json_default(value: Any) -> Any:

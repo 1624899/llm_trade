@@ -50,3 +50,35 @@ export async function fetchReport(name = 'latest_report.md') {
   const res = await fetch(`/api/report?name=${name}`)
   return res.json()
 }
+
+let eventSource = null;
+
+export function subscribeEvents(watchJobId, onJobsUpdate, onLogUpdate) {
+  if (eventSource) {
+    eventSource.close();
+  }
+  const url = watchJobId ? `/api/stream/events?watch_job=${watchJobId}` : `/api/stream/events`;
+  eventSource = new EventSource(url);
+  
+  eventSource.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'jobs') {
+      onJobsUpdate(msg.data);
+    } else if (msg.type === 'log') {
+      onLogUpdate(msg.job_id, msg.excerpt, msg.status);
+    }
+  };
+  
+  eventSource.onerror = () => {
+    console.error("SSE Connection error, retrying...");
+    eventSource.close();
+    setTimeout(() => subscribeEvents(watchJobId, onJobsUpdate, onLogUpdate), 3000);
+  };
+}
+
+export function closeEvents() {
+  if (eventSource) {
+    eventSource.close();
+    eventSource = null;
+  }
+}
