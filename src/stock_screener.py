@@ -48,15 +48,17 @@ DEFAULT_SCREENING_PROFILES: Dict[str, Dict[str, Any]] = {
         "bt_momentum_min_intraday_position": 0.55,
         "bt_momentum_max_volume_ratio": 2.6,
         "bt_first_limit_max_bias20": 1.16,
-        "bt_first_limit_ret5_max": 16.0,
+        "bt_first_limit_ret5_max": 10.0,
         "bt_first_limit_ret20_max": 24.0,
-        "bt_first_limit_max_volume_ratio": 3.6,
+        "bt_first_limit_max_volume_ratio": 2.8,
+        "bt_first_limit_ma20_ma60_max": 1.015,
         "bt_trend_ret20_min": 3.0,
         "bt_trend_ret5_min": 0.0,
         "bt_trend_min_volume_ratio": 0.95,
-        "bt_trend_max_volume_ratio": 3.0,
+        "bt_trend_max_volume_ratio": 2.0,
         "bt_trend_min_intraday_position": 0.48,
         "bt_trend_ma20_ma60_min": 1.0,
+        "bt_trend_ma20_ma60_max": 1.055,
         "bt_support_max_volume_ratio": 0.72,
         "bt_support_min_intraday_position": 0.55,
         "bt_support_ret1_max": 2.5,
@@ -93,15 +95,17 @@ DEFAULT_SCREENING_PROFILES: Dict[str, Dict[str, Any]] = {
         "bt_momentum_min_intraday_position": 0.52,
         "bt_momentum_max_volume_ratio": 2.8,
         "bt_first_limit_max_bias20": 1.18,
-        "bt_first_limit_ret5_max": 18.0,
+        "bt_first_limit_ret5_max": 12.0,
         "bt_first_limit_ret20_max": 28.0,
-        "bt_first_limit_max_volume_ratio": 4.2,
+        "bt_first_limit_max_volume_ratio": 3.0,
+        "bt_first_limit_ma20_ma60_max": 1.025,
         "bt_trend_ret20_min": 2.0,
         "bt_trend_ret5_min": 0.0,
         "bt_trend_min_volume_ratio": 0.90,
-        "bt_trend_max_volume_ratio": 3.2,
+        "bt_trend_max_volume_ratio": 2.2,
         "bt_trend_min_intraday_position": 0.45,
         "bt_trend_ma20_ma60_min": 0.995,
+        "bt_trend_ma20_ma60_max": 1.065,
         "bt_support_max_volume_ratio": 0.78,
         "bt_support_min_intraday_position": 0.52,
         "bt_support_ret1_max": 3.0,
@@ -140,13 +144,15 @@ DEFAULT_SCREENING_PROFILES: Dict[str, Dict[str, Any]] = {
         "bt_first_limit_max_bias20": 1.22,
         "bt_first_limit_ret5_max": 22.0,
         "bt_first_limit_ret20_max": 38.0,
-        "bt_first_limit_max_volume_ratio": 5.0,
+        "bt_first_limit_max_volume_ratio": 3.4,
+        "bt_first_limit_ma20_ma60_max": 1.04,
         "bt_trend_ret20_min": 0.0,
         "bt_trend_ret5_min": -2.0,
         "bt_trend_min_volume_ratio": 0.85,
-        "bt_trend_max_volume_ratio": 3.8,
+        "bt_trend_max_volume_ratio": 2.4,
         "bt_trend_min_intraday_position": 0.42,
         "bt_trend_ma20_ma60_min": 0.99,
+        "bt_trend_ma20_ma60_max": 1.075,
         "bt_support_max_volume_ratio": 0.82,
         "bt_support_min_intraday_position": 0.50,
         "bt_support_ret1_max": 4.0,
@@ -795,6 +801,7 @@ class StockScreener:
         if (
             close >= ma20
             and ma20 >= ma60 * float(profile.get("bt_trend_ma20_ma60_min", 0.98))
+            and ma20 <= ma60 * float(profile.get("bt_trend_ma20_ma60_max", 99.0))
             and float(profile["ret20_min"]) <= ret20 <= float(profile["ret20_max"])
             and ret20 >= float(profile.get("bt_trend_ret20_min", profile["ret20_min"]))
             and ret5 >= float(profile["ret5_min"])
@@ -949,6 +956,7 @@ class StockScreener:
             and bias20 <= tuned_first_limit_bias20
             and volume_ratio >= 1.2
             and volume_ratio <= float(profile.get("bt_first_limit_max_volume_ratio", 4.5))
+            and ma20 <= ma60 * float(profile.get("bt_first_limit_ma20_ma60_max", 99.0))
         ):
             confidence = 0.63
             confidence += 0.08 if ret20 <= 20 else 0.0

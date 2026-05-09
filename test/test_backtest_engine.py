@@ -205,6 +205,18 @@ class BacktestEngineTests(unittest.TestCase):
         self.assertIn("momentum_leader(n=2)", summary)
         self.assertNotIn("相对较优策略 momentum_leader", summary)
 
+    def test_effect_score_uses_tail_loss_instead_of_single_worst_sample(self):
+        stat = {
+            "avg_return_pct": 0.7947,
+            "win_rate": 0.5645,
+            "tail_loss_pct": -5.8824,
+            "max_drawdown_proxy": -12.4691,
+        }
+
+        score = self.engine._effect_score(stat)
+
+        self.assertAlmostEqual(score, 1.4088, places=4)
+
     @patch("src.stock_screener.StockScreener")
     def test_walk_forward_backtest_masks_future_data_by_as_of_date(self, mock_screener_class):
         self._seed_bars(

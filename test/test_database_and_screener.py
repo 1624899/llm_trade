@@ -1939,6 +1939,62 @@ class StockScreenerTests(unittest.TestCase):
 
         self.assertNotIn("trend_breakout", [item["tag"] for item in matches])
 
+    def test_strategy_detector_allows_controlled_first_limit_breakout(self):
+        matches = self.screener._detect_strategy_matches(
+            profile=self.screener.screening_profile,
+            close=11.0,
+            ma5=10.8,
+            ma10=10.5,
+            ma20=10.2,
+            ma60=10.1,
+            ret3=7.5,
+            ret5=8.0,
+            ret10=9.0,
+            ret20=12.0,
+            change_pct=9.8,
+            high60_distance=-3.0,
+            low60_distance=20.0,
+            vol_ratio=2.0,
+            vol5_ratio=1.2,
+            turnover_rate=5.0,
+            pe_ttm=None,
+            pb=None,
+            latest_open=10.0,
+            intraday_position=1.0,
+            bias20_ratio=1.078,
+            first_limit_up_breakout=True,
+        )
+
+        self.assertIn("first_limit_up_breakout", [item["tag"] for item in matches])
+
+    def test_strategy_detector_rejects_overheated_first_limit_breakout(self):
+        matches = self.screener._detect_strategy_matches(
+            profile=self.screener.screening_profile,
+            close=13.0,
+            ma5=12.2,
+            ma10=11.6,
+            ma20=10.8,
+            ma60=10.0,
+            ret3=12.5,
+            ret5=15.0,
+            ret10=16.0,
+            ret20=18.0,
+            change_pct=9.8,
+            high60_distance=0.0,
+            low60_distance=32.0,
+            vol_ratio=3.8,
+            vol5_ratio=1.5,
+            turnover_rate=9.0,
+            pe_ttm=None,
+            pb=None,
+            latest_open=11.82,
+            intraday_position=1.0,
+            bias20_ratio=1.204,
+            first_limit_up_breakout=True,
+        )
+
+        self.assertNotIn("first_limit_up_breakout", [item["tag"] for item in matches])
+
     def test_medium_term_score_penalizes_overheated_momentum(self):
         stable_score = self.screener._score_strategy_candidate(
             strategy_matches=[{"tag": "momentum_leader", "confidence": 0.86}],

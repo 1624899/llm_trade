@@ -302,11 +302,13 @@ class BacktestEngine:
                 values = [float(row[key]) for row in rows if row.get(key) is not None]
                 if not values:
                     continue
+                sorted_values = sorted(values)
                 strategy_stat[key] = {
                     "sample_count": len(values),
                     "avg_return_pct": round(sum(values) / len(values), 4),
                     "win_rate": round(sum(1 for value in values if value > 0) / len(values), 4),
-                    "max_drawdown_proxy": round(min(values), 4),
+                    "tail_loss_pct": round(self._percentile(sorted_values, 0.10), 4),
+                    "max_drawdown_proxy": round(sorted_values[0], 4),
                     "best_return_pct": round(max(values), 4),
                 }
             preferred_day = self._preferred_horizon_for_strategy(strategy, holding_days, strategy_stat)
@@ -537,8 +539,23 @@ class BacktestEngine:
             return 0.0
         avg_return = self._safe_float(stat.get("avg_return_pct")) or 0.0
         win_rate = self._safe_float(stat.get("win_rate")) or 0.0
-        drawdown = self._safe_float(stat.get("max_drawdown_proxy")) or 0.0
-        return avg_return * 2.0 + (win_rate - 0.5) * 20.0 + min(0.0, drawdown) * 0.25
+        tail_loss = self._safe_float(stat.get("tail_loss_pct"))
+        if tail_loss is None:
+            tail_loss = self._safe_float(stat.get("max_drawdown_proxy")) or 0.0
+        return avg_return * 2.0 + (win_rate - 0.5) * 20.0 + min(0.0, tail_loss) * 0.25
+
+    @staticmethod
+    def _percentile(sorted_values: Sequence[float], ratio: float) -> float:
+        """按线性插值计算分位数，避免单个极端样本主导策略评分。"""
+        if not sorted_values:
+            return 0.0
+        if len(sorted_values) == 1:
+            return float(sorted_values[0])
+        position = max(0.0, min(1.0, ratio)) * (len(sorted_values) - 1)
+        lower = int(position)
+        upper = min(lower + 1, len(sorted_values) - 1)
+        weight = position - lower
+        return float(sorted_values[lower]) * (1 - weight) + float(sorted_values[upper]) * weight
 
     @staticmethod
     def _normalize_trade_date(value: Any) -> str | None:
