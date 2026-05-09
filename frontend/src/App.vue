@@ -31,7 +31,7 @@
             <h2>观察仓</h2>
             <div class="panel-body">
               <div v-if="!watchlist.length" class="empty">观察仓暂无 ACTIVE 标的</div>
-              <div class="table-wrap" v-else>
+              <div class="table-wrap watch-table" v-else>
                 <table>
                   <thead><tr><th>代码</th><th>名称</th><th>档位</th><th>入选价</th><th>现价</th><th>收益</th><th>更新</th></tr></thead>
                   <tbody>
@@ -54,7 +54,7 @@
             <h2>交易仓</h2>
             <div class="panel-body">
               <div v-if="!positions.length" class="empty">交易仓当前无 OPEN 持仓</div>
-              <div class="table-wrap" v-else>
+              <div class="table-wrap position-table" v-else>
                 <table>
                   <thead><tr><th>代码</th><th>名称</th><th>数量</th><th>成本</th><th>现价</th><th>市值</th><th>浮盈亏</th></tr></thead>
                   <tbody>
@@ -185,7 +185,7 @@
             <h2>最近交易流水</h2>
             <div class="panel-body">
               <div v-if="!orders.length" class="empty">暂无交易流水</div>
-              <div class="table-wrap" v-else>
+              <div class="table-wrap order-table" v-else>
                 <table>
                   <thead><tr><th>时间</th><th>动作</th><th>代码</th><th>数量</th><th>价格</th><th>理由</th></tr></thead>
                   <tbody>

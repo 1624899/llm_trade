@@ -126,22 +126,58 @@ button:disabled { cursor: wait; opacity: 0.62; }
 
 .table-wrap {
   max-height: 320px;
-  overflow-y: auto;
+  overflow: auto;
 }
 .table-wrap::-webkit-scrollbar { width: 6px; height: 6px; }
 .table-wrap::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
 
-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+table { width: 100%; border-collapse: collapse; table-layout: auto; }
 th, td {
   padding: 8px 7px;
   border-bottom: 1px solid var(--line);
   text-align: left;
   vertical-align: top;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 th { color: var(--muted); font-size: 12px; font-weight: 600; }
 tr.clickable { cursor: pointer; }
 tr.clickable:hover { background: #1c212d; }
+
+.watch-table table { min-width: 540px; }
+.position-table table { min-width: 640px; }
+.order-table table { min-width: 760px; }
+
+.watch-table th:nth-child(1),
+.watch-table td:nth-child(1),
+.position-table th:nth-child(1),
+.position-table td:nth-child(1) {
+  min-width: 56px;
+}
+
+.watch-table th:nth-child(2),
+.watch-table td:nth-child(2),
+.position-table th:nth-child(2),
+.position-table td:nth-child(2) {
+  min-width: 68px;
+}
+
+.watch-table th:nth-child(3),
+.watch-table td:nth-child(3) {
+  min-width: 64px;
+}
+
+.watch-table th:nth-child(7),
+.watch-table td:nth-child(7) {
+  min-width: 86px;
+}
+
+.order-table th:nth-child(6),
+.order-table td:nth-child(6) {
+  min-width: 260px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
 
 .badge {
   display: inline-flex;
@@ -153,6 +189,7 @@ tr.clickable:hover { background: #1c212d; }
   color: var(--ink);
   font-size: 12px;
   font-weight: 600;
+  white-space: nowrap;
 }
 .badge.good { background: rgba(246, 70, 93, 0.15); color: var(--up-color); }
 .badge.bad { background: rgba(46, 189, 133, 0.15); color: var(--down-color); }
