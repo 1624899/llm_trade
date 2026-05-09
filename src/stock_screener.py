@@ -48,7 +48,15 @@ DEFAULT_SCREENING_PROFILES: Dict[str, Dict[str, Any]] = {
         "bt_momentum_min_intraday_position": 0.55,
         "bt_momentum_max_volume_ratio": 2.6,
         "bt_first_limit_max_bias20": 1.16,
+        "bt_first_limit_ret5_max": 16.0,
         "bt_first_limit_ret20_max": 24.0,
+        "bt_first_limit_max_volume_ratio": 3.6,
+        "bt_trend_ret20_min": 3.0,
+        "bt_trend_ret5_min": 0.0,
+        "bt_trend_min_volume_ratio": 0.95,
+        "bt_trend_max_volume_ratio": 3.0,
+        "bt_trend_min_intraday_position": 0.48,
+        "bt_trend_ma20_ma60_min": 1.0,
         "bt_support_max_volume_ratio": 0.72,
         "bt_support_min_intraday_position": 0.55,
         "bt_support_ret1_max": 2.5,
@@ -85,7 +93,15 @@ DEFAULT_SCREENING_PROFILES: Dict[str, Dict[str, Any]] = {
         "bt_momentum_min_intraday_position": 0.52,
         "bt_momentum_max_volume_ratio": 2.8,
         "bt_first_limit_max_bias20": 1.18,
+        "bt_first_limit_ret5_max": 18.0,
         "bt_first_limit_ret20_max": 28.0,
+        "bt_first_limit_max_volume_ratio": 4.2,
+        "bt_trend_ret20_min": 2.0,
+        "bt_trend_ret5_min": 0.0,
+        "bt_trend_min_volume_ratio": 0.90,
+        "bt_trend_max_volume_ratio": 3.2,
+        "bt_trend_min_intraday_position": 0.45,
+        "bt_trend_ma20_ma60_min": 0.995,
         "bt_support_max_volume_ratio": 0.78,
         "bt_support_min_intraday_position": 0.52,
         "bt_support_ret1_max": 3.0,
@@ -122,7 +138,15 @@ DEFAULT_SCREENING_PROFILES: Dict[str, Dict[str, Any]] = {
         "bt_momentum_min_intraday_position": 0.50,
         "bt_momentum_max_volume_ratio": 3.2,
         "bt_first_limit_max_bias20": 1.22,
+        "bt_first_limit_ret5_max": 22.0,
         "bt_first_limit_ret20_max": 38.0,
+        "bt_first_limit_max_volume_ratio": 5.0,
+        "bt_trend_ret20_min": 0.0,
+        "bt_trend_ret5_min": -2.0,
+        "bt_trend_min_volume_ratio": 0.85,
+        "bt_trend_max_volume_ratio": 3.8,
+        "bt_trend_min_intraday_position": 0.42,
+        "bt_trend_ma20_ma60_min": 0.99,
         "bt_support_max_volume_ratio": 0.82,
         "bt_support_min_intraday_position": 0.50,
         "bt_support_ret1_max": 4.0,
@@ -134,6 +158,39 @@ DEFAULT_SCREENING_PROFILES: Dict[str, Dict[str, Any]] = {
         "max_per_industry": 4,
         "limit_up_change_pct": 9.8,
         "limit_down_change_pct": -9.8,
+    },
+}
+
+STRATEGY_TRADE_PROFILES: Dict[str, Dict[str, Any]] = {
+    "support_pullback": {
+        "preferred_holding_days": 5,
+        "max_holding_days": 5,
+        "exit_hint": "短线回踩反抽，优先按3-5日观察，反抽无力或跌破支撑应快速退出。",
+    },
+    "panic_reversal": {
+        "preferred_holding_days": 5,
+        "max_holding_days": 10,
+        "exit_hint": "超跌反转信号，先看短线修复，放量失败或二次破位应退出。",
+    },
+    "dragon_pullback": {
+        "preferred_holding_days": 5,
+        "max_holding_days": 10,
+        "exit_hint": "高波动龙回头，仅适合强承接低吸，次日不能修复应快速退出。",
+    },
+    "first_limit_up_breakout": {
+        "preferred_holding_days": 3,
+        "max_holding_days": 5,
+        "exit_hint": "首板启动信号，只按3-5日强度验证，未能连板或强势换手应快速降级。",
+    },
+    "trend_breakout": {
+        "preferred_holding_days": 20,
+        "max_holding_days": 20,
+        "exit_hint": "趋势突破信号，允许更长确认，但跌回MA20下方应降级。",
+    },
+    "momentum_leader": {
+        "preferred_holding_days": 20,
+        "max_holding_days": 20,
+        "exit_hint": "主升浪信号，顺势持有为主，放量滞涨或跌破MA5/MA10应收紧。",
     },
 }
 
@@ -581,6 +638,7 @@ class StockScreener:
                 ma20=ma20,
                 ma60=ma60,
             )
+            trade_profile = self._strategy_trade_profile(strategy_matches)
 
             key_metrics = {
                 "ret3": round(float(ret3), 2),
@@ -604,6 +662,9 @@ class StockScreener:
                 "low60_distance": round(float(low60_distance), 2),
                 "strategy_tags": [match["tag"] for match in strategy_matches],
                 "strategy_confidence": round(float(max(match["confidence"] for match in strategy_matches)), 2),
+                "preferred_holding_days": trade_profile["preferred_holding_days"],
+                "max_holding_days": trade_profile["max_holding_days"],
+                "exit_hint": trade_profile["exit_hint"],
             }
             picks.append(
                 {
@@ -626,8 +687,21 @@ class StockScreener:
                     "avg_amount20": round(float(avg_amount20), 2),
                     "strategy_tags": [match["tag"] for match in strategy_matches],
                     "strategy_confidence": round(float(max(match["confidence"] for match in strategy_matches)), 2),
+                    "preferred_holding_days": trade_profile["preferred_holding_days"],
+                    "max_holding_days": trade_profile["max_holding_days"],
+                    "exit_hint": trade_profile["exit_hint"],
                     "key_metrics": key_metrics,
-                    "screen_reason": self._format_screen_reason(strategy_matches, ret5, ret20, pe_ttm, pb, vol_ratio, turnover_rate, low60_distance),
+                    "screen_reason": self._format_screen_reason(
+                        strategy_matches,
+                        ret5,
+                        ret20,
+                        pe_ttm,
+                        pb,
+                        vol_ratio,
+                        turnover_rate,
+                        low60_distance,
+                        trade_profile,
+                    ),
                 }
             )
 
@@ -720,12 +794,17 @@ class StockScreener:
         # 条件：站上20日线，20日线向上，20日跌幅在可控范围内，且非缩量接近新高
         if (
             close >= ma20
-            and ma20 >= ma60 * 0.98
+            and ma20 >= ma60 * float(profile.get("bt_trend_ma20_ma60_min", 0.98))
             and float(profile["ret20_min"]) <= ret20 <= float(profile["ret20_max"])
+            and ret20 >= float(profile.get("bt_trend_ret20_min", profile["ret20_min"]))
             and ret5 >= float(profile["ret5_min"])
+            and ret5 >= float(profile.get("bt_trend_ret5_min", profile["ret5_min"]))
             and ret5 <= float(profile.get("bt_trend_ret5_max", 12.0))
             and change_pct < float(profile["limit_up_change_pct"])
             and bias20 <= tuned_trend_bias20
+            and volume_ratio >= float(profile.get("bt_trend_min_volume_ratio", 0.0))
+            and volume_ratio <= float(profile.get("bt_trend_max_volume_ratio", profile.get("max_volume_ratio", 99.0)))
+            and intraday_position >= float(profile.get("bt_trend_min_intraday_position", 0.0))
             and (high60_distance < -3 or volume_ratio >= float(profile["min_volume_ratio_near_high60"]))
         ):
             confidence = 0.62
@@ -865,9 +944,11 @@ class StockScreener:
         if (
             first_limit_up_breakout
             and close >= ma20
+            and ret5 <= float(profile.get("bt_first_limit_ret5_max", 18.0))
             and ret20 <= min(float(profile["ret20_max"]), float(profile.get("bt_first_limit_ret20_max", 28.0)))
             and bias20 <= tuned_first_limit_bias20
             and volume_ratio >= 1.2
+            and volume_ratio <= float(profile.get("bt_first_limit_max_volume_ratio", 4.5))
         ):
             confidence = 0.63
             confidence += 0.08 if ret20 <= 20 else 0.0
@@ -1104,6 +1185,7 @@ class StockScreener:
         vol_ratio: float,
         turnover_rate: float | None,
         low60_distance: float,
+        trade_profile: Dict[str, Any] | None = None,
     ) -> str:
         """格式化筛选理由，用于展示命中策略和关键指标。"""
         primary = strategy_matches[0]
@@ -1112,11 +1194,25 @@ class StockScreener:
         pb_text = "N/A" if pb is None else f"{pb:.2f}"
         vol_text = "N/A" if pd.isna(vol_ratio) else f"{float(vol_ratio):.2f}"
         turnover_text = "N/A" if turnover_rate is None else f"{turnover_rate:.2f}%"
+        profile = trade_profile or self._strategy_trade_profile(strategy_matches)
         return (
             f"【{primary['label']}】命中策略: {tags}; "
             f"ret5 {ret5:.2f}%, ret20 {ret20:.2f}%, PE {pe_text}, PB {pb_text}, "
-            f"量比 {vol_text}, 换手 {turnover_text}, 距60日低点 {low60_distance:.2f}%。"
+            f"量比 {vol_text}, 换手 {turnover_text}, 距60日低点 {low60_distance:.2f}%；"
+            f"建议持有 {profile['preferred_holding_days']} 日，{profile['exit_hint']}"
         )
+
+    def _strategy_trade_profile(self, strategy_matches: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """根据主策略返回建议持有周期和退出提示。"""
+        primary = strategy_matches[0]["tag"] if strategy_matches else "unknown"
+        default = {
+            "preferred_holding_days": 10,
+            "max_holding_days": 10,
+            "exit_hint": "按10日内验证处理，走势不及预期时降低仓位。",
+        }
+        profile = dict(default)
+        profile.update(STRATEGY_TRADE_PROFILES.get(str(primary), {}))
+        return profile
 
     def _load_screening_profile(
         self,

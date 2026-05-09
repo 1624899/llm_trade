@@ -35,7 +35,7 @@ class QuickFilterAgent:
         macro_context = macro_context or {}
         system_prompt = f"""
 你是 A 股盘后快速精筛助手。请结合宏观环境和候选股短表，从海选池选出最多 {target_n} 只进入深度复核。
-规则：必须覆盖检查全部候选；偏弱/退潮市少追高，优先防守、低吸、回踩确认；强势市可提高突破/主升浪权重；不得编造未提供信息。
+规则：必须覆盖检查全部候选；偏弱/退潮市少追高，优先防守、低吸、回踩确认；强势市可提高突破/主升浪权重；支撑回踩、首板启动等短持有信号只能按短线验证看待；不得编造未提供信息。
 只输出紧凑 JSON：{{"evaluations":[{{"code":"000001","score":82,"keep":true,"reason":"短理由"}}],"selected_codes":["000001"],"summary":"短总结"}}
 """
         user_prompt = self._build_compact_prompt(candidates, macro_context, target_n)
@@ -79,7 +79,7 @@ class QuickFilterAgent:
     ) -> str:
         """构建短表格式 Prompt，避免轻量精筛请求因为上下文过长而超时。"""
         macro_brief = self._format_macro_brief(macro_context)
-        header = "序号|代码|名称|行业|主策略|置信|技分|题材|涨幅|5日|20日|量比|PE|PB|市值亿"
+        header = "序号|代码|名称|行业|主策略|持有日|置信|技分|题材|涨幅|5日|20日|量比|PE|PB|市值亿"
         rows = [
             self._format_candidate_row(idx, item)
             for idx, item in enumerate(candidates, start=1)
@@ -126,6 +126,7 @@ class QuickFilterAgent:
                 self._compact_value(snapshot.get("name"), 8),
                 self._compact_value(snapshot.get("industry"), 8),
                 self._compact_value(snapshot.get("primary_strategy"), 18),
+                str(snapshot.get("preferred_holding_days") or ""),
                 self._fmt_num(snapshot.get("strategy_confidence"), 2),
                 self._fmt_num(snapshot.get("technical_score"), 1),
                 self._fmt_num(snapshot.get("theme_score"), 1),
@@ -147,6 +148,9 @@ class QuickFilterAgent:
             "industry": item.get("industry"),
             "primary_strategy": self._primary_strategy(item),
             "strategy_tags": item.get("strategy_tags", []),
+            "preferred_holding_days": item.get("preferred_holding_days", metrics.get("preferred_holding_days")),
+            "max_holding_days": item.get("max_holding_days", metrics.get("max_holding_days")),
+            "exit_hint": item.get("exit_hint", metrics.get("exit_hint")),
             "strategy_confidence": item.get("strategy_confidence"),
             "technical_score": item.get("technical_score"),
             "theme_score": item.get("theme_score", 0.0),

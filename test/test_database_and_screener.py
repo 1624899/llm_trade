@@ -1135,6 +1135,36 @@ class WatchlistTests(unittest.TestCase):
         self.assertEqual(len(removed), 2)
 
     @patch("src.evaluation.watchlist.fetch_latest_prices", return_value={})
+    def test_watchlist_stores_final_decision_table_snapshot(self, _mock_prices):
+        watchlist = Watchlist(db=self.db, max_items=10)
+        final_report = """
+| 股票 | 推荐分层 | 预期收益空间 | 预计持有期限 | 主要持有逻辑 | 减仓/清仓触发条件 |
+| --- | --- | --- | --- | --- | --- |
+| sample-000001(000001) | 强推荐 | 18% | 3日验证，最长5日 | 缩量回踩企稳，达到买点 | 跌破MA20清仓 |
+"""
+
+        profile = self._profile("000001")
+        profile["asset_info"]["preferred_holding_days"] = 3
+        profile["asset_info"]["max_holding_days"] = 5
+        profile["asset_info"]["exit_hint"] = "首板验证信号，3日内不确认则退出。"
+        watchlist.upsert_item(profile, final_report=final_report)
+
+        rows = self.db.query_to_dataframe(
+            """
+            SELECT tier, expected_return_pct, expected_holding_days, max_holding_days, exit_hint, decision_snapshot
+            FROM watchlist_items
+            WHERE code = '000001'
+            """
+        )
+        self.assertEqual(rows.iloc[0]["tier"], "强推荐")
+        self.assertEqual(float(rows.iloc[0]["expected_return_pct"]), 18.0)
+        self.assertEqual(int(rows.iloc[0]["expected_holding_days"]), 3)
+        self.assertEqual(int(rows.iloc[0]["max_holding_days"]), 5)
+        self.assertIn("首板验证", rows.iloc[0]["exit_hint"])
+        self.assertIn("达到买点", rows.iloc[0]["decision_snapshot"])
+        self.assertIn("减仓/清仓触发条件", rows.iloc[0]["decision_snapshot"])
+
+    @patch("src.evaluation.watchlist.fetch_latest_prices", return_value={})
     def test_watchlist_applies_trading_remove_and_hard_exit(self, _mock_prices):
         watchlist = Watchlist(db=self.db, max_items=10)
         for code in ["000001", "000002", "000003"]:
@@ -1856,6 +1886,58 @@ class StockScreenerTests(unittest.TestCase):
         )
 
         self.assertNotIn("momentum_leader", [item["tag"] for item in matches])
+
+    def test_strategy_detector_requires_confirmed_trend_breakout(self):
+        matches = self.screener._detect_strategy_matches(
+            profile=self.screener.screening_profile,
+            close=12.0,
+            ma5=11.8,
+            ma10=11.4,
+            ma20=11.0,
+            ma60=10.9,
+            ret3=1.2,
+            ret5=2.0,
+            ret10=5.0,
+            ret20=8.0,
+            change_pct=1.5,
+            high60_distance=-8.0,
+            low60_distance=18.0,
+            vol_ratio=1.2,
+            vol5_ratio=1.1,
+            turnover_rate=3.0,
+            pe_ttm=None,
+            pb=None,
+            latest_open=11.7,
+            intraday_position=0.65,
+        )
+
+        self.assertIn("trend_breakout", [item["tag"] for item in matches])
+
+    def test_strategy_detector_rejects_weak_trend_breakout(self):
+        matches = self.screener._detect_strategy_matches(
+            profile=self.screener.screening_profile,
+            close=12.0,
+            ma5=11.9,
+            ma10=11.8,
+            ma20=11.7,
+            ma60=11.9,
+            ret3=-0.5,
+            ret5=-1.0,
+            ret10=0.5,
+            ret20=-1.0,
+            change_pct=0.3,
+            high60_distance=-12.0,
+            low60_distance=10.0,
+            vol_ratio=0.7,
+            vol5_ratio=0.9,
+            turnover_rate=1.0,
+            pe_ttm=None,
+            pb=None,
+            latest_open=12.1,
+            intraday_position=0.35,
+        )
+
+        self.assertNotIn("trend_breakout", [item["tag"] for item in matches])
 
     def test_medium_term_score_penalizes_overheated_momentum(self):
         stable_score = self.screener._score_strategy_candidate(

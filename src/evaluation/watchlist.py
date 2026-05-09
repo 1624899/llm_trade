@@ -90,14 +90,18 @@ class Watchlist:
         
         tier = self._infer_tier(code, final_report)
         reason = self._compose_reason(profile)
+        decision_snapshot = self._extract_decision_snapshot(final_report, code)
+        expected_holding_days = self._infer_expected_holding_days(profile, final_report, code)
+        max_holding_days = self._infer_max_holding_days(profile, final_report, code)
+        exit_hint = str(asset.get("exit_hint") or profile.get("exit_hint") or "").strip()
 
         # 核心插入/更新逻辑 (UPSERT)
         sql = """
             INSERT INTO watchlist_items
             (code, name, tier, watch_status, source, added_at, updated_at, entry_price,
-             current_price, return_pct, expected_return_pct, recommend_reason,
-             fundamental_analysis, technical_analysis, news_risk_analysis, macro_context, remove_reason)
-            VALUES (?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+             current_price, return_pct, expected_return_pct, expected_holding_days, max_holding_days, exit_hint, recommend_reason,
+             fundamental_analysis, technical_analysis, news_risk_analysis, decision_snapshot, macro_context, remove_reason)
+            VALUES (?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
             ON CONFLICT(code) DO UPDATE SET
                 name=excluded.name,
                 tier=excluded.tier,
@@ -107,10 +111,14 @@ class Watchlist:
                 current_price=excluded.current_price,
                 return_pct=excluded.return_pct,
                 expected_return_pct=excluded.expected_return_pct,
+                expected_holding_days=excluded.expected_holding_days,
+                max_holding_days=excluded.max_holding_days,
+                exit_hint=excluded.exit_hint,
                 recommend_reason=excluded.recommend_reason,
                 fundamental_analysis=excluded.fundamental_analysis,
                 technical_analysis=excluded.technical_analysis,
                 news_risk_analysis=excluded.news_risk_analysis,
+                decision_snapshot=excluded.decision_snapshot,
                 macro_context=excluded.macro_context,
                 remove_reason=NULL
         """
@@ -127,10 +135,14 @@ class Watchlist:
                 current_price,
                 return_pct,
                 self._infer_expected_return(final_report, code),
+                expected_holding_days,
+                max_holding_days,
+                exit_hint,
                 reason,
                 str(profile.get("fundamental_analysis") or ""),
                 str(profile.get("technical_analysis") or ""),
                 str(profile.get("news_risk_analysis") or ""),
+                decision_snapshot,
                 json.dumps(macro_context or {}, ensure_ascii=False, default=str),
             ),
         )
@@ -334,6 +346,72 @@ class Watchlist:
         values = [float(item) for item in matches]
         return max(values) if values else None
 
+    @classmethod
+    def _infer_expected_holding_days(cls, profile: Dict[str, Any], final_report: str, code: str) -> int | None:
+        """优先使用策略画像中的建议持有期，缺失时再从最终报告中提取。"""
+        asset = profile.get("asset_info") or {}
+        value = cls._to_int(asset.get("preferred_holding_days") or profile.get("preferred_holding_days"))
+        if value:
+            return value
+        return cls._extract_holding_days_from_report(final_report, code)
+
+    @classmethod
+    def _infer_max_holding_days(cls, profile: Dict[str, Any], final_report: str, code: str) -> int | None:
+        """提取最长验证期，用于 TradingAgent 区分短线验证和中期配置。"""
+        asset = profile.get("asset_info") or {}
+        value = cls._to_int(asset.get("max_holding_days") or profile.get("max_holding_days"))
+        if value:
+            return value
+        days = cls._extract_holding_days_from_report(final_report, code)
+        return days
+
+    @staticmethod
+    def _extract_holding_days_from_report(final_report: str, code: str) -> int | None:
+        """从最终报告局部文本中提取“3日/3-5日/20日”等持有期限。"""
+        idx = final_report.find(code) if final_report else -1
+        if idx < 0:
+            return None
+
+        window = final_report[max(0, idx - 160) : idx + 360]
+        range_match = re.search(r"(\d+)\s*[-~至到]\s*(\d+)\s*日", window)
+        if range_match:
+            return int(range_match.group(1))
+
+        match = re.search(r"(?:持有|验证|期限|周期)[^\d]{0,12}(\d+)\s*日", window)
+        if match:
+            return int(match.group(1))
+        return None
+
+    @staticmethod
+    def _extract_decision_snapshot(final_report: str, code: str) -> str:
+        """提取最新研报中对应股票的最终决策表行，供调仓 Agent 使用。"""
+        if not final_report:
+            return ""
+
+        normalized_code = str(code).zfill(6)
+        rows = []
+        lines = final_report.splitlines()
+        for index, line in enumerate(lines):
+            text = line.strip()
+            if normalized_code not in text:
+                continue
+            if text.startswith("|") and text.endswith("|"):
+                header = []
+                for prior in lines[max(0, index - 2) : index]:
+                    prior_text = prior.strip()
+                    if prior_text.startswith("|") and prior_text.endswith("|"):
+                        header.append(re.sub(r"\s+", " ", prior_text))
+                rows.append("\n".join(header + [re.sub(r"\s+", " ", text)]))
+
+        if rows:
+            return "\n".join(rows)[:2000]
+
+        idx = final_report.find(normalized_code)
+        if idx < 0:
+            return ""
+        snapshot = final_report[max(0, idx - 180) : idx + 360]
+        return re.sub(r"\s+", " ", snapshot).strip()[:1200]
+
     @staticmethod
     def _return_pct(current_price: float | None, entry_price: float | None) -> float | None:
         """计算累计收益率 %。"""
@@ -362,5 +440,16 @@ class Watchlist:
             if value is None:
                 return None
             return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _to_int(value: Any) -> int | None:
+        """安全转换为正整数。"""
+        try:
+            if value in (None, ""):
+                return None
+            number = int(float(value))
+            return number if number > 0 else None
         except (TypeError, ValueError):
             return None

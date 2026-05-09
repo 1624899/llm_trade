@@ -95,13 +95,14 @@ class TradingAgent:
 硬约束：
 1. 交易仓最多同时持有 5 只股票。
 2. A 股按 100 股一手买卖，BUY/SELL 数量必须是 100 的整数倍；不要输出 50 股这类不可执行数量。
-3. 禁止频繁交易，默认按 1-3 个月中期波段/配置视角持有，除非风险恶化，不要因为短期波动反复买卖。
+3. 禁止频繁交易，但必须尊重观察仓的 expected_holding_days/max_holding_days：3-5 日验证型信号按短线验证纪律处理，10-20 日信号按波段纪律处理，缺失时才默认按 1-3 个月中期波段/配置视角持有。
 4. 低风险、基本面和技术面未恶化、中期预期收益大于 15% 的股票，应偏向 HOLD/BUY，不要因为宏观环境短期偏弱或微小浮盈就 SELL。
 5. SELL 只允许在黑天鹅、基本面反转/恶化、资讯硬风险、技术硬破位/趋势失效、或已接近/达到中期止盈目标时使用。
 6. BUY 也必须受买点约束：观察仓标的已经达到明确买点，或出现突破确认、缩量回踩企稳、支撑低吸、站上关键均线/平台等触发信号时可以买入。
 7. 已持仓标的只有在趋势突破、强动量延续、回踩不破后再启动等二次确认信号出现时，才允许输出 BUY 作为加仓；普通“继续看好”只能 HOLD。
 8. 强推荐且基本面/资讯风险低、趋势未失效、中期空间大于 15% 的标的，可以忽略短期震荡或正常回踩，不要因为轻微波动过度 WATCH；但如果明确“买点未到/尚未触发/不宜追高/破位”，仍应 WATCH。
-9. 只输出 JSON，不要输出 Markdown。
+9. first_limit_up_breakout 或 expected_holding_days<=5 的首板验证信号，不得当作中期持仓加码；若 3-5 日内不继续确认、异常放量或基本面/资讯风险恶化，应 WATCH/REMOVE 或按退出信号处理。
+10. 只输出 JSON，不要输出 Markdown。
 
 JSON 格式：
 {
@@ -372,8 +373,8 @@ JSON 格式：
 
         expected = self._to_float(watch.get("expected_return_pct"))
         if tier == "强推荐":
-            # 强推荐允许忽略短期小波动；只要没有硬风险或明确买点未触发，就不因“等待确认”等保守措辞一票否决。
-            return expected is None or expected >= 15 or has_trigger
+            # 强推荐只提升候选优先级；兜底逻辑仍必须等待明确买点，综合取舍交给 LLM。
+            return has_trigger and (expected is None or expected >= 15)
         return has_trigger and (expected is None or expected >= 15)
 
     def _normalized_sell_quantity(self, requested: Any, position: Dict[str, Any]) -> int:
@@ -540,7 +541,7 @@ JSON 格式：
 
     def _is_actionable_watch(self, item: Dict[str, Any], position: Optional[Dict[str, Any]] = None) -> bool:
         """检查观察仓标的是否可以作为“买入点”。(由兜底逻辑调用)"""
-        return self._buy_allowed({}, item, position or {}, "观察仓买点触发检查")
+        return self._buy_allowed({}, item, position or {}, "观察仓兜底检查")
 
     def _default_target_cash(self, account: Dict[str, Any], positions: List[Dict[str, Any]]) -> float:
         """计算单一标的的最大可用购买金额（平铺到剩余仓位槽）。"""

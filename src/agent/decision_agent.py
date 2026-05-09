@@ -66,7 +66,7 @@ class DecisionAgent:
 报告中的决策日期必须使用：{decision_date}。不要自行改写为其他年份或交易日。
 直接输出报告正文，不要输出“好的、遵命、作为某某智能体”等寒暄句。
 必须尊重资讯风险的硬性剔除结论。
-你的判断周期是中期波段/配置视角，默认观察 1-3 个月，不是隔日或一周内的纯短线策略。
+你的判断周期必须尊重候选的策略建议持有期：首板启动/first_limit_up_breakout 属于 3-5 日验证信号，不得写成 1-3 个月中期配置；趋势突破、主升浪、价值低吸等可按对应中期或波段周期评估。
 如果一只股票基本面质量好、风险低、技术趋势没有失效，并且合理预期收益空间大于 15%，应当给出清晰积极的结论，不要因为短期震荡、回踩或小幅浮亏而过度保守。
 如果基本面已经恶化，或利润/现金流/公告风险与技术面破位、放量滞涨、趋势背离同时出现，必须明确建议减仓、清仓或不推荐，不能用“继续观察”稀释风险。
 最终报告必须像成熟交易分析员一样给出可执行判断：买入/配置/等待/减仓/清仓，不要只罗列优缺点。
@@ -83,7 +83,8 @@ class DecisionAgent:
 - 观察：单独看有亮点，但买点、趋势、成长性或风控仍不够清晰。
 - 不推荐：基本面、技术面或资讯风控存在明显短板。
 如果某只股票只是弱市防御、缩量回踩、基本面稳但成长一般，请标为“配置/轻仓验证”，不要写成“强推荐”。
-最终决策表必须包含“推荐分层”“中期预期收益空间”“主要持有逻辑”“减仓/清仓触发条件”列，并在个股标题中使用对应分层，例如“长江电力(600900) —— 配置/轻仓验证”。
+最终决策表必须包含“推荐分层”“预期收益空间”“预计持有期限”“主要持有逻辑”“减仓/清仓触发条件”列，并在个股标题中使用对应分层，例如“长江电力(600900) —— 配置/轻仓验证”。
+“预计持有期限”必须写具体周期，例如“3日验证，最长5日”“10日波段”“20日趋势持有”；如果是 first_limit_up_breakout，必须写“3日验证，最长5日”或等价表述。
 每只股票的资讯风控不能只写“风险等级：低/中/高”，必须至少说明：风险等级、处理动作、是否硬排除、新闻质量或关键证据；如果没有命中负面，也要写明“未发现明确负面关键词/公告硬风险”等依据。
 
 报告结尾必须包含一个机器可解析的代码块，格式如下：
@@ -140,6 +141,11 @@ CODE_LIST 只放“强推荐”和“配置/轻仓验证”的代码，不放“
                             f"- 技术预筛分: {asset.get('technical_score', 'N/A')}, "
                             f"入选理由: {asset.get('screen_reason', 'N/A')}"
                         ),
+                        f"- 策略标签: {self._format_strategy_tags(asset.get('strategy_tags'))}",
+                        (
+                            f"- 策略持有期: 建议 {asset.get('preferred_holding_days', 'N/A')} 日，"
+                            f"最长 {asset.get('max_holding_days', 'N/A')} 日；退出提示: {asset.get('exit_hint', 'N/A')}"
+                        ),
                         f"- 基本面分析: {profile.get('fundamental_analysis', '无')}",
                         f"- 技术面分析: {profile.get('technical_analysis', '无')}",
                         f"- 资讯风险: {self._format_news_risk_for_prompt(profile.get('news_risk_analysis'))}",
@@ -147,6 +153,13 @@ CODE_LIST 只放“强推荐”和“配置/轻仓验证”的代码，不放“
                 )
             )
         return "\n\n".join(chunks)
+
+    @staticmethod
+    def _format_strategy_tags(tags: Any) -> str:
+        """格式化策略标签，保留 first_limit_up_breakout 等机器标签供决策辨识。"""
+        if isinstance(tags, (list, tuple, set)):
+            return "、".join(str(tag) for tag in tags) or "无"
+        return str(tags or "无")
 
     def _format_blocked_context(self, reports: List[Dict[str, Any]]) -> str:
         """格式化被风控拦截的股票信息，告知 LLM 这些标的已被禁止。"""
@@ -350,10 +363,12 @@ CODE_LIST 只放“强推荐”和“配置/轻仓验证”的代码，不放“
             if tier in {"强推荐", "配置/轻仓验证"} and code:
                 actionable_codes.append(code)
             lines.append(
-                "- {name}({code}) —— {tier}；技术得分={score}, 入选理由={reason}".format(
+                "- {name}({code}) —— {tier}；预计持有={hold}日，最长={max_hold}日；技术得分={score}, 入选理由={reason}".format(
                     name=asset.get("name", ""),
                     code=code,
                     tier=tier,
+                    hold=asset.get("preferred_holding_days", "N/A"),
+                    max_hold=asset.get("max_holding_days", "N/A"),
                     score=asset.get("technical_score", "N/A"),
                     reason=asset.get("screen_reason", "N/A"),
                 )

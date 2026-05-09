@@ -17,8 +17,8 @@ from src.database import StockDatabase
 DEFAULT_HOLDING_DAYS = (3, 5, 10, 20)
 DEFAULT_STRATEGY_HORIZONS = {
     "dragon_pullback": 10,
-    "first_limit_up_breakout": 10,
-    "support_pullback": 10,
+    "first_limit_up_breakout": 3,
+    "support_pullback": 5,
     "trend_breakout": 20,
     "momentum_leader": 20,
 }
@@ -351,7 +351,7 @@ class BacktestEngine:
             if sample_count < min_samples:
                 multiplier = 1.0
                 confidence = "low"
-                reason = "样本不足，保持中性权重。"
+                reason = f"样本不足(n={sample_count} < {min_samples})，保持中性权重。"
             else:
                 multiplier = max(0.75, min(1.25, 1.0 + effect_score / 40.0))
                 confidence = "medium" if sample_count < min_samples * 3 else "high"
@@ -400,8 +400,17 @@ class BacktestEngine:
             key=lambda pair: float(pair[1].get("effect_score") or 0),
             reverse=True,
         )
-        low_sample_count = len(adjustments) - len(reliable)
-        low_sample_note = f"；{low_sample_count} 个策略样本不足未参与优劣排名" if low_sample_count > 0 else ""
+        low_sample_items = [
+            f"{strategy}(n={adjustment.get('sample_count')})"
+            for strategy, adjustment in adjustments.items()
+            if adjustment.get("confidence") == "low"
+        ]
+        low_sample_count = len(low_sample_items)
+        low_sample_note = (
+            f"；{low_sample_count} 个策略样本不足未参与优劣排名：{', '.join(low_sample_items)}"
+            if low_sample_count > 0
+            else ""
+        )
         if not ranked:
             return f"已评估 {sample_count} 条历史信号；所有策略样本仍不足，暂不判断相对优劣。"
         best = ranked[0] if ranked else ("unknown", {"effect_score": 0})

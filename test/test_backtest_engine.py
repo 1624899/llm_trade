@@ -131,36 +131,51 @@ class BacktestEngineTests(unittest.TestCase):
                 "strategy_confidence": 0.8,
                 "technical_score": 75,
             },
+            {
+                "code": "000005",
+                "name": "first limit sample",
+                "strategy_tags": ["first_limit_up_breakout"],
+                "strategy_confidence": 0.8,
+                "technical_score": 75,
+            },
         ]
         dates = [f"202604{20 + index:02d}" for index in range(21)]
         dragon_closes = [10.0] * 21
         dragon_closes[10] = 12.0
         dragon_closes[20] = 13.0
         support_closes = [20.0] * 21
-        support_closes[10] = 22.0
-        support_closes[20] = 23.0
+        support_closes[5] = 22.0
+        support_closes[10] = 19.0
+        support_closes[20] = 18.0
         trend_closes = [30.0] * 21
         trend_closes[10] = 29.0
         trend_closes[20] = 36.0
         momentum_closes = [40.0] * 21
         momentum_closes[10] = 41.0
         momentum_closes[20] = 52.0
+        first_limit_closes = [50.0] * 21
+        first_limit_closes[3] = 55.0
+        first_limit_closes[10] = 48.0
+        first_limit_closes[20] = 47.0
         self._seed_bars("000001", dates, dragon_closes)
         self._seed_bars("000002", dates, support_closes)
         self._seed_bars("000003", dates, trend_closes)
         self._seed_bars("000004", dates, momentum_closes)
+        self._seed_bars("000005", dates, first_limit_closes)
 
         self.engine.record_signal_snapshot(candidates, signal_date="20260420")
         report = self.engine.evaluate_signal_snapshots(holding_days=(3, 5, 10, 20))
 
         self.assertEqual(report["strategy_stats"]["dragon_pullback"]["preferred_horizon"], 10)
         self.assertGreater(report["strategy_stats"]["dragon_pullback"]["effect_score"], 0)
-        self.assertEqual(report["strategy_stats"]["support_pullback"]["preferred_horizon"], 10)
+        self.assertEqual(report["strategy_stats"]["support_pullback"]["preferred_horizon"], 5)
         self.assertGreater(report["strategy_stats"]["support_pullback"]["effect_score"], 0)
         self.assertEqual(report["strategy_stats"]["trend_breakout"]["preferred_horizon"], 20)
         self.assertGreater(report["strategy_stats"]["trend_breakout"]["effect_score"], 0)
         self.assertEqual(report["strategy_stats"]["momentum_leader"]["preferred_horizon"], 20)
         self.assertGreater(report["strategy_stats"]["momentum_leader"]["effect_score"], 0)
+        self.assertEqual(report["strategy_stats"]["first_limit_up_breakout"]["preferred_horizon"], 3)
+        self.assertGreater(report["strategy_stats"]["first_limit_up_breakout"]["effect_score"], 0)
 
     def test_summary_excludes_low_sample_strategies_from_headline_ranking(self):
         report = {"evaluated_count": 20}
@@ -187,6 +202,7 @@ class BacktestEngineTests(unittest.TestCase):
         self.assertIn("相对较优策略 dragon_pullback", summary)
         self.assertIn("相对偏弱策略 trend_breakout", summary)
         self.assertIn("1 个策略样本不足未参与优劣排名", summary)
+        self.assertIn("momentum_leader(n=2)", summary)
         self.assertNotIn("相对较优策略 momentum_leader", summary)
 
     @patch("src.stock_screener.StockScreener")

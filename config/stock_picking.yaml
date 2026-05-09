@@ -42,22 +42,30 @@ profiles:
     max_ma5_ma20_ratio: 1.10
     max_momentum_bias20: 1.18
     max_trend_bias20: 1.16
-    # 回测校准参数：基于 walk_forward_masked 399 条样本，优先降低追高和弱企稳信号暴露。
-    bt_max_trend_bias20: 1.16
-    bt_trend_ret5_max: 10.0
+    # 回测校准参数：基于 walk_forward_masked 420 条样本，保留强动量优势，近似关停龙回头弱样本。
+    bt_max_trend_bias20: 1.14
+    bt_trend_ret20_min: 3.0
+    bt_trend_ret5_min: 0.0
+    bt_trend_ret5_max: 8.0
+    bt_trend_min_volume_ratio: 0.95
+    bt_trend_max_volume_ratio: 2.8
+    bt_trend_min_intraday_position: 0.50
+    bt_trend_ma20_ma60_min: 1.0
     bt_max_momentum_bias20: 1.18
-    bt_momentum_ret20_min: 26.0
+    bt_momentum_ret20_min: 24.0
     bt_momentum_ret10_min: 10.0
     bt_momentum_ret5_min: 5.0
     bt_momentum_ret5_max: 10.0
     bt_momentum_min_intraday_position: 0.55
-    bt_momentum_max_volume_ratio: 2.6
-    bt_first_limit_max_bias20: 1.16
-    bt_first_limit_ret20_max: 24.0
-    bt_support_max_volume_ratio: 0.72
-    bt_support_min_intraday_position: 0.55
-    bt_support_ret1_max: 2.5
-    bt_dragon_min_intraday_position: 0.40
+    bt_momentum_max_volume_ratio: 2.7
+    bt_first_limit_max_bias20: 1.10
+    bt_first_limit_ret5_max: 14.0
+    bt_first_limit_ret20_max: 18.0
+    bt_first_limit_max_volume_ratio: 3.4
+    bt_support_max_volume_ratio: 0.55
+    bt_support_min_intraday_position: 0.68
+    bt_support_ret1_max: 0.8
+    bt_dragon_min_intraday_position: 0.90
     min_new_stock_history_days: 30
     allow_new_stock_channel: false
     turnover_rate_min: 0.8
@@ -81,21 +89,29 @@ profiles:
     max_momentum_bias20: 1.22
     max_trend_bias20: 1.18
     # 回测校准参数：balanced 是默认实盘档，优先使用这一组继续滚动验证。
-    bt_max_trend_bias20: 1.18
-    bt_trend_ret5_max: 12.0
+    bt_max_trend_bias20: 1.15
+    bt_trend_ret20_min: 2.0
+    bt_trend_ret5_min: 0.0
+    bt_trend_ret5_max: 9.0
+    bt_trend_min_volume_ratio: 0.90
+    bt_trend_max_volume_ratio: 3.0
+    bt_trend_min_intraday_position: 0.48
+    bt_trend_ma20_ma60_min: 1.0
     bt_max_momentum_bias20: 1.18
-    bt_momentum_ret20_min: 28.0
+    bt_momentum_ret20_min: 26.0
     bt_momentum_ret10_min: 10.0
     bt_momentum_ret5_min: 4.0
-    bt_momentum_ret5_max: 9.0
+    bt_momentum_ret5_max: 10.0
     bt_momentum_min_intraday_position: 0.55
-    bt_momentum_max_volume_ratio: 2.6
-    bt_first_limit_max_bias20: 1.18
-    bt_first_limit_ret20_max: 28.0
-    bt_support_max_volume_ratio: 0.78
-    bt_support_min_intraday_position: 0.52
-    bt_support_ret1_max: 3.0
-    bt_dragon_min_intraday_position: 0.38
+    bt_momentum_max_volume_ratio: 2.7
+    bt_first_limit_max_bias20: 1.12
+    bt_first_limit_ret5_max: 16.0
+    bt_first_limit_ret20_max: 22.0
+    bt_first_limit_max_volume_ratio: 3.8
+    bt_support_max_volume_ratio: 0.58
+    bt_support_min_intraday_position: 0.68
+    bt_support_ret1_max: 1.0
+    bt_dragon_min_intraday_position: 0.90
     min_new_stock_history_days: 30
     allow_new_stock_channel: false
     turnover_rate_min: 0.5
@@ -119,21 +135,29 @@ profiles:
     max_momentum_bias20: 1.26
     max_trend_bias20: 1.24
     # 回测校准参数：aggressive 仍保留弹性，但不再允许无限追高。
-    bt_max_trend_bias20: 1.24
-    bt_trend_ret5_max: 16.0
+    bt_max_trend_bias20: 1.20
+    bt_trend_ret20_min: 0.0
+    bt_trend_ret5_min: -2.0
+    bt_trend_ret5_max: 12.0
+    bt_trend_min_volume_ratio: 0.85
+    bt_trend_max_volume_ratio: 3.6
+    bt_trend_min_intraday_position: 0.45
+    bt_trend_ma20_ma60_min: 0.995
     bt_max_momentum_bias20: 1.26
-    bt_momentum_ret20_min: 22.0
+    bt_momentum_ret20_min: 20.0
     bt_momentum_ret10_min: 8.0
     bt_momentum_ret5_min: 4.0
-    bt_momentum_ret5_max: 15.0
-    bt_momentum_min_intraday_position: 0.50
+    bt_momentum_ret5_max: 14.0
+    bt_momentum_min_intraday_position: 0.52
     bt_momentum_max_volume_ratio: 3.2
-    bt_first_limit_max_bias20: 1.22
-    bt_first_limit_ret20_max: 38.0
-    bt_support_max_volume_ratio: 0.82
-    bt_support_min_intraday_position: 0.50
-    bt_support_ret1_max: 4.0
-    bt_dragon_min_intraday_position: 0.35
+    bt_first_limit_max_bias20: 1.16
+    bt_first_limit_ret5_max: 20.0
+    bt_first_limit_ret20_max: 28.0
+    bt_first_limit_max_volume_ratio: 4.6
+    bt_support_max_volume_ratio: 0.62
+    bt_support_min_intraday_position: 0.65
+    bt_support_ret1_max: 1.8
+    bt_dragon_min_intraday_position: 0.85
     min_new_stock_history_days: 30
     allow_new_stock_channel: true
     turnover_rate_min: 0.3

@@ -948,7 +948,70 @@ class TradingAgentTests(unittest.TestCase):
         self.assertEqual(decisions[0]["action"], "WATCH")
 
     @patch.object(TradingAgent, "_llm_decisions", return_value=[])
-    def test_fallback_strong_recommendation_can_ignore_short_term_noise(self, _mock_llm):
+    def test_fallback_does_not_buy_only_from_final_decision_snapshot(self, _mock_llm):
+        agent = TradingAgent(max_positions=5, max_buys_per_run=2, max_sells_per_run=2)
+
+        decisions = agent.decide(
+            watchlist=[
+                {
+                    "id": 1,
+                    "code": "000001",
+                    "name": "decision sample",
+                    "tier": "强推荐",
+                    "current_price": 10.0,
+                    "expected_return_pct": 18,
+                    "recommend_reason": "基本面稳定。",
+                    "technical_analysis": "趋势未失效。",
+                    "news_risk_analysis": "未发现硬风险。",
+                    "decision_snapshot": (
+                        "| 股票 | 推荐分层 | 中期预期收益空间 | 主要持有逻辑 | 减仓/清仓触发条件 |\n"
+                        "| decision sample(000001) | 强推荐 | 18% | 缩量回踩企稳，达到买点 | 跌破平台清仓 |"
+                    ),
+                }
+            ],
+            positions=[],
+            account={"cash": 10000},
+            exit_signals={},
+            macro_context={},
+        )
+
+        self.assertEqual(decisions[0]["action"], "WATCH")
+
+    @patch("src.agent.trading_agent.tools.call_llm")
+    def test_llm_prompt_receives_expected_holding_period(self, mock_call_llm):
+        mock_call_llm.return_value = '{"decisions":[{"code":"000001","action":"WATCH","reason":"首板3日验证，等待确认"}]}'
+        agent = TradingAgent(max_positions=5, max_buys_per_run=2, max_sells_per_run=2)
+
+        decisions = agent.decide(
+            watchlist=[
+                {
+                    "id": 1,
+                    "code": "000001",
+                    "name": "first board sample",
+                    "tier": "配置/轻仓验证",
+                    "current_price": 10.0,
+                    "expected_return_pct": 8,
+                    "expected_holding_days": 3,
+                    "max_holding_days": 5,
+                    "exit_hint": "首板验证信号，3日内不确认则退出。",
+                    "decision_snapshot": "| first board sample(000001) | 配置/轻仓验证 | 8% | 3日验证，最长5日 |",
+                }
+            ],
+            positions=[],
+            account={"cash": 10000},
+            exit_signals={},
+            macro_context={},
+        )
+
+        system_prompt = mock_call_llm.call_args.args[0]
+        user_prompt = mock_call_llm.call_args.args[1]
+        self.assertEqual(decisions[0]["action"], "WATCH")
+        self.assertIn("expected_holding_days", user_prompt)
+        self.assertIn("max_holding_days", user_prompt)
+        self.assertIn("3-5 日验证型信号", system_prompt)
+
+    @patch.object(TradingAgent, "_llm_decisions", return_value=[])
+    def test_fallback_strong_recommendation_without_buy_trigger_stays_watch(self, _mock_llm):
         agent = TradingAgent(max_positions=5, max_buys_per_run=2, max_sells_per_run=2)
 
         decisions = agent.decide(
@@ -971,7 +1034,7 @@ class TradingAgentTests(unittest.TestCase):
             macro_context={},
         )
 
-        self.assertEqual(decisions[0]["action"], "BUY")
+        self.assertEqual(decisions[0]["action"], "WATCH")
 
     @patch.object(
         TradingAgent,
@@ -1116,7 +1179,15 @@ class NewsRiskDecisionTests(unittest.TestCase):
         mock_call_llm.return_value = "推荐 safe，误选 blocked。\n[CODE_LIST] 000001, 000002 [/CODE_LIST]"
         reports = [
             {
-                "asset_info": {"code": "000001", "name": "safe", "price": 10, "change_pct": 1},
+                "asset_info": {
+                    "code": "000001",
+                    "name": "safe",
+                    "price": 10,
+                    "change_pct": 1,
+                    "preferred_holding_days": 3,
+                    "max_holding_days": 5,
+                    "exit_hint": "首板验证信号，3日内不确认则退出。",
+                },
                 "fundamental_analysis": "ok",
                 "technical_analysis": "ok",
                 "news_risk_analysis": {"risk_level": "low", "hard_exclude": False, "summary": "未见明显雷点"},
@@ -1145,9 +1216,39 @@ class NewsRiskDecisionTests(unittest.TestCase):
         )
 
         self.assertIn("000002", mock_call_llm.call_args.args[1])
+        self.assertIn("建议 3 日，最长 5 日", mock_call_llm.call_args.args[1])
         self.assertEqual(selected, ["000001"])
         self.assertIn("[CODE_LIST]", report)
         self.assertIn("宏观适配度", report)
+
+    @patch("src.agent.decision_agent.tools.call_llm")
+    def test_decision_agent_requires_expected_holding_period_column(self, mock_call_llm):
+        mock_call_llm.return_value = "最终推荐 safe。\n[CODE_LIST] 000001 [/CODE_LIST]"
+        reports = [
+            {
+                "asset_info": {
+                    "code": "000001",
+                    "name": "safe",
+                    "price": 10,
+                    "change_pct": 1,
+                    "strategy_tags": ["first_limit_up_breakout"],
+                    "preferred_holding_days": 3,
+                    "max_holding_days": 5,
+                    "exit_hint": "首板验证信号，3日内不确认则退出。",
+                },
+                "fundamental_analysis": "ok",
+                "technical_analysis": "ok",
+                "news_risk_analysis": {"risk_level": "low", "hard_exclude": False, "summary": "未见明显雷点"},
+            }
+        ]
+
+        DecisionAgent().synthesize_and_elect_winners(reports, pick_n=1)
+
+        system_prompt = mock_call_llm.call_args.args[0]
+        user_prompt = mock_call_llm.call_args.args[1]
+        self.assertIn("预计持有期限", system_prompt)
+        self.assertIn("first_limit_up_breakout", system_prompt)
+        self.assertIn("建议 3 日，最长 5 日", user_prompt)
 
     @patch("src.agent.decision_agent.tools.call_llm")
     def test_decision_agent_accepts_full_width_code_list_tags(self, mock_call_llm):

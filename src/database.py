@@ -193,10 +193,14 @@ class StockDatabase:
                 current_price REAL,
                 return_pct REAL,
                 expected_return_pct REAL,
+                expected_holding_days INTEGER,
+                max_holding_days INTEGER,
+                exit_hint TEXT,
                 recommend_reason TEXT,
                 fundamental_analysis TEXT,
                 technical_analysis TEXT,
                 news_risk_analysis TEXT,
+                decision_snapshot TEXT,
                 macro_context TEXT,
                 remove_reason TEXT
             )
@@ -295,6 +299,12 @@ class StockDatabase:
             "stock_basic": {
                 "industry": "TEXT",
                 "update_date": "TEXT",
+            },
+            "watchlist_items": {
+                "decision_snapshot": "TEXT",
+                "expected_holding_days": "INTEGER",
+                "max_holding_days": "INTEGER",
+                "exit_hint": "TEXT",
             },
         }
 
