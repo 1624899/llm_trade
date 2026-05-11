@@ -40,12 +40,14 @@ frontend/.env.*
 
 # Output files
 outputs/
+data/
 data\market_data
 data\web_search_cache.json
 data/web_search_cache.json
 data/*.db
 data/stock_lake.db
 data/trade_executions/
+.tesk/
 .test_tmp/
 
 # Frontend dependencies and build cache
