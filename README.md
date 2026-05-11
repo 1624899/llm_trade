@@ -32,7 +32,6 @@
 | 支持方式 | 支持等级 | 说明 |
 | --- | --- | --- |
 |每月 0 RMB | Community | 使用全部社区功能；通过 GitHub 获取更新；可参与 Issue、讨论和路线图反馈。 |
-|每月 9.9 RMB | Backer | 作者致谢；优先整理和回应复现清晰的 Issue；提供基础配置指导；新增社区功能优先体验。|
 
 ## 核心能力
 
@@ -490,26 +489,6 @@ python -m unittest test.test_database_and_screener.StockScreenerTests
 ```bash
 python -m unittest discover -s test
 ```
-
-## 最近已完成的工程升级
-
-- `src/agent/screener_agent.py` 已迁移为 `src/stock_screener.py`，定位为底层规则筛选器。
-- `StockScreener` 已升级为多策略雷达，不再用单一 MA20 趋势条件一刀切。
-- `StockScreener` 已补充 RSI/MACD 反转共振、MA20 乖离率约束、支撑回踩 K 线承接确认，降低假突破和接飞刀风险。
-- 新增次新股 aggressive 特别通道、`dragon_pullback` 龙回头策略和 `first_limit_up_breakout` 底部首板强突策略。
-- `MarketRegimeDetector` 新增最高连板高度、涨停/跌停数量监测，把市场情绪热度纳入 profile 自动切换。
-- 新增遮盖式走步回测模块：用历史截面隐藏未来数据生成候选，再揭开后续行情统计胜率、收益和策略权重。
-- `StockScreener` 已接入 `walk_forward_masked` 回测权重，真实选股时前置校准技术分；回测生成样本时关闭该权重，避免未来信息污染。
-- 新增 `QuickFilterAgent`，形成“规则分策略海选 → AI 轻量精筛 → Agent 深度复核”的三段式漏斗。
-- 新增东方财富财务报表接入和 `financial_metrics` 表。
-- `FundamentalAgent` 已接入近几期财务趋势摘要。
-- 新增量化技术信号层，`TechnicalAgent` 不再只看文本 K 线。
-- 新增 `ExitAgent`，观察仓具备第一版动态退出机制。
-- `PaperTrading` 已升级为收益率规则 + 技术退出 + 宏观防守的组合诊断。
-- 新增 `Watchlist`，`--pick` 只更新观察仓候选池，不再直接模拟买入。
-- 新增 `TradingAccount`，支持 16000 元持久模拟账户、交易持仓和交易流水。
-- 新增 `TradingAgent` 和 `--trade`，根据观察仓推荐与交易仓状态执行模拟调仓。
-- `ReflectionAgent` 已升级为可结合推荐内容、交易行为和盈亏结果做亏损复盘。
 
 ## 风险声明
 
