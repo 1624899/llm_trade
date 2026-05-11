@@ -25,11 +25,6 @@
 
 社区版不销售确定性荐股结果，不承诺收益，不代客交易，也不替用户作出真实投资决策。
 
-### 支持我们
-
-如果这个项目对你有帮助，欢迎 Star、反馈 Issue、提交 PR，或者请作者喝杯咖啡。社区版核心功能保持开放，支持完全自愿，不包含投资建议、收益承诺或代客交易。
-![wx](assets/wx-qrcode.jpg) ![zfb](assets/zfb-qrcode.jpg)
-
 
 ## 核心能力
 
@@ -487,6 +482,13 @@ python -m unittest test.test_database_and_screener.StockScreenerTests
 ```bash
 python -m unittest discover -s test
 ```
+### 支持我们
+
+如果这个项目对你有帮助，欢迎 Star、反馈 Issue、提交 PR，或者请作者喝杯咖啡。社区版核心功能保持开放，支持完全自愿，不包含投资建议、收益承诺或代客交易。
+<p>
+  <img src="assets/wx-qrcode.jpg" alt="微信收款码" width="180">
+  <img src="assets/zfb-qrcode.jpg" alt="支付宝收款码" width="180">
+</p>
 
 ## 风险声明
 

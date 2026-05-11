@@ -17,7 +17,10 @@ LLM-TRADE 社区版不通过 token 锁核心功能。公开仓库以社区协作
 如果这个项目对你有帮助，欢迎 Star、反馈 Issue、提交 PR，或者请作者喝杯咖啡。社区版核心功能保持开放，支持完全自愿，不包含投资建议、收益承诺或代客交易。
 
 收款码可以放在 `assets/sponsor-qrcode.png`，上传后取消下面图片注释即可显示：
-![wx](assets/wx-qrcode.jpg) ![zfb](assets/zfb-qrcode.jpg)
+<p>
+  <img src="assets/wx-qrcode.jpg" alt="微信收款码" width="180">
+  <img src="assets/zfb-qrcode.jpg" alt="支付宝收款码" width="180">
+</p>
 
 ## 反馈建议
 
