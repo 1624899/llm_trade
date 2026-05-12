@@ -46,6 +46,7 @@ class TradingAgent:
         account: Dict[str, Any],
         exit_signals: Optional[Dict[str, Dict[str, Any]]] = None,
         macro_context: Optional[Dict[str, Any]] = None,
+        historical_recommendations: Optional[List[Dict[str, Any]]] = None,
     ) -> List[Dict[str, Any]]:
         """
         生成最终的交易决策。如果是 LLM 决策失败，将使用兜底逻辑。
@@ -69,6 +70,7 @@ class TradingAgent:
             account=account,
             exit_signals=exit_signals,
             macro_context=macro_context,
+            historical_recommendations=historical_recommendations or [],
         )
         
         # 2. 如果存在 LLM 决策，则进行规范化处理（校验仓位、约束等）
@@ -86,6 +88,7 @@ class TradingAgent:
         account: Dict[str, Any],
         exit_signals: Dict[str, Dict[str, Any]],
         macro_context: Optional[Dict[str, Any]],
+        historical_recommendations: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
         """调用 LLM 生成初始交易决策 JSON。"""
         system_prompt = """
@@ -96,13 +99,17 @@ class TradingAgent:
 1. 交易仓最多同时持有 5 只股票。
 2. A 股按 100 股一手买卖，BUY/SELL 数量必须是 100 的整数倍；不要输出 50 股这类不可执行数量。
 3. 禁止频繁交易，但必须尊重观察仓的 expected_holding_days/max_holding_days：3-5 日验证型信号按短线验证纪律处理，10-20 日信号按波段纪律处理，缺失时才默认按 1-3 个月中期波段/配置视角持有。
-4. 低风险、基本面和技术面未恶化、中期预期收益大于 15% 的股票，应偏向 HOLD/BUY，不要因为宏观环境短期偏弱或微小浮盈就 SELL。
-5. SELL 只允许在黑天鹅、基本面反转/恶化、资讯硬风险、技术硬破位/趋势失效、或已接近/达到中期止盈目标时使用。
+4. 低风险、基本面和技术面未恶化、买点质量高或历史节点收益已经兑现的股票，应偏向 HOLD/BUY，不要因为“理论空间不足 15%”、宏观环境短期偏弱或微小浮盈就 SELL/REMOVE。
+5. SELL 只允许在黑天鹅、基本面反转/恶化、资讯硬风险、技术硬破位/趋势失效、或已接近/达到明确止盈目标且趋势转弱时使用。
 6. BUY 也必须受买点约束：观察仓标的已经达到明确买点，或出现突破确认、缩量回踩企稳、支撑低吸、站上关键均线/平台等触发信号时可以买入。
 7. 已持仓标的只有在趋势突破、强动量延续、回踩不破后再启动等二次确认信号出现时，才允许输出 BUY 作为加仓；普通“继续看好”只能 HOLD。
-8. 强推荐且基本面/资讯风险低、趋势未失效、中期空间大于 15% 的标的，可以忽略短期震荡或正常回踩，不要因为轻微波动过度 WATCH；但如果明确“买点未到/尚未触发/不宜追高/破位”，仍应 WATCH。
+8. 强推荐代表“胜率优先 + 买点质量 + 风险收益比”，不是“预期收益必须大于 15%”。强推荐且基本面/资讯风险低、趋势未失效、节点收益表现良好的标的，可以忽略短期震荡或正常回踩；但如果明确“买点未到/尚未触发/不宜追高/破位”，仍应 WATCH。
 9. first_limit_up_breakout 或 expected_holding_days<=5 的首板验证信号，不得当作中期持仓加码；若 3-5 日内不继续确认、异常放量或基本面/资讯风险恶化，应 WATCH/REMOVE 或按退出信号处理。
-10. 只输出 JSON，不要输出 Markdown。
+10. historical_recommendations 是历史推荐样本，用于校准风格：若同类“轻仓/配置”样本 5/10 日兑现明显，不应继续因“空间不足 15%”降权；已移出但表现良好的样本只能作为风格参照，不能直接 BUY，除非它重新进入 ACTIVE 观察仓。
+11. REMOVE 必须有硬风险、趋势失效、基本面恶化、或入选后明显负收益且节点收益持续失败；对当前收益为正、5日/10日节点收益为正、或刚刚兑现趋势的 ACTIVE 标的，不要 REMOVE，也不要输出占位动作。
+12. 对“仅在观察仓、未进入交易仓”的标的：达到买入条件才输出 BUY；确有硬风险才输出 REMOVE；否则不要输出该标的，不要用 WATCH 占位。
+13. 对“已经在交易仓持有”的标的：每次调用都必须输出 HOLD/SELL/BUY 之一，便于交易仓形成连续调仓记录。
+14. 只输出 JSON，不要输出 Markdown。
 
 JSON 格式：
 {
@@ -126,6 +133,7 @@ JSON 格式：
                 "watchlist": watchlist,
                 "exit_signals": exit_signals,
                 "macro_context": macro_context or {},
+                "historical_recommendations": historical_recommendations[:30],
                 "reflection_rules": self._load_reflection_rules(),
             },
             ensure_ascii=False,
@@ -187,7 +195,7 @@ JSON 格式：
                     or (not is_add and slots <= 0)
                     or not self._buy_allowed(item, watch, pos, reason)
                 ):
-                    action = "WATCH"
+                    action = "HOLD" if is_add else "SKIP"
                 else:
                     buys += 1
                     item["quantity"] = quantity
@@ -204,6 +212,14 @@ JSON 格式：
                 else:
                     sells += 1
                     item["quantity"] = quantity
+            if action == "REMOVE" and not self._remove_allowed(item, watch, signal, reason):
+                action = "HOLD" if code in position_map else "SKIP"
+            if action == "WATCH":
+                action = "HOLD" if code in position_map else "SKIP"
+            if action == "HOLD" and code not in position_map:
+                action = "SKIP"
+            if action == "SKIP":
+                continue
             
             normalized.append(
                 {
@@ -245,6 +261,21 @@ JSON 格式：
                 " ".join(signal.get("technical_tags") or []),
             )
         )
+        for neutral_phrase in (
+            "趋势未失效",
+            "趋势没有失效",
+            "未破位",
+            "没有破位",
+            "未跌破",
+            "没有跌破",
+            "未触发止损",
+            "没有触发止损",
+            "未发现硬风险",
+            "没有硬风险",
+            "未发现硬排除",
+            "没有硬排除",
+        ):
+            text = text.replace(neutral_phrase, "")
         hard_words = (
             "黑天鹅",
             "基本面恶化",
@@ -371,11 +402,107 @@ JSON 格式：
             )
             return any(word in text for word in add_words)
 
-        expected = self._to_float(watch.get("expected_return_pct"))
         if tier == "强推荐":
-            # 强推荐只提升候选优先级；兜底逻辑仍必须等待明确买点，综合取舍交给 LLM。
-            return has_trigger and (expected is None or expected >= 15)
-        return has_trigger and (expected is None or expected >= 15)
+            # 强推荐已经按胜率、买点质量和风险收益比筛过，不再用 15% 理论空间卡死。
+            return has_trigger
+
+        expected = self._to_float(watch.get("expected_return_pct"))
+        current_return = self._to_float(watch.get("return_pct"))
+        node_return = max(
+            [
+                value
+                for value in (
+                    self._to_float(watch.get("return_5d_pct")),
+                    self._to_float(watch.get("return_10d_pct")),
+                )
+                if value is not None
+            ],
+            default=None,
+        )
+        has_performance_confirmation = (
+            (current_return is not None and current_return > 0)
+            or (node_return is not None and node_return > 0)
+        )
+        return has_trigger and (
+            expected is None
+            or expected >= 8
+            or has_performance_confirmation
+        )
+
+    def _remove_allowed(
+        self,
+        decision: Dict[str, Any],
+        watch: Dict[str, Any],
+        signal: Dict[str, Any],
+        reason: str,
+    ) -> bool:
+        """限制观察仓移出，避免把已经兑现的高胜率样本过早踢掉。"""
+        text = " ".join(
+            str(value or "")
+            for value in (
+                reason,
+                decision.get("risk_note"),
+                signal.get("reason"),
+                watch.get("remove_reason"),
+                watch.get("recommend_reason"),
+                watch.get("technical_analysis"),
+                watch.get("news_risk_analysis"),
+                " ".join(signal.get("risk_flags") or []),
+                " ".join(signal.get("technical_tags") or []),
+            )
+        )
+        for neutral_phrase in (
+            "趋势未失效",
+            "趋势没有失效",
+            "未破位",
+            "没有破位",
+            "未跌破",
+            "没有跌破",
+            "未触发止损",
+            "没有触发止损",
+            "未发现硬风险",
+            "没有硬风险",
+            "未发现硬排除",
+            "没有硬排除",
+        ):
+            text = text.replace(neutral_phrase, "")
+        hard_words = (
+            "黑天鹅",
+            "基本面恶化",
+            "基本面反转",
+            "业绩暴雷",
+            "财务造假",
+            "监管立案",
+            "退市",
+            "硬风险",
+            "趋势失效",
+            "技术破位",
+            "跌破",
+            "破位",
+            "ATR",
+            "止损",
+            "硬排除",
+        )
+        if any(word in text for word in hard_words):
+            return True
+
+        current_return = self._to_float(watch.get("return_pct"))
+        node_returns = [
+            self._to_float(watch.get("return_5d_pct")),
+            self._to_float(watch.get("return_10d_pct")),
+            self._to_float(watch.get("return_20d_pct")),
+        ]
+        if current_return is not None and current_return > 0:
+            return False
+        if any(value is not None and value > 0 for value in node_returns):
+            return False
+
+        trade_days = self._to_int(watch.get("elapsed_trade_days")) or 0
+        if current_return is not None and current_return <= -5:
+            return trade_days >= 5
+        if current_return is not None and current_return <= -3:
+            return trade_days >= 10
+        return False
 
     def _normalized_sell_quantity(self, requested: Any, position: Dict[str, Any]) -> int:
         """Round SELL quantity to A-share board lots; selling the full position is allowed as-is."""
@@ -469,17 +596,7 @@ JSON 格式：
                 continue
                 
             if not self._is_actionable_watch(item, position_map.get(code, {})):
-                # 不符合买入条件的观察标的标记为 WATCH
-                decisions.append(
-                    {
-                        "code": code,
-                        "name": item.get("name") or code,
-                        "action": "WATCH",
-                        "price": item.get("current_price"),
-                        "linked_watchlist_id": item.get("id"),
-                        "reason": "观察仓标的尚未达到明确买点或加仓触发条件",
-                    }
-                )
+                # 未达到买点的观察仓标的保持静默，不写入交易流水。
                 continue
                 
             buy_decision = {

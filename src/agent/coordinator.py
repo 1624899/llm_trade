@@ -961,6 +961,7 @@ class AgentCoordinator:
             watch_items = self.watchlist.list_active()
         macro_context = self.macro_agent.analyze_macro_environment()
         exit_signals = self._build_exit_signals(positions, macro_context)
+        history_samples = self.watchlist.list_history_for_trading(limit=30)
 
         decisions = self.trading_agent.decide(
             watchlist=watch_items,
@@ -968,6 +969,7 @@ class AgentCoordinator:
             account=account,
             exit_signals=exit_signals,
             macro_context=macro_context,
+            historical_recommendations=history_samples,
         )
         self.watchlist.apply_trading_decisions(decisions)
         results = self.trading_account.execute_decisions(decisions)

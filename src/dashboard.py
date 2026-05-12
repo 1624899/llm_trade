@@ -191,6 +191,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._send_frontend_asset(parsed.path)
             elif parsed.path == "/api/overview":
                 self._send_json(build_overview())
+            elif parsed.path == "/api/watchlist/history":
+                query = parse_qs(parsed.query)
+                limit = _safe_int(query.get("limit", ["200"])[0], default=200, minimum=1, maximum=1000)
+                self._send_json(build_watchlist_history(limit=limit))
             elif parsed.path == "/api/config":
                 self._send_json(read_config_file())
             elif parsed.path == "/api/jobs":
@@ -415,6 +419,45 @@ def build_overview() -> dict[str, Any]:
             "excerpt": (targeted.get("content") or "")[:1200],
         },
         "jobs": list_jobs(limit=5),
+    }
+
+
+def build_watchlist_history(limit: int = 200) -> dict[str, Any]:
+    """读取历史推荐样本，供前端二级窗口查看入选后表现。"""
+    ensure_database_schema()
+    rows = query_all(
+        """
+        SELECT
+            id, code, name, tier, watch_status, source, added_at, updated_at,
+            entry_price, current_price, return_pct, elapsed_days, elapsed_trade_days,
+            latest_trade_date, return_5d_pct, return_10d_pct, return_20d_pct,
+            return_30d_pct, return_60d_pct, expected_return_pct,
+            expected_holding_days, max_holding_days, exit_hint, remove_reason
+        FROM watchlist_items
+        ORDER BY
+            COALESCE(added_at, updated_at) DESC,
+            id DESC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+    completed = [row for row in rows if row.get("return_pct") is not None]
+    wins = [row for row in completed if float(row.get("return_pct") or 0) > 0]
+    active_count = sum(1 for row in rows if row.get("watch_status") == "ACTIVE")
+    avg_return = None
+    if completed:
+        avg_return = round(sum(float(row.get("return_pct") or 0) for row in completed) / len(completed), 2)
+    return {
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "summary": {
+            "total": len(rows),
+            "active": active_count,
+            "removed": len(rows) - active_count,
+            "priced": len(completed),
+            "win_rate": round(len(wins) / len(completed) * 100, 2) if completed else None,
+            "avg_return_pct": avg_return,
+        },
+        "items": rows,
     }
 
 
@@ -649,6 +692,14 @@ def _normalize_codes(value: Any) -> list[str]:
         if cleaned:
             codes.append(cleaned.zfill(6)[-6:])
     return codes[:20]
+
+
+def _safe_int(value: Any, default: int, minimum: int, maximum: int) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(maximum, number))
 
 
 def _read_tail(path: Path, limit: int = 6000) -> str:

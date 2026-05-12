@@ -29,7 +29,10 @@
       <section class="layout">
         <div class="stack left-column">
           <section class="panel">
-            <h2>观察仓</h2>
+            <h2 class="panel-title">
+              <span>观察仓</span>
+              <button @click="openHistorySamples">历史推荐样本</button>
+            </h2>
             <div class="panel-body">
               <div v-if="!watchlist.length" class="empty">观察仓暂无 ACTIVE 标的</div>
               <div class="table-wrap watch-table" v-else>
@@ -237,6 +240,64 @@
       正在连接后端数据湖，请稍候...
     </div>
 
+    <!-- 历史推荐样本弹窗 -->
+    <div :class="['modal-backdrop', { open: showHistorySamples }]" @click.self="showHistorySamples = false">
+      <section class="modal-window history-modal" v-if="showHistorySamples">
+        <div class="modal-header">
+          <div>
+            <h2>历史推荐样本</h2>
+            <div class="subtle">{{ historySamplesState.generated_at ? `已刷新 · ${historySamplesState.generated_at}` : '加载中...' }}</div>
+          </div>
+          <div class="actions">
+            <button @click="loadHistorySamples" :disabled="historyLoading">{{ historyLoading ? '刷新中...' : '刷新样本' }}</button>
+            <button @click="showHistorySamples = false">关闭</button>
+          </div>
+        </div>
+        <div class="modal-body">
+          <div class="summary-strip">
+            <div><label>样本数</label><strong>{{ historySummary.total || 0 }}</strong></div>
+            <div><label>ACTIVE</label><strong>{{ historySummary.active || 0 }}</strong></div>
+            <div><label>已移出</label><strong>{{ historySummary.removed || 0 }}</strong></div>
+            <div><label>胜率</label><strong :class="clsByNumber(historySummary.win_rate)">{{ pct(historySummary.win_rate) }}</strong></div>
+            <div><label>平均收益</label><strong :class="clsByNumber(historySummary.avg_return_pct)">{{ pct(historySummary.avg_return_pct) }}</strong></div>
+          </div>
+          <div v-if="historyLoading" class="empty">正在读取历史推荐样本...</div>
+          <div v-else-if="!historySamples.length" class="empty">暂无历史推荐样本</div>
+          <div class="table-wrap history-sample-table" v-else>
+            <table>
+              <thead>
+                <tr>
+                  <th>代码</th><th>名称</th><th>档位</th><th>状态</th><th>入选日</th>
+                  <th>入选价</th><th>现价</th><th>当前收益</th><th>自然日</th><th>交易日</th>
+                  <th>5日</th><th>10日</th><th>20日</th><th>30日</th><th>60日</th><th>退出/备注</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in historySamples" :key="row.id" class="clickable" @click="loadStockDetail(row.code)">
+                  <td><strong>{{ row.code }}</strong></td>
+                  <td>{{ row.name }}</td>
+                  <td><span class="badge accent">{{ row.tier || '-' }}</span></td>
+                  <td><span class="badge">{{ watchStatusText(row.watch_status) }}</span></td>
+                  <td>{{ dateText(row.added_at) }}</td>
+                  <td>{{ money(row.entry_price) }}</td>
+                  <td>{{ money(row.current_price) }}</td>
+                  <td><span :class="['badge', clsByNumber(row.return_pct)]">{{ pct(row.return_pct) }}</span></td>
+                  <td>{{ row.elapsed_days ?? '-' }}</td>
+                  <td>{{ row.elapsed_trade_days ?? '-' }}</td>
+                  <td><span :class="clsByNumber(row.return_5d_pct)">{{ pct(row.return_5d_pct) }}</span></td>
+                  <td><span :class="clsByNumber(row.return_10d_pct)">{{ pct(row.return_10d_pct) }}</span></td>
+                  <td><span :class="clsByNumber(row.return_20d_pct)">{{ pct(row.return_20d_pct) }}</span></td>
+                  <td><span :class="clsByNumber(row.return_30d_pct)">{{ pct(row.return_30d_pct) }}</span></td>
+                  <td><span :class="clsByNumber(row.return_60d_pct)">{{ pct(row.return_60d_pct) }}</span></td>
+                  <td class="note-cell">{{ row.remove_reason || row.exit_hint || '-' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+
     <!-- 配置弹窗 -->
     <div :class="['modal-backdrop', { open: showConfig }]" @click.self="showConfig = false">
       <section class="modal-window" v-if="showConfig">
@@ -316,7 +377,7 @@ import * as api from './api'
 const fmt = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 })
 const pct = val => val == null || val === "" ? "-" : `${fmt.format(Number(val))}%`
 const money = val => val == null || val === "" ? "-" : fmt.format(Number(val))
-const clsByNumber = val => Number(val || 0) >= 0 ? "good" : "bad"
+const clsByNumber = val => val == null || val === "" ? "" : Number(val) >= 0 ? "good" : "bad"
 const statusClass = s => s === "failed" ? "bad" : s === "succeeded" ? "good" : "accent"
 
 // 页面状态
@@ -342,6 +403,8 @@ const positionTotalReturnPct = row => {
   return positionTotalPnl(row) / (avgCost * baseQuantity) * 100
 }
 const historyStatusText = row => Number(row?.sold_quantity || 0) > 0 ? '已清仓' : '历史'
+const watchStatusText = status => status === 'ACTIVE' ? '观察中' : status === 'REMOVED' ? '已移出' : (status || '-')
+const dateText = value => value ? String(value).slice(0, 10) : '-'
 const jobs = ref([])
 const reportTabs = [
   { name: 'latest_report.md', label: '最新研报' },
@@ -391,6 +454,11 @@ const configState = ref({})
 const configFields = ref([])
 const configLoading = ref(false)
 const savingConfig = ref(false)
+const showHistorySamples = ref(false)
+const historyLoading = ref(false)
+const historySamplesState = ref({})
+const historySamples = computed(() => historySamplesState.value.items || [])
+const historySummary = computed(() => historySamplesState.value.summary || {})
 
 let chartInstance = null
 let chartResizeObserver = null
@@ -484,6 +552,7 @@ async function loadStockDetail(code) {
   stockLoading.value = true
   try {
     activeStock.value = await api.fetchStock(code)
+    showHistorySamples.value = false
     await nextTick()
     renderChart(activeStock.value.bars || [])
   } catch(e) {
@@ -491,6 +560,25 @@ async function loadStockDetail(code) {
     alert(e.message || 'Failed to load stock')
   } finally {
     stockLoading.value = false
+  }
+}
+
+async function openHistorySamples() {
+  showHistorySamples.value = true
+  if (!historySamples.value.length) {
+    await loadHistorySamples()
+  }
+}
+
+async function loadHistorySamples() {
+  historyLoading.value = true
+  try {
+    historySamplesState.value = await api.fetchWatchlistHistory(300)
+  } catch(e) {
+    console.error(e)
+    alert(e.message || '读取历史推荐样本失败')
+  } finally {
+    historyLoading.value = false
   }
 }
 

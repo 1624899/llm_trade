@@ -34,6 +34,11 @@ export async function fetchStock(code) {
   return res.json()
 }
 
+export async function fetchWatchlistHistory(limit = 200) {
+  const res = await fetch(`/api/watchlist/history?limit=${limit}`)
+  return res.json()
+}
+
 export async function startTask(task, codes = '') {
   const body = task === 'analyze' ? { task, codes } : { task }
   const res = await fetch('/api/tasks', {

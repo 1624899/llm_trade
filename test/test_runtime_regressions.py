@@ -1004,8 +1004,75 @@ class TradingAgentTests(unittest.TestCase):
         self.assertEqual(decisions[0]["action"], "HOLD")
         self.assertEqual(decisions[0]["quantity"], 0)
 
+    @patch.object(
+        TradingAgent,
+        "_llm_decisions",
+        return_value=[
+            {
+                "code": "000933",
+                "name": "神火股份",
+                "action": "WATCH",
+                "reason": "继续观察持仓表现",
+            }
+        ],
+    )
+    def test_llm_watch_for_existing_position_is_normalized_to_hold(self, _mock_llm):
+        agent = TradingAgent(max_positions=5, max_buys_per_run=2, max_sells_per_run=2)
+
+        decisions = agent.decide(
+            watchlist=[],
+            positions=[
+                {
+                    "code": "000933",
+                    "name": "神火股份",
+                    "quantity": 100,
+                    "current_price": 32.17,
+                    "unrealized_return_pct": 0.4,
+                }
+            ],
+            account={"cash": 5000},
+            exit_signals={},
+            macro_context={},
+        )
+
+        self.assertEqual(decisions[0]["action"], "HOLD")
+
+    @patch.object(
+        TradingAgent,
+        "_llm_decisions",
+        return_value=[
+            {
+                "code": "000001",
+                "name": "watch sample",
+                "action": "HOLD",
+                "reason": "观察仓继续持有观察",
+            }
+        ],
+    )
+    def test_llm_hold_for_watchlist_only_item_is_silent(self, _mock_llm):
+        agent = TradingAgent(max_positions=5, max_buys_per_run=2, max_sells_per_run=2)
+
+        decisions = agent.decide(
+            watchlist=[
+                {
+                    "id": 1,
+                    "code": "000001",
+                    "name": "watch sample",
+                    "tier": "强推荐",
+                    "current_price": 10.0,
+                    "technical_analysis": "趋势未失效，但买点未到。",
+                }
+            ],
+            positions=[],
+            account={"cash": 10000},
+            exit_signals={},
+            macro_context={},
+        )
+
+        self.assertEqual(decisions, [])
+
     @patch.object(TradingAgent, "_llm_decisions", return_value=[])
-    def test_fallback_strong_watch_without_buy_trigger_stays_watch(self, _mock_llm):
+    def test_fallback_strong_watch_without_buy_trigger_is_silent(self, _mock_llm):
         agent = TradingAgent(max_positions=5, max_buys_per_run=2, max_sells_per_run=2)
 
         decisions = agent.decide(
@@ -1027,7 +1094,7 @@ class TradingAgentTests(unittest.TestCase):
             macro_context={},
         )
 
-        self.assertEqual(decisions[0]["action"], "WATCH")
+        self.assertEqual(decisions, [])
 
     @patch.object(TradingAgent, "_llm_decisions", return_value=[])
     def test_fallback_does_not_buy_only_from_final_decision_snapshot(self, _mock_llm):
@@ -1057,7 +1124,36 @@ class TradingAgentTests(unittest.TestCase):
             macro_context={},
         )
 
-        self.assertEqual(decisions[0]["action"], "WATCH")
+        self.assertEqual(decisions, [])
+
+    @patch.object(TradingAgent, "_llm_decisions", return_value=[])
+    def test_fallback_buys_high_win_setup_without_15pct_gate(self, _mock_llm):
+        agent = TradingAgent(max_positions=5, max_buys_per_run=2, max_sells_per_run=2)
+
+        decisions = agent.decide(
+            watchlist=[
+                {
+                    "id": 1,
+                    "code": "000001",
+                    "name": "steady sample",
+                    "tier": "配置/轻仓验证",
+                    "current_price": 10.6,
+                    "entry_price": 10.0,
+                    "return_pct": 6.0,
+                    "return_5d_pct": 8.2,
+                    "expected_return_pct": 8,
+                    "recommend_reason": "防守风格匹配，缩量回踩后企稳，达到买点。",
+                    "technical_analysis": "买点/触发：回踩不破 MA20，支撑低吸确认。",
+                    "news_risk_analysis": "未发现硬风险。",
+                }
+            ],
+            positions=[],
+            account={"cash": 10000},
+            exit_signals={},
+            macro_context={},
+        )
+
+        self.assertEqual(decisions[0]["action"], "BUY")
 
     @patch("src.agent.trading_agent.tools.call_llm")
     def test_llm_prompt_receives_expected_holding_period(self, mock_call_llm):
@@ -1087,13 +1183,86 @@ class TradingAgentTests(unittest.TestCase):
 
         system_prompt = mock_call_llm.call_args.args[0]
         user_prompt = mock_call_llm.call_args.args[1]
-        self.assertEqual(decisions[0]["action"], "WATCH")
         self.assertIn("expected_holding_days", user_prompt)
         self.assertIn("max_holding_days", user_prompt)
         self.assertIn("3-5 日验证型信号", system_prompt)
 
+    @patch("src.agent.trading_agent.tools.call_llm")
+    def test_llm_prompt_receives_historical_recommendation_samples(self, mock_call_llm):
+        mock_call_llm.return_value = '{"decisions":[{"code":"000001","action":"WATCH","reason":"参考历史样本，等待买点"}]}'
+        agent = TradingAgent(max_positions=5, max_buys_per_run=2, max_sells_per_run=2)
+
+        agent.decide(
+            watchlist=[
+                {
+                    "id": 1,
+                    "code": "000001",
+                    "name": "active sample",
+                    "tier": "强推荐",
+                    "current_price": 10.0,
+                }
+            ],
+            positions=[],
+            account={"cash": 10000},
+            exit_signals={},
+            macro_context={},
+            historical_recommendations=[
+                {
+                    "code": "002709",
+                    "name": "天赐材料",
+                    "watch_status": "REMOVED",
+                    "return_pct": 6.03,
+                    "return_5d_pct": 13.64,
+                }
+            ],
+        )
+
+        system_prompt = mock_call_llm.call_args.args[0]
+        user_prompt = mock_call_llm.call_args.args[1]
+        self.assertIn("historical_recommendations", user_prompt)
+        self.assertIn("天赐材料", user_prompt)
+        self.assertIn("空间不足 15%", system_prompt)
+
+    @patch.object(
+        TradingAgent,
+        "_llm_decisions",
+        return_value=[
+            {
+                "code": "002709",
+                "name": "天赐材料",
+                "action": "REMOVE",
+                "reason": "理论修复空间不足，先回避",
+            }
+        ],
+    )
+    def test_llm_remove_positive_performing_watch_item_is_downgraded(self, _mock_llm):
+        agent = TradingAgent(max_positions=5, max_buys_per_run=2, max_sells_per_run=2)
+
+        decisions = agent.decide(
+            watchlist=[
+                {
+                    "id": 1,
+                    "code": "002709",
+                    "name": "天赐材料",
+                    "tier": "配置/轻仓验证",
+                    "current_price": 21.2,
+                    "entry_price": 20.0,
+                    "return_pct": 6.03,
+                    "return_5d_pct": 13.64,
+                    "technical_analysis": "趋势未失效，回踩支撑仍有效。",
+                    "news_risk_analysis": "未发现硬风险。",
+                }
+            ],
+            positions=[],
+            account={"cash": 10000},
+            exit_signals={},
+            macro_context={},
+        )
+
+        self.assertEqual(decisions, [])
+
     @patch.object(TradingAgent, "_llm_decisions", return_value=[])
-    def test_fallback_strong_recommendation_without_buy_trigger_stays_watch(self, _mock_llm):
+    def test_fallback_strong_recommendation_without_buy_trigger_is_silent(self, _mock_llm):
         agent = TradingAgent(max_positions=5, max_buys_per_run=2, max_sells_per_run=2)
 
         decisions = agent.decide(
@@ -1116,7 +1285,7 @@ class TradingAgentTests(unittest.TestCase):
             macro_context={},
         )
 
-        self.assertEqual(decisions[0]["action"], "WATCH")
+        self.assertEqual(decisions, [])
 
     @patch.object(
         TradingAgent,

@@ -285,6 +285,30 @@ class Watchlist:
             return {}
         return df.iloc[0].to_dict()
 
+    def list_history_for_trading(self, limit: int = 30) -> List[Dict[str, Any]]:
+        """给交易 Agent 提供历史推荐表现样本，用于校准当前风格。"""
+        limit = max(1, min(int(limit or 30), 200))
+        df = self.db.query_to_dataframe(
+            """
+            SELECT
+                code, name, tier, watch_status, added_at, updated_at,
+                entry_price, current_price, return_pct, elapsed_days,
+                elapsed_trade_days, latest_trade_date, return_5d_pct,
+                return_10d_pct, return_20d_pct, return_30d_pct,
+                return_60d_pct, expected_return_pct, exit_hint, remove_reason
+            FROM watchlist_items
+            ORDER BY
+                CASE WHEN return_pct IS NULL THEN 1 ELSE 0 END,
+                COALESCE(added_at, updated_at) DESC,
+                id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        if df.empty:
+            return []
+        return df.to_dict(orient="records")
+
     def apply_trading_decisions(self, decisions: Iterable[Dict[str, Any]]) -> int:
         """
         同步交易智能体（TradingAgent）对观察仓的维护动作，避免候选池只进不出。
