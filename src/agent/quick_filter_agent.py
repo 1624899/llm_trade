@@ -13,6 +13,15 @@ from loguru import logger
 from src.agent.tools import tools
 
 
+BACKTEST_STRATEGY_PRIORS = {
+    "first_limit_up_breakout": {"bonus": 22.0, "max_share": 0.40},
+    "momentum_leader": {"bonus": 8.0, "max_share": 0.30},
+    "dragon_pullback": {"bonus": 4.0, "max_share": 0.20},
+    "trend_breakout": {"bonus": -18.0, "max_share": 0.45},
+    "support_pullback": {"bonus": -10.0, "max_share": 0.20},
+}
+
+
 class QuickFilterAgent:
     """结合宏观环境，从多策略候选池中快速精选少量标的。"""
 
@@ -21,6 +30,7 @@ class QuickFilterAgent:
         candidates: List[Dict[str, Any]],
         macro_context: Dict[str, Any] | None = None,
         target_n: int = 8,
+        use_llm: bool = True,
     ) -> Dict[str, Any]:
         target_n = max(1, int(target_n or 8))
         if len(candidates) <= target_n:
@@ -33,9 +43,26 @@ class QuickFilterAgent:
             }
 
         macro_context = macro_context or {}
+        if not use_llm:
+            return self._rule_based_fallback(
+                candidates,
+                target_n,
+                macro_context,
+                reason="回测模式禁用 LLM，使用轻量精筛的确定性规则排序。",
+                mode="rule_backtest",
+            )
+
         system_prompt = f"""
-你是 A 股盘后快速精筛助手。请结合宏观环境和候选股短表，从海选池选出最多 {target_n} 只进入深度复核。
-规则：必须覆盖检查全部候选；偏弱/退潮市少追高，优先防守、低吸、回踩确认；强势市可提高突破/主升浪权重；支撑回踩、首板启动等短持有信号只能按短线验证看待；不得编造未提供信息。
+你是 A 股盘后快速精筛助手。核心目标不是选最高收益，而是从海选池中选出未来 5/10/20 个交易日胜率更高的股票，最多 {target_n} 只进入深度复核；其中 10 个交易日胜率是主目标，5 日和 20 日作为辅助约束。
+硬规则：
+1. 必须覆盖检查全部候选，selected_codes 只能来自候选短表，数量不得超过 {target_n}。
+2. 胜率优先：优先选择“走势仍健康、位置不过热、量价承接正常、策略周期匹配”的候选；不要只按技术分或置信度排序。
+3. 组合约束：不要让 trend_breakout 单一策略占据过多名额；若首板启动、支撑回踩里有量价健康的候选，应预留名额做策略分散。除非其他策略明显不合格，trend_breakout 通常不超过入选数量的约 60%。
+4. 趋势突破类：保留 5/10/20 日涨幅温和、MA20 偏离不过大、量比不过热且仍有承接的标的；谨慎保留短期涨幅过大、放量滞涨、连续加速后靠近高位的标的。同一行业/主题出现多只类似趋势股时，只保留量价最健康者，剔除弱承接和补涨尾段。
+5. 首板启动/首板突破类：技术分可能偏低，不能因此直接淘汰；若涨幅尚未过热、量能活跃但未失控、10/20 日趋势改善，可以作为短中期胜率候选。低技术分但形态刚启动的候选，优先和高位趋势股比较，而不是直接排在最后。
+6. 支撑回踩类：优先缩量回踩、跌幅收敛、位置接近均线/平台支撑的候选；剔除放量跌破、弱反抽、20 日趋势持续走坏的候选。
+7. 偏弱/退潮市降低追高和高波动权重；强势市可提高趋势突破、首板启动权重，但仍要排除过热和量价背离。
+8. 不得编造未提供信息。reason 要写清保留或剔除的胜率依据，尤其说明其对 10 日胜率的影响。
 只输出紧凑 JSON：{{"evaluations":[{{"code":"000001","score":82,"keep":true,"reason":"短理由"}}],"selected_codes":["000001"],"summary":"短总结"}}
 """
         user_prompt = self._build_compact_prompt(candidates, macro_context, target_n)
@@ -79,7 +106,7 @@ class QuickFilterAgent:
     ) -> str:
         """构建短表格式 Prompt，避免轻量精筛请求因为上下文过长而超时。"""
         macro_brief = self._format_macro_brief(macro_context)
-        header = "序号|代码|名称|行业|主策略|持有日|置信|技分|题材|涨幅|5日|20日|量比|PE|PB|市值亿"
+        header = "序号|代码|名称|行业|主策略|持有日|置信|技分|题材|涨幅|5日|10日|20日|量比|换手|偏MA20|PE|PB|市值亿"
         rows = [
             self._format_candidate_row(idx, item)
             for idx, item in enumerate(candidates, start=1)
@@ -132,8 +159,11 @@ class QuickFilterAgent:
                 self._fmt_num(snapshot.get("theme_score"), 1),
                 self._fmt_num(snapshot.get("change_pct"), 1),
                 self._fmt_num(snapshot.get("ret5"), 1),
+                self._fmt_num(snapshot.get("ret10"), 1),
                 self._fmt_num(snapshot.get("ret20"), 1),
                 self._fmt_num(snapshot.get("volume_ratio"), 2),
+                self._fmt_num(snapshot.get("turnover_rate"), 2),
+                self._fmt_bias20(snapshot.get("bias20_ratio")),
                 self._fmt_num(snapshot.get("pe_ttm"), 1),
                 self._fmt_num(snapshot.get("pb"), 2),
                 self._fmt_market_cap(snapshot.get("total_market_cap")),
@@ -157,9 +187,11 @@ class QuickFilterAgent:
             "price": item.get("price"),
             "change_pct": item.get("change_pct"),
             "ret5": item.get("ret5", metrics.get("ret5")),
+            "ret10": item.get("ret10", metrics.get("ret10")),
             "ret20": item.get("ret20", metrics.get("ret20")),
             "volume_ratio": item.get("volume_ratio", metrics.get("volume_ratio")),
             "turnover_rate": metrics.get("turnover_rate"),
+            "bias20_ratio": item.get("bias20_ratio", metrics.get("bias20_ratio")),
             "pe_ttm": item.get("pe_ttm"),
             "pb": item.get("pb"),
             "total_market_cap": item.get("total_market_cap"),
@@ -171,24 +203,26 @@ class QuickFilterAgent:
         target_n: int,
         macro_context: Dict[str, Any] | None = None,
         reason: str = "使用宏观适配规则降级。",
+        mode: str = "rule_fallback",
     ) -> Dict[str, Any]:
         ranked = sorted(
             candidates,
             key=lambda item: self._fallback_score(item, macro_context or {}),
             reverse=True,
         )
-        selected = ranked[:target_n]
+        selected = self._pick_with_strategy_caps(ranked, target_n)
+        selected_codes = {str(item.get("code", "")).zfill(6) for item in selected}
         return {
             "selected_candidates": selected,
             "selected_codes": [str(item.get("code", "")).zfill(6) for item in selected],
-            "mode": "rule_fallback",
+            "mode": mode,
             "reason": reason,
             "evaluations": [
                 {
                     "code": str(item.get("code", "")).zfill(6),
                     "score": round(self._fallback_score(item, macro_context or {}), 2),
-                    "keep": idx < target_n,
-                    "reason": "按宏观风格、策略置信度、技术分和题材分降级排序。",
+                    "keep": str(item.get("code", "")).zfill(6) in selected_codes,
+                    "reason": "按回测策略先验、路径胜率友好指标、宏观风格和策略配额降级排序。",
                 }
                 for idx, item in enumerate(ranked)
             ],
@@ -199,16 +233,21 @@ class QuickFilterAgent:
         item: Dict[str, Any],
         macro_context: Dict[str, Any],
     ) -> float:
-        score = float(item.get("technical_score") or 0)
-        score += float(item.get("strategy_confidence") or 0) * 1000
+        score = float(item.get("technical_score") or 0) * 0.55
+        score += float(item.get("strategy_confidence") or 0) * 55
         score += float(item.get("theme_score") or 0)
         primary = self._primary_strategy(item)
+        score += float(BACKTEST_STRATEGY_PRIORS.get(primary, {}).get("bonus", 0.0))
         macro_text = json.dumps(macro_context, ensure_ascii=False).lower()
         weak_market = any(token in macro_text for token in ("偏弱", "退潮", "防守", "谨慎", "risk-off", "weak"))
         strong_market = any(token in macro_text for token in ("偏强", "进攻", "risk-on", "strong", "活跃"))
         ret5 = self._safe_float(item.get("ret5"))
         if ret5 is None and isinstance(item.get("key_metrics"), dict):
             ret5 = self._safe_float(item["key_metrics"].get("ret5"))
+        ret10 = self._metric_float(item, "ret10")
+        ret20 = self._metric_float(item, "ret20")
+        volume_ratio = self._metric_float(item, "volume_ratio")
+        bias20 = self._metric_float(item, "bias20_ratio")
 
         if weak_market:
             if primary in {"value_bottom", "support_pullback", "panic_reversal"}:
@@ -216,9 +255,77 @@ class QuickFilterAgent:
             if primary in {"momentum_leader", "trend_breakout"} and ret5 is not None and ret5 > 10:
                 score -= 10
         elif strong_market:
-            if primary in {"trend_breakout", "momentum_leader"}:
+            if primary in {"first_limit_up_breakout", "momentum_leader"}:
                 score += 8
+            elif primary == "trend_breakout":
+                score += 3
+
+        if primary == "first_limit_up_breakout":
+            if ret5 is not None and ret5 <= 12:
+                score += 7
+            if ret20 is not None and ret20 <= 28:
+                score += 5
+            if volume_ratio is not None and 1.2 <= volume_ratio <= 3.0:
+                score += 6
+            if bias20 is not None and bias20 <= 1.18:
+                score += 4
+        elif primary == "trend_breakout":
+            if ret5 is not None and ret5 > 8:
+                score -= min(12, (ret5 - 8) * 1.2)
+            if ret10 is not None and ret10 > 16:
+                score -= min(10, (ret10 - 16) * 0.8)
+            if bias20 is not None and bias20 > 1.12:
+                score -= min(14, (bias20 - 1.12) * 70)
+            if volume_ratio is not None and volume_ratio > 2.2:
+                score -= min(8, (volume_ratio - 2.2) * 4)
+        elif primary == "support_pullback":
+            if ret20 is not None and ret20 < -5:
+                score -= 8
+            if volume_ratio is not None and volume_ratio <= 0.8:
+                score += 4
         return score
+
+    def _pick_with_strategy_caps(self, ranked: List[Dict[str, Any]], target_n: int) -> List[Dict[str, Any]]:
+        """按策略上限挑选，防止规则精筛再次被单一弱势策略支配。"""
+        if not ranked:
+            return []
+        strategies = {self._primary_strategy(item) for item in ranked}
+        if len(strategies) <= 1:
+            return ranked[:target_n]
+
+        caps = {
+            strategy: max(1, int(target_n * float(prior.get("max_share", 1.0)) + 0.999))
+            for strategy, prior in BACKTEST_STRATEGY_PRIORS.items()
+        }
+        selected: List[Dict[str, Any]] = []
+        selected_codes = set()
+        counts: Dict[str, int] = {}
+
+        def add(item: Dict[str, Any], enforce_cap: bool) -> bool:
+            if len(selected) >= target_n:
+                return False
+            code = str(item.get("code", "")).zfill(6)
+            if code in selected_codes:
+                return False
+            primary = self._primary_strategy(item)
+            if enforce_cap and counts.get(primary, 0) >= caps.get(primary, target_n):
+                return False
+            selected.append(item)
+            selected_codes.add(code)
+            counts[primary] = counts.get(primary, 0) + 1
+            return True
+
+        for item in ranked:
+            add(item, enforce_cap=True)
+        for item in ranked:
+            add(item, enforce_cap=False)
+        return selected[:target_n]
+
+    def _metric_float(self, item: Dict[str, Any], key: str) -> float | None:
+        value = self._safe_float(item.get(key))
+        if value is None and isinstance(item.get("key_metrics"), dict):
+            value = self._safe_float(item["key_metrics"].get(key))
+        return value
 
     def _parse_llm_json(self, text: str) -> Dict[str, Any]:
         if not text:
@@ -285,6 +392,12 @@ class QuickFilterAgent:
         if number is None:
             return "-"
         return f"{number / 1e8:.1f}"
+
+    def _fmt_bias20(self, value: Any) -> str:
+        number = self._safe_float(value)
+        if number is None:
+            return "-"
+        return f"{(number - 1.0) * 100:.1f}"
 
     def _safe_float(self, value: Any) -> float | None:
         try:

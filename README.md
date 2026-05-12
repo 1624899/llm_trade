@@ -443,9 +443,18 @@ npm run dev
 | 派生周/月线 | `python main.py --derive-bars` |
 | 执行选股 | `python main.py --pick` |
 | 走步回测 | `python main.py --backtest` |
+| 轻量精筛回测 | `python main.py --quick-filter-backtest` |
 | 模拟调仓 | `python main.py --trade` |
 | 交易反思 | `python main.py --post` |
 | 指定分析 | `python main.py --analyze <codes...>` |
+
+轻量精筛回测用于检验 `src/agent/quick_filter_agent.py` 在多策略选股雷达海选一轮之后，是否能提高短期、中期、长期三个统一持有周期下的路径胜率。胜率口径贴近系统交易规则：窗口内先判断是否触发止损 `-5%` 或止盈/减仓观察 `+10%`；都未触发时，再用窗口末收益 `>=0.5%` 作为胜。默认使用确定性规则精筛，避免历史回测因 LLM 输出波动而不可复现；如需真实调用 LLM，可执行：
+
+```bash
+python main.py --quick-filter-backtest --quick-filter-backtest-use-llm --quick-filter-backtest-windows 5
+```
+
+如果只想快速、低成本地验证规则精筛方向，可直接运行 `python main.py --quick-filter-backtest`。报告会写入 `outputs/latest_backtest_report.json`，包含海选池、精筛池在 short=5 日、medium=10 日、long=20 日的路径胜率差异、原始固定窗口收益和路径退出明细，便于继续优化 QuickFilter Agent。
 
 ## 配置文件
 
@@ -464,7 +473,7 @@ npm run dev
 - `outputs/latest_report.md`：最近一次选股报告。
 - `outputs/latest_workflow_audit.json`：最近一次完整工作流审计。
 - `outputs/screener_audit.json`：规则预筛审计。
-- `outputs/latest_backtest_report.json`：回测模块生成的策略表现和权重参考。
+- `outputs/latest_backtest_report.json`：回测模块生成的策略表现、权重参考或轻量精筛前后对比报告。
 - `outputs/latest_agent_trace.jsonl`：Agent 调用轨迹。
 - `data/rules_book.txt`：亏损反思沉淀出的风控规则。
 - `watchlist_items`：观察仓候选池，最多 10 只。

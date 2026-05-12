@@ -300,6 +300,99 @@ class BacktestEngineTests(unittest.TestCase):
         self.assertEqual(report["evaluated_count"], 1)
         self.assertEqual(report["evaluations"][0]["code"], "000002")
 
+    @patch("src.stock_screener.StockScreener")
+    def test_quick_filter_backtest_compares_prefilter_and_filtered_win_rates(self, mock_screener_class):
+        dates = [f"202604{20 + index:02d}" for index in range(21)]
+        self._seed_bars("000001", dates, [10.0] + [9.0] * 20)
+        self._seed_bars("000002", dates, [10.0] + [9.5] * 20)
+        self._seed_bars("000003", dates, [10.0] + [10.5] * 20)
+        self._seed_bars("000004", dates, [10.0] + [11.0] * 20)
+
+        mock_screener = mock_screener_class.return_value
+        mock_screener.market_regime = {"regime": "manual", "profile": "balanced"}
+        mock_screener.run_technical_screening.return_value = [
+            {
+                "code": "000001",
+                "name": "loser one",
+                "strategy_tags": ["trend_breakout"],
+                "strategy_confidence": 0.8,
+                "technical_score": 70,
+            },
+            {
+                "code": "000002",
+                "name": "loser two",
+                "strategy_tags": ["trend_breakout"],
+                "strategy_confidence": 0.8,
+                "technical_score": 72,
+            },
+            {
+                "code": "000003",
+                "name": "winner one",
+                "strategy_tags": ["trend_breakout"],
+                "strategy_confidence": 0.8,
+                "technical_score": 90,
+            },
+            {
+                "code": "000004",
+                "name": "winner two",
+                "strategy_tags": ["trend_breakout"],
+                "strategy_confidence": 0.8,
+                "technical_score": 95,
+            },
+        ]
+
+        report = self.engine.run_quick_filter_backtest(
+            as_of_dates=["20260420"],
+            prefilter_top_n=4,
+            quick_top_n=2,
+            horizon_days={"short": 5, "medium": 10, "long": 20},
+        )
+
+        self.assertEqual(report["mode"], "quick_filter_comparison")
+        self.assertEqual(report["evaluated_count"]["prefilter"], 4)
+        self.assertEqual(report["evaluated_count"]["quick_filter"], 2)
+        self.assertEqual(report["windows"][0]["quick_filter_codes"], ["000004", "000003"])
+        self.assertAlmostEqual(report["comparison"]["short"]["prefilter_win_rate"], 0.5)
+        self.assertAlmostEqual(report["comparison"]["short"]["quick_filter_win_rate"], 1.0)
+        self.assertEqual(report["comparison"]["short"]["win_rate_delta_pp"], 50.0)
+        self.assertEqual(report["win_rate_threshold_pct"], 0.5)
+        self.assertEqual(report["outcome_rule"]["take_profit_pct"], 10.0)
+        self.assertEqual(report["outcome_rule"]["stop_loss_pct"], -5.0)
+        self.assertIn("胜率按路径规则统计", report["summary"])
+        self.assertIn("短期总胜率50.00%->100.00%(+50.0pp)", report["summary"])
+        self.assertTrue(report["comparison"]["long"]["improved"])
+
+    def test_win_rate_threshold_requires_return_above_half_percent(self):
+        self.assertEqual(self.engine._calc_win_rate([-1.0, 0.0, 0.5, 0.5001, 2.0]), 0.6)
+
+    def test_path_outcome_uses_system_take_profit_and_stop_loss(self):
+        bars = pd.DataFrame(
+            [
+                {"trade_date": "20260420", "high": 10.0, "low": 10.0, "close": 10.0},
+                {"trade_date": "20260421", "high": 10.4, "low": 9.8, "close": 10.2},
+                {"trade_date": "20260422", "high": 11.2, "low": 10.1, "close": 10.8},
+                {"trade_date": "20260423", "high": 10.9, "low": 9.4, "close": 9.6},
+            ]
+        )
+
+        outcome = self.engine._evaluate_path_outcome(bars, 10.0, 3)
+
+        self.assertEqual(outcome["outcome"], "take_profit")
+        self.assertEqual(outcome["return_pct"], 10.0)
+        self.assertEqual(outcome["exit_day"], 2)
+
+        same_day_conflict = pd.DataFrame(
+            [
+                {"trade_date": "20260420", "high": 10.0, "low": 10.0, "close": 10.0},
+                {"trade_date": "20260421", "high": 11.2, "low": 9.4, "close": 10.5},
+            ]
+        )
+
+        conflict_outcome = self.engine._evaluate_path_outcome(same_day_conflict, 10.0, 1)
+
+        self.assertEqual(conflict_outcome["outcome"], "stop_loss")
+        self.assertEqual(conflict_outcome["return_pct"], -5.0)
+
     def _seed_bars(self, code, dates, closes):
         rows = []
         for trade_date, close in zip(dates, closes):

@@ -34,9 +34,15 @@ def main():
     
     parser.add_argument("--analyze", nargs="+", help="【指定分析】对指定 A 股代码做单独深度分析，例如：python main.py --analyze 600519 000001")
     parser.add_argument("--backtest", action="store_true", help="遮盖旧数据做走步回测，生成因子权重参考")
+    parser.add_argument("--quick-filter-backtest", action="store_true", help="回测 AI 轻量精筛前后短中长期胜率是否提升")
+    parser.add_argument("--quick-filter-backtest-use-llm", action="store_true", help="轻量精筛回测时实际调用 LLM；默认使用确定性规则精筛")
+    parser.add_argument("--quick-filter-backtest-windows", type=int, default=20, help="轻量精筛回测窗口数，调用 LLM 时建议设为 3-5")
+    parser.add_argument("--quick-filter-backtest-step", type=int, default=5, help="轻量精筛回测窗口步长，默认每 5 个交易日取一个截面")
+    parser.add_argument("--quick-filter-backtest-prefilter-n", type=int, default=40, help="轻量精筛回测每个截面海选候选数")
+    parser.add_argument("--quick-filter-backtest-top-n", type=int, default=10, help="轻量精筛回测每个截面精筛保留数")
     args = parser.parse_args()
     
-    if not any([args.sync, args.backfill_bars, args.derive_bars, args.pick, args.trade, args.set_trade_cash is not None, args.analyze, args.post, args.backtest, args.dashboard]):
+    if not any([args.sync, args.backfill_bars, args.derive_bars, args.pick, args.trade, args.set_trade_cash is not None, args.analyze, args.post, args.backtest, args.quick_filter_backtest, args.dashboard]):
         parser.print_help()
         logger.info("\n没有输入任何指令。例如执行每日选股： python main.py --pick")
         return
@@ -132,14 +138,36 @@ def main():
         coordinator = AgentCoordinator()
         coordinator.run_post_market_routine()
         
-    logger.info("============== 任务序列执行完毕 ==============")
-
     if args.backtest:
         from src.evaluation.backtest import BacktestEngine
 
         logger.info(">>> 收到回测指令：遮盖历史截面之后的数据，执行走步推演 ...")
         report = BacktestEngine().run_walk_forward_backtest()
         print(f"回测完成，窗口数={report.get('window_count')}，样本数={report.get('evaluated_count')}，摘要：{report.get('summary')}")
+
+    if args.quick_filter_backtest:
+        from src.evaluation.backtest import BacktestEngine
+
+        logger.info(">>> 收到轻量精筛回测指令：对比海选池与精筛池短中长期胜率 ...")
+        report = BacktestEngine().run_quick_filter_backtest(
+            use_llm=args.quick_filter_backtest_use_llm,
+            max_windows=args.quick_filter_backtest_windows,
+            step=args.quick_filter_backtest_step,
+            prefilter_top_n=args.quick_filter_backtest_prefilter_n,
+            quick_top_n=args.quick_filter_backtest_top_n,
+        )
+        evaluated_count = report.get("evaluated_count") if isinstance(report, dict) else {}
+        if not isinstance(evaluated_count, dict):
+            evaluated_count = {}
+        print(
+            "轻量精筛回测完成，"
+            f"窗口数={report.get('window_count')}，"
+            f"海选样本={evaluated_count.get('prefilter', 0)}，"
+            f"精筛样本={evaluated_count.get('quick_filter', 0)}，"
+            f"摘要：{report.get('summary')}"
+        )
+
+    logger.info("============== 任务序列执行完毕 ==============")
 
 if __name__ == "__main__":
     main()

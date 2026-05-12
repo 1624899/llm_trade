@@ -872,7 +872,43 @@ class QuickFilterAgentTests(unittest.TestCase):
         result = QuickFilterAgent().filter_candidates(candidates, target_n=2)
 
         self.assertEqual(result["mode"], "rule_fallback")
-        self.assertEqual(result["selected_codes"], ["000002", "000001"])
+        self.assertEqual(result["selected_codes"], ["000002", "000003"])
+
+    def test_quick_filter_rule_mode_limits_weak_strategy_dominance(self):
+        candidates = [
+            {
+                "code": f"60000{idx}",
+                "technical_score": 90 - idx,
+                "strategy_confidence": 0.88,
+                "strategy_tags": ["trend_breakout"],
+                "ret5": 9.0,
+                "ret10": 18.0,
+                "ret20": 22.0,
+                "volume_ratio": 2.5,
+                "bias20_ratio": 1.14,
+            }
+            for idx in range(8)
+        ] + [
+            {
+                "code": f"00000{idx}",
+                "technical_score": 70 - idx,
+                "strategy_confidence": 0.72,
+                "strategy_tags": ["first_limit_up_breakout"],
+                "ret5": 6.0,
+                "ret10": 8.0,
+                "ret20": 15.0,
+                "volume_ratio": 2.0,
+                "bias20_ratio": 1.08,
+            }
+            for idx in range(3)
+        ]
+
+        result = QuickFilterAgent().filter_candidates(candidates, target_n=5, use_llm=False)
+        tags = [item["strategy_tags"][0] for item in result["selected_candidates"]]
+
+        self.assertEqual(result["mode"], "rule_backtest")
+        self.assertLessEqual(tags.count("trend_breakout"), 3)
+        self.assertGreaterEqual(tags.count("first_limit_up_breakout"), 2)
 
 
 class TradingAgentTests(unittest.TestCase):

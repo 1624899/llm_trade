@@ -15,6 +15,14 @@ from src.database import StockDatabase
 
 
 DEFAULT_HOLDING_DAYS = (3, 5, 10, 20)
+DEFAULT_QUICK_FILTER_HORIZONS = {
+    "short": 5,
+    "medium": 10,
+    "long": 20,
+}
+DEFAULT_WIN_RATE_THRESHOLD_PCT = 0.5
+DEFAULT_BACKTEST_STOP_LOSS_PCT = -5.0
+DEFAULT_BACKTEST_TAKE_PROFIT_PCT = 10.0
 DEFAULT_STRATEGY_HORIZONS = {
     "dragon_pullback": 10,
     "first_limit_up_breakout": 3,
@@ -199,6 +207,122 @@ class BacktestEngine:
         self._save_report(report)
         return report
 
+    def run_quick_filter_backtest(
+        self,
+        *,
+        as_of_dates: Sequence[str] | None = None,
+        prefilter_top_n: int = 40,
+        quick_top_n: int = 10,
+        lookback_days: int = 90,
+        horizon_days: Dict[str, int] | None = None,
+        step: int = 5,
+        max_windows: int = 20,
+        profile: str = "balanced",
+        use_llm: bool = False,
+        screener_config_path: str | Path | None = None,
+    ) -> Dict[str, Any]:
+        """对比多策略雷达海选池与 QuickFilter 精筛池的短中长期胜率。"""
+        horizons = self._normalize_quick_filter_horizons(horizon_days)
+        holding_days = tuple(sorted(set(horizons.values())))
+        dates = [self._normalize_trade_date(date) for date in (as_of_dates or [])]
+        dates = [date for date in dates if date]
+        if not dates:
+            dates = self._select_walk_forward_dates(
+                lookback_days=lookback_days,
+                max_holding_days=max(holding_days),
+                step=step,
+                limit=max_windows,
+            )
+        if not dates:
+            return self._empty_report("no_eligible_quick_filter_dates")
+
+        from src.agent.quick_filter_agent import QuickFilterAgent
+        from src.stock_screener import StockScreener
+
+        quick_filter = QuickFilterAgent()
+        baseline_signals: List[Dict[str, Any]] = []
+        filtered_signals: List[Dict[str, Any]] = []
+        windows: List[Dict[str, Any]] = []
+        prefilter_top_n = max(1, int(prefilter_top_n or 40))
+        quick_top_n = max(1, min(int(quick_top_n or 10), prefilter_top_n))
+
+        for as_of_date in dates:
+            screener = StockScreener(db=self.db, profile=profile, config_path=screener_config_path)
+            screener.theme_scorer = None
+            candidates = screener.run_technical_screening(
+                top_n=prefilter_top_n,
+                lookback_days=lookback_days,
+                as_of_date=as_of_date,
+                apply_backtest_weights=False,
+            )
+            macro_context = {
+                "regime": "quick_filter_backtest",
+                "profile": profile,
+                "as_of_date": as_of_date,
+                "market_regime": getattr(screener, "market_regime", {}),
+            }
+            quick_result = quick_filter.filter_candidates(
+                candidates,
+                macro_context=macro_context,
+                target_n=quick_top_n,
+                use_llm=use_llm,
+            )
+            selected = quick_result.get("selected_candidates") or []
+            baseline_signals.extend(self._build_signal_rows(candidates, as_of_date, "prefilter"))
+            filtered_signals.extend(self._build_signal_rows(selected, as_of_date, "quick_filter"))
+            windows.append(
+                {
+                    "as_of_date": as_of_date,
+                    "prefilter_count": len(candidates),
+                    "quick_filter_count": len(selected),
+                    "quick_filter_mode": quick_result.get("mode"),
+                    "prefilter_codes": [str(item.get("code") or "").zfill(6) for item in candidates],
+                    "quick_filter_codes": [str(item.get("code") or "").zfill(6) for item in selected],
+                }
+            )
+
+        codes = sorted(
+            {
+                str(row.get("code") or "").zfill(6)
+                for row in [*baseline_signals, *filtered_signals]
+                if row.get("code")
+            }
+        )
+        bars = self._load_future_bars(codes, min(dates)) if codes else pd.DataFrame()
+        baseline_evaluations = self._evaluate_signal_rows(baseline_signals, bars, holding_days)
+        filtered_evaluations = self._evaluate_signal_rows(filtered_signals, bars, holding_days)
+        baseline_stats = self._summarize_signal_group(baseline_evaluations, horizons)
+        filtered_stats = self._summarize_signal_group(filtered_evaluations, horizons)
+        comparison = self._compare_quick_filter_stats(baseline_stats, filtered_stats)
+        report = {
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "mode": "quick_filter_comparison",
+            "source": "quick_filter_backtest",
+            "profile": profile,
+            "use_llm": bool(use_llm),
+            "win_rate_threshold_pct": DEFAULT_WIN_RATE_THRESHOLD_PCT,
+            "outcome_rule": self._outcome_rule_config(),
+            "window_count": len(windows),
+            "prefilter_signal_count": len(baseline_signals),
+            "quick_filter_signal_count": len(filtered_signals),
+            "evaluated_count": {
+                "prefilter": len(baseline_evaluations),
+                "quick_filter": len(filtered_evaluations),
+            },
+            "horizon_days": horizons,
+            "prefilter_stats": baseline_stats,
+            "quick_filter_stats": filtered_stats,
+            "prefilter_strategy_stats": self._summarize_by_strategy(baseline_evaluations, holding_days),
+            "quick_filter_strategy_stats": self._summarize_by_strategy(filtered_evaluations, holding_days),
+            "comparison": comparison,
+            "prefilter_evaluations": baseline_evaluations,
+            "quick_filter_evaluations": filtered_evaluations,
+            "windows": windows,
+            "summary": self._build_quick_filter_summary(comparison),
+        }
+        self._save_report(report)
+        return report
+
     def evaluate_signal_snapshots(
         self,
         *,
@@ -261,6 +385,7 @@ class BacktestEngine:
             return {}
 
         returns: Dict[str, float] = {}
+        outcomes: Dict[str, Any] = {}
         completed = len(stock_bars) - 1
         for day in holding_days:
             if completed < day:
@@ -269,6 +394,11 @@ class BacktestEngine:
             if future_close is None:
                 continue
             returns[f"return_{day}d"] = round((future_close / entry_close - 1) * 100, 4)
+            outcome = self._evaluate_path_outcome(stock_bars, entry_close, day)
+            outcomes[f"outcome_return_{day}d"] = outcome["return_pct"]
+            outcomes[f"outcome_{day}d"] = outcome["outcome"]
+            outcomes[f"exit_day_{day}d"] = outcome["exit_day"]
+            outcomes[f"exit_reason_{day}d"] = outcome["reason"]
         if not returns:
             return {}
 
@@ -280,9 +410,184 @@ class BacktestEngine:
             "strategy_confidence": self._safe_float(signal.get("strategy_confidence")),
             "technical_score": self._safe_float(signal.get("technical_score")),
             "theme_score": self._safe_float(signal.get("theme_score")),
+            "ret5": self._safe_float(signal.get("ret5")),
+            "ret10": self._safe_float(signal.get("ret10")),
+            "ret20": self._safe_float(signal.get("ret20")),
+            "volume_ratio": self._safe_float(signal.get("volume_ratio")),
+            "turnover_rate": self._safe_float(signal.get("turnover_rate")),
+            "bias20_ratio": self._safe_float(signal.get("bias20_ratio")),
             "entry_close": entry_close,
             "completed_holding_days": completed,
             **returns,
+            **outcomes,
+        }
+
+    def _build_signal_rows(
+        self,
+        candidates: List[Dict[str, Any]],
+        signal_date: str,
+        source: str,
+    ) -> List[Dict[str, Any]]:
+        """把候选池转换为统一评估行，便于海选池与精筛池同口径比较。"""
+        rows: List[Dict[str, Any]] = []
+        for item in candidates or []:
+            code = str(item.get("code") or "").zfill(6)
+            if len(code) != 6 or not code.isdigit():
+                continue
+            rows.append(
+                {
+                    "signal_date": signal_date,
+                    "code": code,
+                    "name": item.get("name"),
+                    "source": source,
+                    "primary_strategy": self._primary_strategy(item),
+                    "strategy_confidence": self._safe_float(item.get("strategy_confidence")),
+                    "technical_score": self._safe_float(item.get("technical_score")),
+                    "theme_score": self._safe_float(item.get("theme_score")),
+                    "ret5": self._metric_from_item(item, "ret5"),
+                    "ret10": self._metric_from_item(item, "ret10"),
+                    "ret20": self._metric_from_item(item, "ret20"),
+                    "volume_ratio": self._metric_from_item(item, "volume_ratio"),
+                    "turnover_rate": self._metric_from_item(item, "turnover_rate"),
+                    "bias20_ratio": self._metric_from_item(item, "bias20_ratio"),
+                }
+            )
+        return rows
+
+    def _metric_from_item(self, item: Dict[str, Any], key: str) -> float | None:
+        """从候选行或 key_metrics 中读取入选截面的诊断指标。"""
+        value = self._safe_float(item.get(key))
+        if value is None and isinstance(item.get("key_metrics"), dict):
+            value = self._safe_float(item["key_metrics"].get(key))
+        return value
+
+    def _evaluate_signal_rows(
+        self,
+        rows: List[Dict[str, Any]],
+        bars: pd.DataFrame,
+        holding_days: Sequence[int],
+    ) -> List[Dict[str, Any]]:
+        if not rows or bars.empty:
+            return []
+        evaluations: List[Dict[str, Any]] = []
+        for row in rows:
+            evaluated = self._evaluate_single_signal(pd.Series(row), bars, holding_days)
+            if evaluated:
+                evaluations.append(evaluated)
+        return evaluations
+
+    def _summarize_signal_group(
+        self,
+        evaluations: List[Dict[str, Any]],
+        horizons: Dict[str, int],
+    ) -> Dict[str, Dict[str, Any]]:
+        stats: Dict[str, Dict[str, Any]] = {}
+        for label, day in horizons.items():
+            key = f"return_{day}d"
+            outcome_key = f"outcome_return_{day}d"
+            raw_values = [float(item[key]) for item in evaluations if item.get(key) is not None]
+            values = [float(item.get(outcome_key, item[key])) for item in evaluations if item.get(key) is not None]
+            if not values:
+                stats[label] = {
+                    "holding_days": day,
+                    "sample_count": 0,
+                    "avg_return_pct": None,
+                    "win_rate": None,
+                    "tail_loss_pct": None,
+                }
+                continue
+            sorted_values = sorted(values)
+            stats[label] = {
+                "holding_days": day,
+                "sample_count": len(values),
+                "avg_return_pct": round(sum(values) / len(values), 4),
+                "avg_raw_return_pct": round(sum(raw_values) / len(raw_values), 4) if raw_values else None,
+                "win_rate": self._calc_win_rate(values),
+                "tail_loss_pct": round(self._percentile(sorted_values, 0.10), 4),
+                "best_return_pct": round(max(values), 4),
+                "worst_return_pct": round(min(values), 4),
+            }
+        return stats
+
+    def _compare_quick_filter_stats(
+        self,
+        baseline_stats: Dict[str, Dict[str, Any]],
+        filtered_stats: Dict[str, Dict[str, Any]],
+    ) -> Dict[str, Dict[str, Any]]:
+        comparison: Dict[str, Dict[str, Any]] = {}
+        for label, baseline in baseline_stats.items():
+            filtered = filtered_stats.get(label, {})
+            baseline_win = self._safe_float(baseline.get("win_rate"))
+            filtered_win = self._safe_float(filtered.get("win_rate"))
+            baseline_avg = self._safe_float(baseline.get("avg_return_pct"))
+            filtered_avg = self._safe_float(filtered.get("avg_return_pct"))
+            win_delta = None if baseline_win is None or filtered_win is None else round((filtered_win - baseline_win) * 100, 2)
+            avg_delta = None if baseline_avg is None or filtered_avg is None else round(filtered_avg - baseline_avg, 4)
+            comparison[label] = {
+                "holding_days": baseline.get("holding_days") or filtered.get("holding_days"),
+                "prefilter_sample_count": int(baseline.get("sample_count") or 0),
+                "quick_filter_sample_count": int(filtered.get("sample_count") or 0),
+                "prefilter_win_rate": baseline_win,
+                "quick_filter_win_rate": filtered_win,
+                "win_rate_delta_pp": win_delta,
+                "prefilter_avg_return_pct": baseline_avg,
+                "quick_filter_avg_return_pct": filtered_avg,
+                "avg_return_delta_pct": avg_delta,
+                "improved": bool(win_delta is not None and win_delta > 0),
+            }
+        return comparison
+
+    def _build_quick_filter_summary(self, comparison: Dict[str, Dict[str, Any]]) -> str:
+        labels = {"short": "短期", "medium": "中期", "long": "长期"}
+        parts = []
+        improved_count = 0
+        comparable_count = 0
+        for label in ("short", "medium", "long"):
+            item = comparison.get(label)
+            if not item:
+                continue
+            delta = item.get("win_rate_delta_pp")
+            if delta is None:
+                parts.append(f"{labels.get(label, label)}样本不足")
+                continue
+            comparable_count += 1
+            if delta > 0:
+                improved_count += 1
+            sign = "+" if delta > 0 else ""
+            prefilter_win = self._format_win_rate_pct(item.get("prefilter_win_rate"))
+            quick_filter_win = self._format_win_rate_pct(item.get("quick_filter_win_rate"))
+            parts.append(f"{labels.get(label, label)}总胜率{prefilter_win}->{quick_filter_win}({sign}{delta}pp)")
+        if not parts:
+            return "暂无可比较的短中长期样本。"
+        verdict = "整体有提升" if improved_count and improved_count == comparable_count else "部分周期有提升" if improved_count else "暂未观察到胜率提升"
+        return (
+            f"QuickFilter 精筛对比海选池：{verdict}；"
+            f"胜率按路径规则统计(止盈>={DEFAULT_BACKTEST_TAKE_PROFIT_PCT}%，"
+            f"止损<={DEFAULT_BACKTEST_STOP_LOSS_PCT}%，未触发则期末收益>={DEFAULT_WIN_RATE_THRESHOLD_PCT}%)；"
+            + "，".join(parts)
+            + "。"
+        )
+
+    def _format_win_rate_pct(self, value: Any) -> str:
+        win_rate = self._safe_float(value)
+        if win_rate is None:
+            return "N/A"
+        return f"{win_rate * 100:.2f}%"
+
+    def _normalize_quick_filter_horizons(self, horizon_days: Dict[str, int] | None) -> Dict[str, int]:
+        raw = dict(DEFAULT_QUICK_FILTER_HORIZONS)
+        if isinstance(horizon_days, dict):
+            for key, value in horizon_days.items():
+                try:
+                    day = int(value)
+                except (TypeError, ValueError):
+                    continue
+                if day > 0:
+                    raw[str(key)] = day
+        return {
+            "short": max(1, int(raw.get("short") or 5)),
+            "medium": max(1, int(raw.get("medium") or 10)),
+            "long": max(1, int(raw.get("long") or 20)),
         }
 
     def _summarize_by_strategy(
@@ -299,14 +604,17 @@ class BacktestEngine:
             strategy_stat: Dict[str, Any] = {"sample_count": len(rows)}
             for day in holding_days:
                 key = f"return_{day}d"
-                values = [float(row[key]) for row in rows if row.get(key) is not None]
+                outcome_key = f"outcome_return_{day}d"
+                raw_values = [float(row[key]) for row in rows if row.get(key) is not None]
+                values = [float(row.get(outcome_key, row[key])) for row in rows if row.get(key) is not None]
                 if not values:
                     continue
                 sorted_values = sorted(values)
                 strategy_stat[key] = {
                     "sample_count": len(values),
                     "avg_return_pct": round(sum(values) / len(values), 4),
-                    "win_rate": round(sum(1 for value in values if value > 0) / len(values), 4),
+                    "avg_raw_return_pct": round(sum(raw_values) / len(raw_values), 4) if raw_values else None,
+                    "win_rate": self._calc_win_rate(values),
                     "tail_loss_pct": round(self._percentile(sorted_values, 0.10), 4),
                     "max_drawdown_proxy": round(sorted_values[0], 4),
                     "best_return_pct": round(max(values), 4),
@@ -442,8 +750,8 @@ class BacktestEngine:
         placeholders = ",".join(["?"] * len(code_list))
         return self.db.query_to_dataframe(
             f"""
-            SELECT code, trade_date, close
-            FROM market_bars
+              SELECT code, trade_date, high, low, close
+              FROM market_bars
             WHERE period = 'daily'
               AND trade_date >= ?
               AND code IN ({placeholders})
@@ -543,6 +851,57 @@ class BacktestEngine:
         if tail_loss is None:
             tail_loss = self._safe_float(stat.get("max_drawdown_proxy")) or 0.0
         return avg_return * 2.0 + (win_rate - 0.5) * 20.0 + min(0.0, tail_loss) * 0.25
+
+    @staticmethod
+    def _calc_win_rate(values: Sequence[float]) -> float:
+        """按统一收益阈值计算胜率，收益率达到阈值即算胜。"""
+        if not values:
+            return 0.0
+        return round(sum(1 for value in values if value >= DEFAULT_WIN_RATE_THRESHOLD_PCT) / len(values), 4)
+
+    def _evaluate_path_outcome(self, stock_bars: pd.DataFrame, entry_close: float, holding_days: int) -> Dict[str, Any]:
+        """按系统交易特征评估路径结果：先止损/止盈，未触发则看期末收益。"""
+        stop_price = entry_close * (1.0 + DEFAULT_BACKTEST_STOP_LOSS_PCT / 100.0)
+        take_profit_price = entry_close * (1.0 + DEFAULT_BACKTEST_TAKE_PROFIT_PCT / 100.0)
+        max_index = min(int(holding_days), len(stock_bars) - 1)
+        for offset in range(1, max_index + 1):
+            row = stock_bars.iloc[offset]
+            high = self._safe_float(row.get("high"))
+            low = self._safe_float(row.get("low"))
+            close = self._safe_float(row.get("close"))
+            high = high if high is not None else close
+            low = low if low is not None else close
+            if low is not None and low <= stop_price:
+                return {
+                    "return_pct": DEFAULT_BACKTEST_STOP_LOSS_PCT,
+                    "outcome": "stop_loss",
+                    "exit_day": offset,
+                    "reason": f"窗口内触发止损 {DEFAULT_BACKTEST_STOP_LOSS_PCT}%。",
+                }
+            if high is not None and high >= take_profit_price:
+                return {
+                    "return_pct": DEFAULT_BACKTEST_TAKE_PROFIT_PCT,
+                    "outcome": "take_profit",
+                    "exit_day": offset,
+                    "reason": f"窗口内触发止盈/减仓观察 {DEFAULT_BACKTEST_TAKE_PROFIT_PCT}%。",
+                }
+
+        final_close = self._safe_float(stock_bars.iloc[max_index].get("close"))
+        final_return = round((final_close / entry_close - 1) * 100, 4) if final_close is not None else 0.0
+        return {
+            "return_pct": final_return,
+            "outcome": "period_win" if final_return >= DEFAULT_WIN_RATE_THRESHOLD_PCT else "period_loss",
+            "exit_day": max_index,
+            "reason": f"未触发止盈止损，按期末收益 {final_return}% 评价。",
+        }
+
+    @staticmethod
+    def _outcome_rule_config() -> Dict[str, float]:
+        return {
+            "take_profit_pct": DEFAULT_BACKTEST_TAKE_PROFIT_PCT,
+            "stop_loss_pct": DEFAULT_BACKTEST_STOP_LOSS_PCT,
+            "terminal_win_threshold_pct": DEFAULT_WIN_RATE_THRESHOLD_PCT,
+        }
 
     @staticmethod
     def _percentile(sorted_values: Sequence[float], ratio: float) -> float:

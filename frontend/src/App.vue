@@ -373,6 +373,7 @@ const availableTasks = [
   { key: 'derive_bars', label: '派生周/月线' },
   { key: 'pick', label: '执行选股' },
   { key: 'backtest', label: '走步回测' },
+  { key: 'quick_filter_backtest', label: '轻量精筛回测' },
   { key: 'trade', label: '模拟调仓' },
   { key: 'post', label: '交易反思' }
 ]

@@ -200,6 +200,29 @@ STRATEGY_TRADE_PROFILES: Dict[str, Dict[str, Any]] = {
     },
 }
 
+BACKTEST_STRATEGY_PRIORS: Dict[str, Dict[str, float]] = {
+    "first_limit_up_breakout": {
+        "score_bonus": 9.0,
+        "max_share": 0.35,
+    },
+    "momentum_leader": {
+        "score_bonus": 3.0,
+        "max_share": 0.25,
+    },
+    "dragon_pullback": {
+        "score_bonus": 1.0,
+        "max_share": 0.15,
+    },
+    "trend_breakout": {
+        "score_bonus": -8.0,
+        "max_share": 0.35,
+    },
+    "support_pullback": {
+        "score_bonus": -5.0,
+        "max_share": 0.15,
+    },
+}
+
 
 class StockScreener:
     """在 LLM 分析之前使用的确定性预筛选器。"""
@@ -1099,10 +1122,10 @@ class StockScreener:
         score += 3 * max(0, len(strategy_matches) - 1)
 
         if primary == "trend_breakout":
-            score += max(-10, min(18, ret20)) * 1.2
-            score += max(-5, min(10, ret5)) * 1.0
-            score += 10 if close >= ma5 >= ma10 >= ma20 else 0
-            score += 8 if ma20 >= ma60 else 0
+            score += max(-10, min(18, ret20)) * 0.7
+            score += max(-5, min(10, ret5)) * 0.6
+            score += 6 if close >= ma5 >= ma10 >= ma20 else 0
+            score += 5 if ma20 >= ma60 else 0
             score += max(-10, min(8, high60_distance + 8))
         elif primary == "momentum_leader":
             score += min(24, max(0, ret20)) * 0.65
@@ -1123,9 +1146,10 @@ class StockScreener:
             score += min(12, abs(min(ret5, 0))) * 0.55
             score += 8 if close >= ma10 else 3
         elif primary == "first_limit_up_breakout":
-            score += min(20, max(0, ret20)) * 0.8
-            score += 8 if close >= ma5 >= ma10 >= ma20 else 3
-            score += 6 if ma20 >= ma60 * 0.98 else 0
+            score += min(20, max(0, ret20)) * 0.9
+            score += 10 if close >= ma5 >= ma10 >= ma20 else 4
+            score += 8 if ma20 >= ma60 * 0.98 else 0
+            score += 6 if 1.2 <= float(vol_ratio or 0) <= 2.8 else 0
         else:
             score += 10 if ma20 >= ma60 else 0
             score += max(0, 8 - abs(close / ma20 - 1) * 100)
@@ -1181,6 +1205,7 @@ class StockScreener:
         elif primary == "dragon_pullback":
             risk_penalty += 2.0
 
+        score += float(BACKTEST_STRATEGY_PRIORS.get(primary, {}).get("score_bonus", 0.0))
         return max(0.0, score - risk_penalty)
 
     def _format_screen_reason(
@@ -1446,12 +1471,25 @@ class StockScreener:
         selected: List[Dict[str, Any]] = []
         selected_codes = set()
         industry_counts: Dict[str, int] = {}
+        strategy_counts: Dict[str, int] = defaultdict(int)
+        enforce_caps = len(groups) > 1
+        strategy_caps = self._strategy_caps(top_n)
 
-        def try_add(item: Dict[str, Any], count_reject: bool = True) -> bool:
+        def try_add(item: Dict[str, Any], count_reject: bool = True, enforce_strategy_cap: bool = True) -> bool:
             if len(selected) >= top_n:
                 return False
             code = item.get("code")
             if code in selected_codes:
+                return False
+            primary_tag = self._get_primary_strategy_tag(item)
+            if enforce_caps and enforce_strategy_cap and strategy_counts.get(primary_tag, 0) >= strategy_caps.get(primary_tag, top_n):
+                if count_reject and reject:
+                    reject(
+                        "strategy_cap_exceeded",
+                        item.get("code"),
+                        item.get("name"),
+                        {"strategy": primary_tag, "max_count": strategy_caps.get(primary_tag, top_n)},
+                    )
                 return False
             industry = item.get("industry")
             if industry and industry_counts.get(industry, 0) >= max_per_industry:
@@ -1465,6 +1503,7 @@ class StockScreener:
                 return False
             selected.append(item)
             selected_codes.add(code)
+            strategy_counts[primary_tag] += 1
             if industry:
                 industry_counts[industry] = industry_counts.get(industry, 0) + 1
             return True
@@ -1491,7 +1530,21 @@ class StockScreener:
                 break
             try_add(item, count_reject=False)
 
+        # 如果其他策略样本不足，再放宽策略上限补足名额，避免候选池异常偏少。
+        for item in ranked:
+            if len(selected) >= top_n:
+                break
+            try_add(item, count_reject=False, enforce_strategy_cap=False)
+
         return sorted(selected, key=lambda item: float(item.get("technical_score") or 0), reverse=True)
+
+    def _strategy_caps(self, top_n: int) -> Dict[str, int]:
+        """根据走步回测反馈设置单策略最大占比，避免弱势策略挤占候选池。"""
+        caps: Dict[str, int] = {}
+        for strategy, prior in BACKTEST_STRATEGY_PRIORS.items():
+            max_share = float(prior.get("max_share", 1.0) or 1.0)
+            caps[strategy] = max(1, int(math.ceil(top_n * max_share)))
+        return caps
 
     def _get_primary_strategy_tag(self, item: Dict[str, Any]) -> str:
         """读取候选股主策略标签。"""

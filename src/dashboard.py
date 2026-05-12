@@ -37,6 +37,7 @@ TASK_COMMANDS: dict[str, dict[str, Any]] = {
     "derive_bars": {"label": "派生周线/月线", "args": ["--derive-bars"]},
     "pick": {"label": "执行选股", "args": ["--pick"]},
     "backtest": {"label": "走步回测", "args": ["--backtest"]},
+    "quick_filter_backtest": {"label": "轻量精筛回测", "args": ["--quick-filter-backtest"]},
     "trade": {"label": "模拟调仓", "args": ["--trade"]},
     "post": {"label": "交易反思", "args": ["--post"]},
 }
@@ -772,10 +773,13 @@ def summarize_screener(data: dict[str, Any]) -> dict[str, Any]:
 def summarize_backtest(data: dict[str, Any]) -> dict[str, Any]:
     if not data:
         return {}
+    evaluated_count = data.get("evaluated_count")
+    if isinstance(evaluated_count, dict):
+        evaluated_count = f"{evaluated_count.get('prefilter', 0)} -> {evaluated_count.get('quick_filter', 0)}"
     return {
         "generated_at": data.get("generated_at"),
         "window_count": data.get("window_count"),
-        "evaluated_count": data.get("evaluated_count"),
+        "evaluated_count": evaluated_count,
         "summary": data.get("summary"),
         "strategy_stats": data.get("strategy_stats") or data.get("strategy_performance") or {},
         "weight_suggestions": data.get("weight_suggestions") or data.get("weights") or {},
