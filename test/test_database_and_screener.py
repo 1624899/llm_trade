@@ -1250,6 +1250,28 @@ class WatchlistTests(unittest.TestCase):
         self.assertIn("达到买点", rows.iloc[0]["decision_snapshot"])
         self.assertIn("减仓/清仓触发条件", rows.iloc[0]["decision_snapshot"])
 
+    def test_watchlist_expected_return_prefers_decision_table_column(self):
+        final_report = """
+### 宁波银行(002142) —— 强推荐
+财务摘要：拨备覆盖率369.39%，净利润同比10.30%，这些不是预期收益。
+
+| 股票 | 推荐分层 | 预期收益空间 | 预计持有期限 | 主要持有逻辑 | 减仓/清仓触发条件 |
+| --- | --- | --- | --- | --- | --- |
+| 宁波银行(002142) | 强推荐 | 12%-18% | 20日趋势持有 | 回踩企稳 | 跌破MA20清仓 |
+"""
+
+        self.assertEqual(Watchlist._infer_expected_return(final_report, "002142"), 18.0)
+
+    def test_watchlist_expected_return_legacy_text_uses_semantic_percent(self):
+        final_report = "000001 强推荐 预期 18%，财务指标同比增长223.28%。"
+
+        self.assertEqual(Watchlist._infer_expected_return(final_report, "000001"), 18.0)
+
+    def test_watchlist_expected_return_supports_snapshot_row_without_header(self):
+        final_report = "| 弘亚数控 (002833) | 配置/轻仓验证 | 10%–15% | 20日趋势持有 | 回踩低吸 | 跌破清仓 |"
+
+        self.assertEqual(Watchlist._infer_expected_return(final_report, "002833"), 15.0)
+
     @patch("src.evaluation.watchlist.fetch_latest_prices", return_value={})
     def test_watchlist_applies_trading_remove_and_hard_exit(self, _mock_prices):
         watchlist = Watchlist(db=self.db, max_items=10)

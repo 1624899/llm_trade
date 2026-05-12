@@ -67,7 +67,7 @@ class DecisionAgent:
 直接输出报告正文，不要输出“好的、遵命、作为某某智能体”等寒暄句。
 必须尊重资讯风险的硬性剔除结论。
 你的判断周期必须尊重候选的策略建议持有期：首板启动/first_limit_up_breakout 属于 3-5 日验证信号，不得写成 1-3 个月中期配置；趋势突破、主升浪、价值低吸等可按对应中期或波段周期评估。
-如果一只股票基本面质量好、风险低、技术趋势没有失效，并且合理预期收益空间大于 15%，应当给出清晰积极的结论，不要因为短期震荡、回踩或小幅浮亏而过度保守。
+如果一只股票基本面质量好、风险低、技术趋势没有失效，且买点位于缩量回踩、支撑企稳、防守板块修复或温和突破确认等高胜率区间，应当给出清晰积极的结论，不要因为收益空间未明确超过 15%、短期震荡、回踩或小幅浮亏而过度保守。
 如果基本面已经恶化，或利润/现金流/公告风险与技术面破位、放量滞涨、趋势背离同时出现，必须明确建议减仓、清仓或不推荐，不能用“继续观察”稀释风险。
 最终报告必须像成熟交易分析员一样给出可执行判断：买入/配置/等待/减仓/清仓，不要只罗列优缺点。
 
@@ -78,11 +78,11 @@ class DecisionAgent:
 
 请输出一份详细且专业的中文 Markdown 决策报告。
 必须使用统一推荐分层，不能把所有入选标的都笼统写成“推荐”：
-- 强推荐：基本面强、技术趋势未失效、资讯风控低，且中期预期收益空间大于 15%，适合作为核心候选。
-- 配置/轻仓验证：风险较低且中期胜率较稳，但收益空间、成长性或买点确认度弱于强推荐，可轻仓配置或等待触发。
+- 强推荐：高胜率核心候选。要求基本面质量或盈利拐点清晰、资讯风控低、技术趋势未失效，且处于缩量回踩企稳、支撑低吸、防守板块稳健修复、温和突破确认等风险收益比健康的位置；预期收益空间可以作为加分项，但不得作为唯一门槛。
+- 配置/轻仓验证：胜率或基本面仍可，但买点确认度、波动、催化、趋势强度或赔率兑现仍需验证；适合轻仓、分批或等待触发。
 - 观察：单独看有亮点，但买点、趋势、成长性或风控仍不够清晰。
 - 不推荐：基本面、技术面或资讯风控存在明显短板。
-如果某只股票只是弱市防御、缩量回踩、基本面稳但成长一般，请标为“配置/轻仓验证”，不要写成“强推荐”。
+不要把“缩量、低吸、支撑、回踩、防御、高股息”天然视为低档位；这些词如果对应趋势未破、抛压收敛、买点清晰和风控低，可以支持强推荐。相反，若高位偏离、放量滞涨、基本面隐忧或买点未到，即使文本里出现“强”“增长强劲”等字样，也不能机械提档。
 最终决策表必须包含“推荐分层”“预期收益空间”“预计持有期限”“主要持有逻辑”“减仓/清仓触发条件”列，并在个股标题中使用对应分层，例如“长江电力(600900) —— 配置/轻仓验证”。
 “预计持有期限”必须写具体周期，例如“3日验证，最长5日”“10日波段”“20日趋势持有”；如果是 first_limit_up_breakout，必须写“3日验证，最长5日”或等价表述。
 每只股票的资讯风控不能只写“风险等级：低/中/高”，必须至少说明：风险等级、处理动作、是否硬排除、新闻质量或关键证据；如果没有命中负面，也要写明“未发现明确负面关键词/公告硬风险”等依据。
@@ -380,7 +380,7 @@ CODE_LIST 只放“强推荐”和“配置/轻仓验证”的代码，不放“
         return "\n".join(lines), actionable_codes
 
     def _infer_fallback_tier(self, profile: Dict[str, Any]) -> str:
-        """LLM 不可用时，用保守规则给入选标的补充分层，避免报告口径过强。"""
+        """LLM 不可用时，按胜率优先规则补充分层，避免关键词误提档。"""
         asset = profile.get("asset_info", {})
         fund_text = str(profile.get("fundamental_analysis", ""))
         tech_text = str(profile.get("technical_analysis", ""))
@@ -389,13 +389,78 @@ CODE_LIST 只放“强推荐”和“配置/轻仓验证”的代码，不放“
             return "不推荐"
         if risk.get("risk_level") not in (None, "", "low") and risk.get("action") == "watch":
             return "观察"
-        bad_technical_words = ["不宜追高", "观望", "高位", "跌破", "破位", "放量滞涨", "上影派发", "趋势失效"]
-        if "强" in fund_text and not any(word in tech_text for word in bad_technical_words):
-            return "强推荐"
+
+        fund_signal = self._extract_signal_text(fund_text)
+        tech_signal = self._extract_signal_text(tech_text)
+        bad_fund_words = [
+            "最终评级：中性",
+            "最终评级: 中性",
+            "最终评级：弱",
+            "最终评级: 弱",
+            "基本面恶化",
+            "利润下滑",
+            "现金流背离",
+            "减值",
+            "亏损",
+            "现金流大幅转负",
+            "负债压力",
+            "明显隐忧",
+        ]
+        bad_technical_words = ["不宜追高", "观望", "高位", "跌破", "破位", "放量滞涨", "上影派发", "趋势失效", "买点未到"]
+        good_fund_words = ["最终评级：强", "最终评级: 强", "基本面强", "盈利改善", "现金流良好", "现金流充裕", "高股息", "防御属性"]
+        constructive_technical_words = ["缩量回踩", "回踩企稳", "支撑低吸", "低吸", "支撑", "趋势未破", "突破确认", "温和放量"]
+
+        fund_is_good = any(word in fund_signal for word in good_fund_words) and not any(
+            word in fund_signal for word in bad_fund_words
+        )
+        tech_is_safe = not any(word in tech_signal for word in bad_technical_words)
+        high_win_entry = any(word in tech_signal for word in constructive_technical_words)
         primary_tags = asset.get("strategy_tags") or []
-        if any(tag in primary_tags for tag in ["support_pullback", "value_bottom"]) or any(word in tech_text for word in ["轻仓", "低吸", "支撑", "缩量"]):
+
+        if fund_is_good and tech_is_safe and (
+            high_win_entry
+            or any(tag in primary_tags for tag in ["support_pullback", "value_bottom", "first_limit_up_breakout"])
+        ):
+            return "强推荐"
+
+        if fund_is_good and tech_is_safe:
+            return "配置/轻仓验证"
+        if any(tag in primary_tags for tag in ["support_pullback", "value_bottom"]) or any(
+            word in tech_signal for word in ["轻仓", "低吸", "支撑", "缩量"]
+        ):
             return "配置/轻仓验证"
         return "观察"
+
+    @staticmethod
+    def _extract_signal_text(text: str) -> str:
+        """只保留当前判断段，避免止损条件里的破位词误伤分层。"""
+        if not text:
+            return ""
+        risk_headings = ("止损/失效", "减仓/清仓条件", "量能与风险", "质量风险", "风险评估")
+        signal_headings = (
+            "基本面结论",
+            "最终评级",
+            "技术结论",
+            "买点/触发",
+            "操作建议",
+            "宏观适配",
+            "财务趋势",
+            "盈利预期",
+        )
+        kept: List[str] = []
+        skipping_risk_block = False
+        for raw_line in text.splitlines():
+            line = re.sub(r"[*#`>\s]+", "", raw_line or "")
+            if not line:
+                continue
+            if any(heading in line for heading in risk_headings):
+                skipping_risk_block = True
+                continue
+            if any(heading in line for heading in signal_headings):
+                skipping_risk_block = False
+            if not skipping_risk_block:
+                kept.append(raw_line)
+        return "\n".join(kept)
 
     def _build_all_blocked_report(self, blocked_reports: List[Dict[str, Any]]) -> str:
         """当所有候选股都被风控拦截时的特殊报告。"""

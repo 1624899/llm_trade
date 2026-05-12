@@ -333,14 +333,87 @@ class Watchlist:
 
     @staticmethod
     def _infer_expected_return(final_report: str, code: str) -> float | None:
-        """从研报上下文提取代码相对应的预期收益率数字。"""
-        idx = final_report.find(code) if final_report else -1
+        """从最终决策语义中提取预期收益率，避免误抓财务指标百分比。"""
+        if not final_report:
+            return None
+
+        table_value = Watchlist._infer_expected_return_from_table(final_report, code)
+        if table_value is not None:
+            return table_value
+
+        idx = final_report.find(str(code).zfill(6))
         if idx < 0:
             return None
-            
+
         window = final_report[max(0, idx - 120) : idx + 260]
-        matches = re.findall(r"(\d+(?:\.\d+)?)\s*%", window)
-        
+        semantic_patterns = [
+            r"(?:预期收益空间|中期预期收益空间|预期收益|收益空间|中期空间|预期)[^\d%\n|]{0,40}(\d+(?:\.\d+)?)\s*%",
+            r"(\d+(?:\.\d+)?)\s*%[^\d。\n|]{0,16}(?:预期收益空间|中期预期收益空间|预期收益|收益空间|中期空间)",
+        ]
+        for pattern in semantic_patterns:
+            matches = re.findall(pattern, window)
+            if matches:
+                values = [float(item) for item in matches]
+                return max(values) if values else None
+        return None
+
+    @staticmethod
+    def _infer_expected_return_from_table(final_report: str, code: str) -> float | None:
+        """优先从最终决策表的“预期收益空间”列提取收益率。"""
+        normalized_code = str(code).zfill(6)
+        lines = final_report.splitlines()
+        for index, line in enumerate(lines):
+            row_text = line.strip()
+            if normalized_code not in row_text or not row_text.startswith("|") or not row_text.endswith("|"):
+                continue
+
+            row_cells = Watchlist._split_markdown_row(row_text)
+            header_cells = Watchlist._find_markdown_header(lines, index)
+            if not row_cells:
+                continue
+
+            if header_cells:
+                for column_index, header in enumerate(header_cells):
+                    header_key = re.sub(r"\s+", "", header)
+                    if "预期" not in header_key or ("收益" not in header_key and "空间" not in header_key):
+                        continue
+                    if column_index >= len(row_cells):
+                        continue
+                    value = Watchlist._extract_percent_value(row_cells[column_index])
+                    if value is not None:
+                        return value
+
+            # 部分历史 decision_snapshot 只保留数据行。最终决策表约定第 3 列是预期收益空间。
+            if len(row_cells) >= 3 and any(tier in "".join(row_cells[:3]) for tier in ("强推荐", "配置/轻仓验证", "观察", "不推荐")):
+                value = Watchlist._extract_percent_value(row_cells[2])
+                if value is not None:
+                    return value
+        return None
+
+    @staticmethod
+    def _find_markdown_header(lines: List[str], row_index: int) -> List[str]:
+        """向上查找 Markdown 表头，跳过分隔行。"""
+        for prior in range(row_index - 1, max(-1, row_index - 6), -1):
+            text = lines[prior].strip()
+            if not text.startswith("|") or not text.endswith("|"):
+                continue
+            cells = Watchlist._split_markdown_row(text)
+            compact = "".join(cells)
+            if re.fullmatch(r"[:\-\|\s]+", text):
+                continue
+            if "股票" in compact and any("预期" in cell for cell in cells):
+                return cells
+        return []
+
+    @staticmethod
+    def _split_markdown_row(row: str) -> List[str]:
+        """拆分简单 Markdown 表格行。"""
+        return [cell.strip() for cell in row.strip().strip("|").split("|")]
+
+    @staticmethod
+    def _extract_percent_value(text: str) -> float | None:
+        """从单个语义单元中提取百分比，区间取上限。"""
+        matches = re.findall(r"(\d+(?:\.\d+)?)\s*%", text or "")
         if not matches:
             return None
         values = [float(item) for item in matches]

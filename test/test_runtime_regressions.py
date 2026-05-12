@@ -1371,6 +1371,43 @@ class NewsRiskDecisionTests(unittest.TestCase):
 
         self.assertEqual(selected, ["000001", "000002"])
 
+    def test_decision_fallback_promotes_high_win_pullback_without_15pct_gate(self):
+        profile = {
+            "asset_info": {"code": "000001", "name": "pullback", "strategy_tags": ["support_pullback"]},
+            "fundamental_analysis": (
+                "### 基本面结论\n"
+                "公司现金流良好，高股息，防御属性突出。\n"
+                "### 最终评级\n"
+                "最终评级：强。理由：盈利稳定且估值安全边际较好。"
+            ),
+            "technical_analysis": (
+                "### 技术结论\n"
+                "当前缩量回踩，趋势未破。\n"
+                "### 操作建议\n"
+                "回踩支撑位企稳后可低吸。\n"
+                "### 止损/失效\n"
+                "若跌破平台则清仓。"
+            ),
+            "news_risk_analysis": {"risk_level": "low", "action": "pass", "hard_exclude": False},
+        }
+
+        self.assertEqual(DecisionAgent()._infer_fallback_tier(profile), "强推荐")
+
+    def test_decision_fallback_does_not_promote_on_strong_character_alone(self):
+        profile = {
+            "asset_info": {"code": "000002", "name": "hidden_risk", "strategy_tags": ["trend_breakout"]},
+            "fundamental_analysis": (
+                "### 基本面结论\n"
+                "净利增长强劲，但经营现金流大幅转负，存在明显隐忧。\n"
+                "### 最终评级\n"
+                "最终评级：中性。理由：财务质量需要验证。"
+            ),
+            "technical_analysis": "### 技术结论\n当前未见破位，但买点仍需确认。",
+            "news_risk_analysis": {"risk_level": "low", "action": "pass", "hard_exclude": False},
+        }
+
+        self.assertNotEqual(DecisionAgent()._infer_fallback_tier(profile), "强推荐")
+
     @patch("src.agent.decision_agent.tools.call_llm")
     def test_decision_agent_returns_empty_when_all_candidates_blocked(self, mock_call_llm):
         reports = [
