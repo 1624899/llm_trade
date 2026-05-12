@@ -1273,6 +1273,63 @@ class WatchlistTests(unittest.TestCase):
         self.assertEqual(Watchlist._infer_expected_return(final_report, "002833"), 15.0)
 
     @patch("src.evaluation.watchlist.fetch_latest_prices", return_value={})
+    def test_watchlist_refreshes_historical_performance_for_removed_items(self, _mock_prices):
+        watchlist = Watchlist(db=self.db, max_items=10)
+        dates = [f"202604{20 + idx:02d}" for idx in range(11)]
+        closes = [10, 10.2, 10.4, 10.6, 10.8, 11, 11.2, 11.4, 11.6, 11.8, 12]
+        self.db.upsert_dataframe(
+            "market_bars",
+            pd.DataFrame(
+                [
+                    {
+                        "code": "000001",
+                        "period": "daily",
+                        "trade_date": trade_date,
+                        "open": close,
+                        "high": close,
+                        "low": close,
+                        "close": close,
+                        "adj_close": close,
+                        "volume": 1000,
+                        "amount": 10000,
+                        "source": "test",
+                        "fetched_at": "2026-04-30 18:00:00",
+                    }
+                    for trade_date, close in zip(dates, closes)
+                ]
+            ),
+            key_columns=["code", "period", "trade_date"],
+        )
+        self.db.execute_non_query(
+            """
+            INSERT INTO watchlist_items
+            (code, name, tier, watch_status, source, added_at, updated_at, entry_price, current_price, return_pct)
+            VALUES ('000001', 'sample', '配置/轻仓验证', 'REMOVED', 'pick',
+                    '2026-04-20 15:00:00', '2026-04-20 15:00:00', 10, 10, 0)
+            """
+        )
+
+        updated = watchlist.refresh_recommendation_performance(include_removed=True)
+        rows = self.db.query_to_dataframe(
+            """
+            SELECT current_price, return_pct, elapsed_days, elapsed_trade_days,
+                   latest_trade_date, return_5d_pct, return_10d_pct, return_20d_pct
+            FROM watchlist_items
+            WHERE code = '000001'
+            """
+        )
+
+        self.assertEqual(updated, 1)
+        self.assertEqual(float(rows.iloc[0]["current_price"]), 12.0)
+        self.assertEqual(float(rows.iloc[0]["return_pct"]), 20.0)
+        self.assertEqual(int(rows.iloc[0]["elapsed_days"]), 10)
+        self.assertEqual(int(rows.iloc[0]["elapsed_trade_days"]), 10)
+        self.assertEqual(rows.iloc[0]["latest_trade_date"], "20260430")
+        self.assertEqual(float(rows.iloc[0]["return_5d_pct"]), 10.0)
+        self.assertEqual(float(rows.iloc[0]["return_10d_pct"]), 20.0)
+        self.assertTrue(pd.isna(rows.iloc[0]["return_20d_pct"]))
+
+    @patch("src.evaluation.watchlist.fetch_latest_prices", return_value={})
     def test_watchlist_applies_trading_remove_and_hard_exit(self, _mock_prices):
         watchlist = Watchlist(db=self.db, max_items=10)
         for code in ["000001", "000002", "000003"]:

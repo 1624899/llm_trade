@@ -162,6 +162,7 @@ class AgentCoordinator:
             final_report=final_markdown_report,
             macro_context=macro_context,
         )
+        self.watchlist.refresh_recommendation_performance(include_removed=True)
         logger.info("[Watchlist] 本轮更新 {} 只观察标的；交易仓不会在 --pick 中自动买入", watch_count)
 
         elapsed = time.time() - start_time
@@ -949,6 +950,7 @@ class AgentCoordinator:
         4. TradingAccount 校验硬约束并写入交易流水。
         """
         logger.info("=== 开始交易 Agent 模拟调仓 ===")
+        self.watchlist.refresh_recommendation_performance(include_removed=True)
         self.watchlist.refresh_prices()
         account = self.trading_account.refresh_positions()
         positions = self.trading_account.list_open_positions()
@@ -1041,6 +1043,7 @@ class AgentCoordinator:
         3. 仅对已清仓交易仓亏损样本触发 AI 反思。
         """
         logger.info("=== 开始盘后观察仓结算与已清仓交易复盘 ===")
+        self.watchlist.refresh_recommendation_performance(include_removed=True)
         self.watchlist.refresh_prices()
         self.trading_account.refresh_positions()
         self.reflection_agent.generate_trading_reflections(threshold_pct=-3.0)

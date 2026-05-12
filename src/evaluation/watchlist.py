@@ -20,6 +20,8 @@ from src.quote_sources import fetch_latest_prices
 class Watchlist:
     """观察仓类，负责管理和持久化股票的推荐与追踪状态。"""
 
+    PERFORMANCE_HORIZONS = (5, 10, 20, 30, 60)
+
     def __init__(self, db: Optional[StockDatabase] = None, max_items: int = 10):
         """
         初始化观察仓。
@@ -170,6 +172,84 @@ class Watchlist:
                 (price, self._return_pct(price, entry_price), now, int(item["id"])),
             )
 
+    def refresh_recommendation_performance(self, include_removed: bool = True) -> int:
+        """刷新全部历史推荐的当前收益、经过天数和关键持有节点收益。"""
+        items = self._list_for_performance(include_removed=include_removed)
+        if not items:
+            return 0
+
+        codes = [str(item.get("code") or "").zfill(6) for item in items if item.get("code")]
+        latest_prices = self._get_latest_prices_batch(codes)
+        min_entry_date = min(
+            (date for date in (self._normalize_trade_date(item.get("added_at")) for item in items) if date),
+            default=None,
+        )
+        bars_by_code = self._load_performance_bars(codes, min_entry_date) if min_entry_date else {}
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        updated = 0
+
+        for item in items:
+            code = str(item.get("code") or "").zfill(6)
+            entry_price = self._to_float(item.get("entry_price"))
+            if not code or not entry_price:
+                continue
+
+            entry_date = self._normalize_trade_date(item.get("added_at"))
+            bars = [
+                bar
+                for bar in bars_by_code.get(code, [])
+                if not entry_date or str(bar.get("trade_date") or "") >= entry_date
+            ]
+            latest_bar = bars[-1] if bars else {}
+            latest_trade_date = str(latest_bar.get("trade_date") or "") or None
+            latest_bar_price = self._to_float(latest_bar.get("price"))
+            current_price = self._to_float(latest_prices.get(code)) or latest_bar_price
+            if not current_price:
+                continue
+            if not latest_trade_date and entry_date:
+                latest_trade_date = entry_date
+
+            elapsed_trade_days = max(0, len(bars) - 1) if bars else None
+            if elapsed_trade_days is None and latest_trade_date:
+                elapsed_trade_days = 0
+            elapsed_days = self._elapsed_calendar_days(entry_date, latest_trade_date)
+            horizon_returns = self._calculate_horizon_returns(bars, entry_price)
+            ok = self.db.execute_non_query(
+                """
+                UPDATE watchlist_items
+                SET current_price = ?,
+                    return_pct = ?,
+                    elapsed_days = ?,
+                    elapsed_trade_days = ?,
+                    latest_trade_date = ?,
+                    return_5d_pct = ?,
+                    return_10d_pct = ?,
+                    return_20d_pct = ?,
+                    return_30d_pct = ?,
+                    return_60d_pct = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    current_price,
+                    self._return_pct(current_price, entry_price),
+                    elapsed_days,
+                    elapsed_trade_days,
+                    latest_trade_date,
+                    horizon_returns.get(5),
+                    horizon_returns.get(10),
+                    horizon_returns.get(20),
+                    horizon_returns.get(30),
+                    horizon_returns.get(60),
+                    now,
+                    int(item["id"]),
+                ),
+            )
+            if ok:
+                updated += 1
+        logger.info("[观察仓] 已刷新历史推荐表现 {} 条，include_removed={}", updated, include_removed)
+        return updated
+
     def list_active(self) -> List[Dict[str, Any]]:
         """
         获取当前处于 ACTIVE 状态的观察列表。
@@ -299,8 +379,125 @@ class Watchlist:
             )
             if not df.empty:
                 prices.update(dict(zip(df["code"].astype(str).str.zfill(6), df["price"].astype(float))))
+            missing = [code for code in normalized if code not in prices]
+
+        if missing:
+            placeholders = ",".join(["?"] * len(missing))
+            df = self.db.query_to_dataframe(
+                f"""
+                SELECT b.code, b.close AS price
+                FROM market_bars b
+                JOIN (
+                    SELECT code, MAX(trade_date) AS trade_date
+                    FROM market_bars
+                    WHERE period = 'daily'
+                      AND code IN ({placeholders})
+                    GROUP BY code
+                ) latest ON b.code = latest.code AND b.trade_date = latest.trade_date
+                WHERE b.period = 'daily'
+                """,
+                tuple(missing),
+            )
+            if not df.empty:
+                prices.update(dict(zip(df["code"].astype(str).str.zfill(6), df["price"].astype(float))))
                 
         return {str(code).zfill(6): float(price) for code, price in prices.items() if price}
+
+    def _list_for_performance(self, include_removed: bool) -> List[Dict[str, Any]]:
+        """读取需要刷新表现的观察仓记录。"""
+        status_clause = "" if include_removed else "WHERE watch_status = 'ACTIVE'"
+        df = self.db.query_to_dataframe(
+            f"""
+            SELECT *
+            FROM watchlist_items
+            {status_clause}
+            ORDER BY added_at, id
+            """
+        )
+        if df.empty:
+            return []
+        return df.to_dict("records")
+
+    def _load_performance_bars(self, codes: List[str], min_trade_date: str) -> Dict[str, List[Dict[str, Any]]]:
+        """加载节点收益所需日线，market_bars 优先，daily_quotes 补缺。"""
+        code_list = sorted({str(code).zfill(6) for code in codes if str(code).zfill(6).isdigit()})
+        if not code_list or not min_trade_date:
+            return {}
+        placeholders = ",".join(["?"] * len(code_list))
+        params = tuple([min_trade_date] + code_list)
+        market_df = self.db.query_to_dataframe(
+            f"""
+            SELECT code, trade_date, close AS price
+            FROM market_bars
+            WHERE period = 'daily'
+              AND trade_date >= ?
+              AND code IN ({placeholders})
+            ORDER BY code, trade_date
+            """,
+            params,
+        )
+        quote_df = self.db.query_to_dataframe(
+            f"""
+            SELECT code, trade_date, price
+            FROM daily_quotes
+            WHERE trade_date >= ?
+              AND code IN ({placeholders})
+            ORDER BY code, trade_date
+            """,
+            params,
+        )
+
+        rows_by_key: Dict[tuple[str, str], Dict[str, Any]] = {}
+        for df in (quote_df, market_df):
+            if df.empty:
+                continue
+            for _, row in df.iterrows():
+                code = str(row["code"]).zfill(6)
+                trade_date = str(row["trade_date"])
+                price = self._to_float(row.get("price"))
+                if not price:
+                    continue
+                rows_by_key[(code, trade_date)] = {"code": code, "trade_date": trade_date, "price": price}
+
+        bars_by_code: Dict[str, List[Dict[str, Any]]] = {}
+        for (code, _trade_date), row in sorted(rows_by_key.items(), key=lambda item: (item[0][0], item[0][1])):
+            bars_by_code.setdefault(code, []).append(row)
+        return bars_by_code
+
+    @classmethod
+    def _calculate_horizon_returns(cls, bars: List[Dict[str, Any]], entry_price: float) -> Dict[int, float | None]:
+        """按第 N 个交易日收盘价计算节点收益。"""
+        results: Dict[int, float | None] = {}
+        if not bars or not entry_price:
+            return {day: None for day in cls.PERFORMANCE_HORIZONS}
+        for day in cls.PERFORMANCE_HORIZONS:
+            if len(bars) <= day:
+                results[day] = None
+                continue
+            price = cls._to_float(bars[day].get("price"))
+            results[day] = cls._return_pct(price, entry_price) if price else None
+        return results
+
+    @staticmethod
+    def _normalize_trade_date(value: Any) -> str | None:
+        if value in (None, ""):
+            return None
+        text = str(value).strip()
+        if " " in text:
+            text = text.split(" ", 1)[0]
+        text = text.replace("-", "")
+        return text if len(text) == 8 and text.isdigit() else None
+
+    @staticmethod
+    def _elapsed_calendar_days(entry_date: str | None, latest_trade_date: str | None) -> int | None:
+        if not entry_date or not latest_trade_date:
+            return None
+        try:
+            entry = datetime.strptime(entry_date, "%Y%m%d")
+            latest = datetime.strptime(latest_trade_date, "%Y%m%d")
+            return max(0, (latest - entry).days)
+        except ValueError:
+            return None
 
     @staticmethod
     def _compose_reason(profile: Dict[str, Any]) -> str:
