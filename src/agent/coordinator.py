@@ -323,7 +323,7 @@ class AgentCoordinator:
         update_watchlist: bool = False,
         watchlist_source: str = "targeted_analysis",
     ) -> str:
-        """对用户指定的股票做单独深度分析；默认不自动加入观察仓。"""
+        """对用户指定的股票做单独深度分析；强推荐结果会自动补入观察仓。"""
         normalized_codes = self._normalize_target_codes(codes)
         if not normalized_codes:
             return "没有识别到有效的 6 位股票代码。"
@@ -346,6 +346,15 @@ class AgentCoordinator:
                 source=watchlist_source,
             )
             logger.info("[Watchlist] 指定分析写回观察仓 {} 只标的", updated)
+        elif detailed_reports:
+            updated = self._upsert_targeted_strong_recommendations(
+                detailed_reports,
+                final_report=report,
+                macro_context=macro_context,
+                source=watchlist_source,
+            )
+            if updated:
+                logger.info("[Watchlist] 指定分析强推荐自动加入观察仓 {} 只标的", updated)
 
         elapsed = time.time() - start_time
         self._save_targeted_analysis_audit(
@@ -361,6 +370,57 @@ class AgentCoordinator:
         trace_recorder.finish()
         logger.info(f"=== 指定股票单独分析结束，耗时 {elapsed:.1f} 秒 ===")
         return report
+
+    def _upsert_targeted_strong_recommendations(
+        self,
+        detailed_reports: List[Dict[str, Any]],
+        final_report: str,
+        macro_context: Optional[Dict[str, Any]] = None,
+        source: str = "targeted_analysis",
+    ) -> int:
+        """把指定分析中明确为强推荐、且不在 ACTIVE 观察仓的股票补入观察仓。"""
+        if not detailed_reports:
+            return 0
+        active_codes = {
+            str(item.get("code") or "").zfill(6)
+            for item in self.watchlist.list_active()
+            if item.get("code")
+        }
+        strong_codes: List[str] = []
+        profiles: Dict[str, Dict[str, Any]] = {}
+        for item in detailed_reports:
+            asset = item.get("asset_info") or {}
+            code = str(asset.get("code") or "").zfill(6)
+            if not re.fullmatch(r"\d{6}", code) or code in active_codes:
+                continue
+            if self._infer_targeted_report_tier(code, final_report) != "强推荐":
+                continue
+            strong_codes.append(code)
+            profiles[code] = item
+
+        if not strong_codes:
+            return 0
+        return self.watchlist.upsert_recommendations(
+            strong_codes,
+            profiles,
+            final_report=final_report,
+            macro_context=macro_context,
+            source=source,
+        )
+
+    @staticmethod
+    def _infer_targeted_report_tier(code: str, final_report: str) -> str:
+        """指定分析按代码所在表格行判定档位，避免相邻股票串行误判。"""
+        normalized_code = str(code).zfill(6)
+        for raw_line in (final_report or "").splitlines():
+            line = raw_line.strip()
+            if normalized_code not in line:
+                continue
+            search_text = line if line.startswith("|") and line.endswith("|") else line[:260]
+            for tier in ("强推荐", "配置/轻仓验证", "观察", "不推荐"):
+                if tier in search_text:
+                    return tier
+        return Watchlist._infer_tier(normalized_code, final_report)
 
     def _normalize_target_codes(self, codes: List[str]) -> List[str]:
         """清洗命令行输入的股票代码，保留原始顺序并去重。"""
@@ -978,15 +1038,14 @@ class AgentCoordinator:
         每日盘后例行维护：
         1. 结算虚拟观察仓当天浮盈浮亏。
         2. 输出持仓动作诊断。
-        3. 触发 AI 自我反思机制，吸取失败教训。
+        3. 仅对已清仓交易仓亏损样本触发 AI 反思。
         """
-        logger.info("=== 开始盘后虚拟观察仓结算与反思 ===")
+        logger.info("=== 开始盘后观察仓结算与已清仓交易复盘 ===")
         self.watchlist.refresh_prices()
         self.trading_account.refresh_positions()
         self.reflection_agent.generate_trading_reflections(threshold_pct=-3.0)
 
         self.paper_trading.update_portfolio()
-        self.reflection_agent.generate_reflection_for_failures(threshold_pct=-3.0)
 
         macro_context = self.macro_agent.analyze_macro_environment()
         diagnostics = self.paper_trading.diagnose_portfolio(macro_context=macro_context)

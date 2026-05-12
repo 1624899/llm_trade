@@ -1,18 +1,18 @@
 """
 错题反思智能体 (Reflection Agent)
 职责：
-1. 定期扫描虚拟仓中处于亏损状态（如跌幅过大）的标的。
-2. 将入选原因与当前走势喂给 LLM 进行自省，提取教训（例如“以后不能在缩量阴跌时盲目判定企稳”）。
+1. 只扫描已清仓且亏损的交易仓样本。
+2. 将推荐理由、实际交易行为、卖出结果与近期走势喂给 LLM 复盘。
 3. 将反思教训固化为系统风控规则库（rules_book.txt），供下一周期的 DecisionAgent 加载。
 """
 
 import os
+import re
 from datetime import datetime
 from loguru import logger
 
 from src.database import StockDatabase
 from src.agent.tools import tools
-from src.evaluation.paper_trading import PaperTrading
 
 class ReflectionAgent:
     def __init__(self):
@@ -23,49 +23,10 @@ class ReflectionAgent:
 
     def generate_reflection_for_failures(self, threshold_pct: float = -3.0):
         """
-        寻找浮亏超过 threshold_pct 的标的，生成失败复盘记录
+        兼容旧入口：观察仓和未清仓持仓不做反思，避免把未完成样本写成规则。
         """
-        logger.info(f"[Reflection] 开始巡视虚拟仓，阈值：浮亏超 {threshold_pct}% 的标的将进入错题本。")
-        
-        sql = f"SELECT * FROM paper_trades WHERE status = 'HOLD' AND return_pct <= {threshold_pct}"
-        df = self.db.query_to_dataframe(sql)
-        
-        if df.empty:
-            logger.info("[Reflection] 本期未发现需要触发深度反思的亏损标的，体系运转良好。")
-            return
-            
-        new_rules = []
-        for _, row in df.iterrows():
-            code = row['code']
-            name = row['name']
-            buy_p = row['recommend_price']
-            cur_p = row['current_price']
-            pct = row['return_pct']
-            reason = row['recommend_reason']
-            
-            logger.warning(f"-> 发现亏损案例: {name} (成本: {buy_p}, 现价: {cur_p}, 多仓收益: {pct}%)")
-            
-            # 再去拉一下最新的这几天的K线，看看这几天是不是真暴跌了
-            recent_kline = tools.fetch_recent_kline(code, days=5)
-            
-            system_prompt = """
-            你是一位具有深刻反思意识的资深量化交易员导师。
-            你的徒弟最近推荐了一只股票导致亏损，下面是当初的买入理由和目前的走势。
-            任务：
-            请用一句话提取一个【风控铁律】，防止以后再犯类似的错误。
-            （语气要严厉深刻，不废话，只输出一条几十个字的核心原则）
-            """
-            
-            user_prompt = f"股票：{name}({code})\n建仓理由：{reason}\n近期走势(惨淡)：\n{recent_kline}\n亏损率：{pct}%"
-            
-            rule = tools.call_llm(system_prompt, user_prompt, temperature=0.3)
-            if rule:
-                clean_rule = rule.replace('"', '').replace('风控铁律：', '').replace('风控铁律:', '').strip()
-                new_rules.append(f"[{datetime.now().strftime('%Y-%m-%d')}] 惨痛教训({name}): {clean_rule}")
-
-        # 如果提取出了新的反思，固化到磁盘
-        if new_rules:
-            self._save_rules(new_rules)
+        logger.info("[Reflection] 跳过观察仓/未清仓样本反思；仅已清仓交易仓亏损样本会沉淀规则。")
+        return
 
     def generate_trading_reflections(self, threshold_pct: float = -3.0):
         """基于已结算交易仓样本生成亏损反思；同一笔清仓记录只反思一次。"""
@@ -84,11 +45,7 @@ class ReflectionAgent:
             code = str(case.get("code") or "").zfill(6)
             name = case.get("name") or code
             recent_kline = tools.fetch_recent_kline(code, days=5)
-            system_prompt = """
-你是一位成熟、严格的交易复盘导师。
-请基于推荐内容、实际交易行为、持有结果和近期走势，提炼一条可复用的风控铁律。
-只输出一条几十字的规则，不要寒暄，不要写长文。
-"""
+            system_prompt = self._build_reflection_prompt()
             user_prompt = f"""
 股票：{name}({code})
 亏损幅度：{case.get('return_pct')}%
@@ -106,13 +63,8 @@ class ReflectionAgent:
 {recent_kline}
 """
             rule = tools.call_llm(system_prompt, user_prompt, temperature=0.25)
-            if rule:
-                clean_rule = (
-                    rule.replace('"', "")
-                    .replace("风控铁律：", "")
-                    .replace("风控铁律:", "")
-                    .strip()
-                )
+            clean_rule = self._clean_reflection_rule(rule)
+            if clean_rule:
                 new_rules.append(f"[{datetime.now().strftime('%Y-%m-%d')}] 交易亏损复盘({name}): {clean_rule}")
 
         if new_rules:
@@ -192,6 +144,56 @@ class ReflectionAgent:
             return max(0, (end - start).days)
         except Exception:
             return None
+
+    @staticmethod
+    def _build_reflection_prompt() -> str:
+        """生成约束更强的复盘提示词，避免把单个亏损样本泛化成口号。"""
+        return """
+你是一位成熟、严格但不武断的交易复盘导师。
+请只基于用户给出的推荐理由、实际交易行为、持有结果和近期走势，提炼一条可执行的复盘规则。
+
+输出要求：
+1. 只输出一条中文规则，40-90 字。
+2. 必须写清【触发条件】和【动作】，例如“当...且...时，...；若...则...”。
+3. 只能总结本案例证据支持的情境，不要扩展到所有突破、所有回踩或所有基本面股票。
+4. 避免口号化和绝对化措辞，不要使用“一律、永远、绝不、任何、必然、铁律、惨痛”等词。
+5. 如果输入证据不足以归因，请只输出“证据不足：不沉淀规则”。
+"""
+
+    @staticmethod
+    def _clean_reflection_rule(rule: str | None) -> str:
+        """清洗并拒收明显空泛的复盘结果。"""
+        if not rule:
+            return ""
+
+        clean_rule = str(rule).strip().strip('"“”')
+        clean_rule = re.sub(r"^(风控铁律|复盘规则|规则|教训)\s*[:：]\s*", "", clean_rule)
+        clean_rule = clean_rule.replace("\n", " ").strip()
+        clean_rule = re.sub(r"\s+", " ", clean_rule)
+
+        if not clean_rule or clean_rule.startswith("证据不足"):
+            return ""
+
+        # 这类词会把单个亏损样本硬套成普适禁令，写入规则本前先降噪。
+        replacements = {
+            "一律": "应先",
+            "永远": "持续",
+            "绝不": "避免",
+            "任何": "未确认的",
+            "必然": "可能",
+            "铁律": "规则",
+            "惨痛": "",
+        }
+        for old, new in replacements.items():
+            clean_rule = clean_rule.replace(old, new)
+
+        # 仍然只有态度、没有条件或动作的句子，不进入规则本。
+        has_condition = any(key in clean_rule for key in ("当", "若", "如果", "出现", "跌破", "破位", "未", "且", "时", "后"))
+        has_action = any(key in clean_rule for key in ("等待", "降低", "减仓", "清仓", "止损", "回避", "避免", "不追", "不买", "不要", "卖出"))
+        if len(clean_rule) < 10 or not (has_condition and has_action):
+            return ""
+
+        return clean_rule
             
     def _save_rules(self, new_rules: list):
         """持久化教训库"""
@@ -206,4 +208,4 @@ class ReflectionAgent:
 
 if __name__ == "__main__":
     agent = ReflectionAgent()
-    agent.generate_reflection_for_failures()
+    agent.generate_trading_reflections()

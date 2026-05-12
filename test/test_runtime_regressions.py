@@ -210,12 +210,12 @@ class ReflectionAgentTests(unittest.TestCase):
     @patch("src.agent.reflection_agent.tools.fetch_recent_kline", return_value="mock kline")
     @patch.object(ReflectionAgent, "_save_rules")
     @patch("src.agent.reflection_agent.StockDatabase")
-    def test_generate_reflection_saves_rules_without_name_error(
+    def test_generate_reflection_for_failures_skips_unclosed_samples(
         self,
         mock_db_cls,
         mock_save_rules,
-        _mock_fetch_recent_kline,
-        _mock_call_llm,
+        mock_fetch_recent_kline,
+        mock_call_llm,
     ):
         mock_db = mock_db_cls.return_value
         mock_db.db_path = os.path.join("data", "stock_lake.db")
@@ -235,10 +235,25 @@ class ReflectionAgentTests(unittest.TestCase):
         agent = ReflectionAgent()
         agent.generate_reflection_for_failures(threshold_pct=-3.0)
 
-        mock_save_rules.assert_called_once()
-        saved_rules = mock_save_rules.call_args.args[0]
-        self.assertEqual(len(saved_rules), 1)
-        self.assertIn("浦发银行", saved_rules[0])
+        mock_db.query_to_dataframe.assert_not_called()
+        mock_fetch_recent_kline.assert_not_called()
+        mock_call_llm.assert_not_called()
+        mock_save_rules.assert_not_called()
+
+    def test_reflection_prompt_discourages_overgeneralized_lessons(self):
+        prompt = ReflectionAgent._build_reflection_prompt()
+
+        self.assertIn("触发条件", prompt)
+        self.assertIn("不要扩展到所有突破", prompt)
+        self.assertIn("证据不足", prompt)
+
+    def test_clean_reflection_rule_rejects_empty_slogans(self):
+        self.assertEqual(ReflectionAgent._clean_reflection_rule("永远不要追高"), "")
+
+        rule = ReflectionAgent._clean_reflection_rule("风控铁律：当放量突破失败且跌破止损线时，应减仓或止损退出")
+
+        self.assertIn("当放量突破失败", rule)
+        self.assertNotIn("风控铁律", rule)
 
     def test_save_rules_writes_rules_book_file(self):
         rules_dir = os.path.join(PROJECT_ROOT, ".test_tmp")
@@ -791,6 +806,37 @@ class CoordinatorConcurrencyTests(unittest.TestCase):
         text = "\n".join(coordinator._format_targeted_summary([report]))
         self.assertIn("可配置", text)
         self.assertNotIn("减仓或清仓，等待基本面/技术面修复", text)
+
+    def test_targeted_strong_recommendation_auto_adds_missing_watchlist_item(self):
+        coordinator = AgentCoordinator.__new__(AgentCoordinator)
+        coordinator.watchlist = MagicMock()
+        coordinator.watchlist.list_active.return_value = [{"code": "000002"}]
+        coordinator.watchlist.upsert_recommendations.return_value = 1
+        reports = [
+            {"asset_info": {"code": "000001", "name": "strong sample"}},
+            {"asset_info": {"code": "000002", "name": "already active"}},
+            {"asset_info": {"code": "000003", "name": "watch sample"}},
+        ]
+        final_report = """
+| 股票 | 综合倾向 | 中期动作 | 核心矛盾 | 资讯风控 |
+| --- | --- | --- | --- | --- |
+| strong sample(000001) | 强推荐 | 可配置 | 基本面强，技术面未破位 | low/pass |
+| already active(000002) | 强推荐 | 可配置 | 已在观察仓 | low/pass |
+| watch sample(000003) | 观察/轻仓验证 | 等待信号 | 买点未确认 | low/pass |
+"""
+
+        updated = coordinator._upsert_targeted_strong_recommendations(
+            reports,
+            final_report=final_report,
+            macro_context={"risk_appetite": "neutral"},
+        )
+
+        self.assertEqual(updated, 1)
+        coordinator.watchlist.upsert_recommendations.assert_called_once()
+        args, kwargs = coordinator.watchlist.upsert_recommendations.call_args
+        self.assertEqual(args[0], ["000001"])
+        self.assertEqual(list(args[1]), ["000001"])
+        self.assertEqual(kwargs["source"], "targeted_analysis")
 
 
 class QuickFilterAgentTests(unittest.TestCase):

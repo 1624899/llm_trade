@@ -374,7 +374,7 @@ const availableTasks = [
   { key: 'pick', label: '执行选股' },
   { key: 'backtest', label: '走步回测' },
   { key: 'trade', label: '模拟调仓' },
-  { key: 'post', label: '盘后诊断' }
+  { key: 'post', label: '交易反思' }
 ]
 const taskLoading = ref({})
 const analyzeInput = ref('')

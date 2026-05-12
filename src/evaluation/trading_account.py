@@ -541,13 +541,13 @@ class TradingAccount:
         return "\n".join(lines)
 
     def format_post_market_diagnostics(self, macro_context: Optional[Dict[str, Any]] = None) -> str:
-        """生成交易仓盘后诊断；交易仓只复盘已结算历史持仓，当前浮亏不做反思。"""
+        """生成交易仓交易反思；交易仓只复盘已结算历史持仓，当前浮亏不做反思。"""
         self.refresh_positions()
         positions = self.list_positions(status="CLOSED", limit=20)
         if not positions:
-            return "### AI 交易仓盘后诊断\n\n当前没有已结算的交易仓历史持仓。"
+            return "### AI 交易仓交易反思\n\n当前没有已结算的交易仓历史持仓。"
 
-        lines = ["### AI 交易仓盘后诊断", ""]
+        lines = ["### AI 交易仓交易反思", ""]
         lines.append("当前持仓只刷新浮动盈亏，不触发交易仓亏损反思；下表仅复盘已清仓样本。")
         lines.append("")
         lines.append("| 类型 | 股票 | 代码 | 成本 | 卖出价 | 已实现盈亏 | 盘后动作 | 诊断原因 |")

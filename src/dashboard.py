@@ -38,7 +38,7 @@ TASK_COMMANDS: dict[str, dict[str, Any]] = {
     "pick": {"label": "执行选股", "args": ["--pick"]},
     "backtest": {"label": "走步回测", "args": ["--backtest"]},
     "trade": {"label": "模拟调仓", "args": ["--trade"]},
-    "post": {"label": "盘后诊断", "args": ["--post"]},
+    "post": {"label": "交易反思", "args": ["--post"]},
 }
 CONFIG_SECTION_LABELS = {
     "system": "系统设置",

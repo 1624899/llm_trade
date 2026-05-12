@@ -26,7 +26,7 @@ def main():
     parser.add_argument("--trade", action="store_true", help="【模拟交易】根据观察仓推荐和交易仓状态运行 TradingAgent 调仓")
     parser.add_argument("--set-trade-cash", type=float, help="【交易仓资金】手动设置模拟交易仓可用现金")
     parser.add_argument("--reset-trade-baseline", action="store_true", help="设置交易仓现金时同步重置初始资金基准")
-    parser.add_argument("--post", action="store_true", help="【盘后清算】运行盘后例行维护：虚拟观察仓结算 + 失败错题反思并沉淀风控规则")
+    parser.add_argument("--post", action="store_true", help="【交易反思】运行盘后维护：观察仓诊断 + 已清仓交易仓亏损复盘")
     parser.add_argument("--dashboard", action="store_true", help="【可视化工作台】启动本地 Web 工作台，展示报告、观察仓、交易仓和审计摘要")
     parser.add_argument("--dashboard-host", default="127.0.0.1", help="工作台监听地址，默认 127.0.0.1")
     parser.add_argument("--dashboard-port", type=int, default=8765, help="工作台端口，默认 8765")
@@ -95,7 +95,6 @@ def main():
         except Exception as e:
             logger.error(f"保存研报失败: {e}")
 
-    # 3. 闭环虚拟仓管理与大模型自我反思进化
     # 3. 用户指定股票的单独深度分析
     if args.analyze:
         from src.agent.coordinator import AgentCoordinator
