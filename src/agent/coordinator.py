@@ -67,7 +67,7 @@ class AgentCoordinator:
         self.db = StockDatabase()
         self.paper_trading = PaperTrading(db=self.db)
         self.watchlist = Watchlist(db=self.db, max_items=10)
-        self.trading_account = TradingAccount(db=self.db)
+        self.trading_account = TradingAccount(db=self.db, **self._get_trading_account_config())
         self.exit_agent = ExitAgent(db=self.db)
         self.trading_agent = TradingAgent()
         self.backtest_engine = BacktestEngine(db=self.db)
@@ -813,6 +813,36 @@ class AgentCoordinator:
             workers = DEFAULT_CANDIDATE_ANALYSIS_MAX_WORKERS
         return max(1, min(workers, 5))
 
+    def _get_trading_account_config(self) -> Dict[str, Any]:
+        """读取交易仓配置，让用户可以通过 config/config.yaml 设置现金和交易约束。"""
+        raw_cfg = self.config.get("trading_account", {}) if isinstance(self.config, dict) else {}
+        if not isinstance(raw_cfg, dict):
+            return {}
+        allowed = {
+            "account_name": str,
+            "initial_cash": float,
+            "max_positions": int,
+            "lot_size": int,
+            "min_holding_days": int,
+            "rebuy_cooldown_days": int,
+            "max_buys_per_run": int,
+            "max_sells_per_run": int,
+        }
+        config: Dict[str, Any] = {}
+        for key, caster in allowed.items():
+            if key not in raw_cfg:
+                continue
+            try:
+                value = caster(raw_cfg[key])
+            except (TypeError, ValueError):
+                logger.warning("[TradingAccount] 忽略非法配置 {}={}", key, raw_cfg[key])
+                continue
+            if key != "account_name" and value <= 0:
+                logger.warning("[TradingAccount] 忽略非正数配置 {}={}", key, raw_cfg[key])
+                continue
+            config[key] = value
+        return config
+
     def _get_picking_candidate_limits(self, max_candidates: Optional[int] = None) -> Tuple[int, int]:
         """读取选股数量配置：规则海选放宽，深度复核保持成本可控。"""
         output_cfg = getattr(self.screener, "stock_picking_config", {}).get("output", {}) or {}
@@ -961,13 +991,15 @@ class AgentCoordinator:
         macro_context = self.macro_agent.analyze_macro_environment()
         diagnostics = self.paper_trading.diagnose_portfolio(macro_context=macro_context)
         review_report = self.paper_trading.format_diagnostics_report(diagnostics)
+        trading_diagnostics = self.trading_account.format_post_market_diagnostics(macro_context=macro_context)
         trading_report = self.trading_account.format_report([])
         print(review_report)
         print(self.paper_trading.show_portfolio())
+        print(trading_diagnostics)
         print(trading_report)
 
         logger.info("=== 盘后例行任务结束 ===")
-        return review_report + "\n\n" + trading_report
+        return review_report + "\n\n" + trading_diagnostics + "\n\n" + trading_report
 
 
 if __name__ == "__main__":

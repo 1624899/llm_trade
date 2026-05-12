@@ -46,6 +46,17 @@ export async function startTask(task, codes = '') {
   return data
 }
 
+export async function setTradeCash(cash, resetBaseline = false) {
+  const res = await fetch('/api/trading-account/cash', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cash, reset_baseline: resetBaseline })
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || 'Failed to set cash')
+  return data
+}
+
 export async function fetchReport(name = 'latest_report.md') {
   const res = await fetch(`/api/report?name=${name}`)
   return res.json()

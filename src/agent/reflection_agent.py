@@ -68,15 +68,19 @@ class ReflectionAgent:
             self._save_rules(new_rules)
 
     def generate_trading_reflections(self, threshold_pct: float = -3.0):
-        """基于交易仓流水、推荐内容和最终盈亏生成亏损反思。"""
-        logger.info(f"[Reflection] 开始扫描交易仓亏损案例，阈值：{threshold_pct}%")
+        """基于已结算交易仓样本生成亏损反思；同一笔清仓记录只反思一次。"""
+        logger.info(f"[Reflection] 开始扫描已结算交易仓亏损案例，阈值：{threshold_pct}%")
         cases = self._load_trading_failure_cases(threshold_pct)
         if not cases:
             logger.info("[Reflection] 交易仓本期未发现需要反思的亏损案例。")
             return
 
         new_rules = []
+        reflected_position_ids = []
         for case in cases:
+            position_id = case.get("position_id")
+            if position_id is not None:
+                reflected_position_ids.append(int(position_id))
             code = str(case.get("code") or "").zfill(6)
             name = case.get("name") or code
             recent_kline = tools.fetch_recent_kline(code, days=5)
@@ -113,46 +117,20 @@ class ReflectionAgent:
 
         if new_rules:
             self._save_rules(new_rules)
+        if reflected_position_ids:
+            self._mark_trading_cases_reflected(reflected_position_ids)
 
     def _load_trading_failure_cases(self, threshold_pct: float) -> list:
         sell_cases = self.db.query_to_dataframe(
             """
             SELECT
-                o.code,
-                COALESCE(o.name, p.name, w.name) AS name,
-                o.price,
-                o.quantity,
-                o.reason AS trade_reason,
-                o.created_at,
-                p.avg_cost,
-                p.opened_at,
-                p.buy_reason,
-                w.tier,
-                w.recommend_reason,
-                w.fundamental_analysis,
-                w.technical_analysis,
-                w.news_risk_analysis,
-                ROUND((o.price / NULLIF(p.avg_cost, 0) - 1) * 100, 2) AS return_pct
-            FROM trade_orders o
-            LEFT JOIN trading_positions p ON p.code = o.code AND p.account_id = o.account_id
-            LEFT JOIN watchlist_items w ON w.code = o.code
-            WHERE o.action = 'SELL'
-              AND p.avg_cost > 0
-              AND ((o.price / p.avg_cost - 1) * 100) <= ?
-            ORDER BY o.created_at DESC
-            LIMIT 20
-            """,
-            (float(threshold_pct),),
-        )
-        open_cases = self.db.query_to_dataframe(
-            """
-            SELECT
+                p.id AS position_id,
                 p.code,
-                p.name,
+                COALESCE(p.name, w.name, p.code) AS name,
                 p.current_price AS price,
-                p.quantity,
-                '当前交易仓浮亏达到反思阈值' AS trade_reason,
-                p.last_buy_at AS created_at,
+                p.sold_quantity AS quantity,
+                latest_sell.reason AS trade_reason,
+                COALESCE(p.closed_at, p.last_sell_at) AS created_at,
                 p.avg_cost,
                 p.opened_at,
                 p.buy_reason,
@@ -161,25 +139,50 @@ class ReflectionAgent:
                 w.fundamental_analysis,
                 w.technical_analysis,
                 w.news_risk_analysis,
-                p.unrealized_return_pct AS return_pct
+                p.realized_return_pct AS return_pct
             FROM trading_positions p
+            LEFT JOIN (
+                SELECT account_id, code, reason, MAX(created_at) AS created_at
+                FROM trade_orders
+                WHERE action = 'SELL'
+                GROUP BY account_id, code
+            ) latest_sell ON latest_sell.account_id = p.account_id AND latest_sell.code = p.code
             LEFT JOIN watchlist_items w ON w.code = p.code
-            WHERE p.status = 'OPEN'
-              AND p.unrealized_return_pct <= ?
-            ORDER BY p.opened_at DESC
+            WHERE p.status = 'CLOSED'
+              AND p.avg_cost > 0
+              AND p.realized_return_pct <= ?
+              AND COALESCE(p.reflection_count, 0) = 0
+              AND p.last_reflected_at IS NULL
+            ORDER BY COALESCE(p.closed_at, p.last_sell_at, p.opened_at) DESC
             LIMIT 20
             """,
             (float(threshold_pct),),
         )
         rows = []
-        for df in (sell_cases, open_cases):
-            if df is None or df.empty:
-                continue
-            for _, row in df.iterrows():
-                item = row.to_dict()
-                item["holding_days"] = self._holding_days(item.get("opened_at"), item.get("created_at"))
-                rows.append(item)
+        if sell_cases is None or sell_cases.empty:
+            return rows
+        for _, row in sell_cases.iterrows():
+            item = row.to_dict()
+            item["holding_days"] = self._holding_days(item.get("opened_at"), item.get("created_at"))
+            rows.append(item)
         return rows
+
+    def _mark_trading_cases_reflected(self, position_ids: list[int]) -> None:
+        """标记已处理的清仓记录，避免每日盘后重复反思同一笔亏损。"""
+        if not position_ids:
+            return
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        unique_ids = sorted(set(int(item) for item in position_ids if item))
+        placeholders = ",".join(["?"] * len(unique_ids))
+        self.db.execute_non_query(
+            f"""
+            UPDATE trading_positions
+            SET last_reflected_at = ?,
+                reflection_count = COALESCE(reflection_count, 0) + 1
+            WHERE id IN ({placeholders})
+            """,
+            (now, *unique_ids),
+        )
 
     @staticmethod
     def _holding_days(opened_at, ended_at) -> int | None:

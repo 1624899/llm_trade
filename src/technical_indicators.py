@@ -214,7 +214,9 @@ class TechnicalSignalProvider:
                     f"60日量能分位 {metrics.get('volume_percentile60')}%。"
                 ),
                 (
-                    f"- 位置: 20日支撑 {levels.get('support20')}, 20日压力 {levels.get('resistance20')}, "
+                    f"- 位置: 20日支撑 {levels.get('support20')}, "
+                    f"20日平台硬退出失效价 {levels.get('breakdown_trigger')}, "
+                    f"20日压力 {levels.get('resistance20')}, "
                     f"60日支撑 {levels.get('support60')}, 60日压力 {levels.get('resistance60')}, "
                     f"偏离MA20 {metrics.get('bias20')}%。"
                 ),

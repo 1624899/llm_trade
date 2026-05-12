@@ -105,7 +105,7 @@ class ExitAgent:
             return self._decision(
                 code,
                 ACTION_CLEAR,
-                f"跌破20日平台失效价 {breakdown_trigger}，优先控制回撤。",
+                f"跌破20日平台硬退出价 {breakdown_trigger}，优先控制回撤。",
                 stop_price=breakdown_trigger,
                 tags=tags,
                 risk_flags=risk_flags,

@@ -16,6 +16,15 @@ llm_models:
 active_llm: deepseek
 agent_workflow:
   candidate_analysis_max_workers: 4
+trading_account:
+  account_name: default
+  initial_cash: 16000
+  max_positions: 5
+  lot_size: 100
+  min_holding_days: 5
+  rebuy_cooldown_days: 5
+  max_buys_per_run: 2
+  max_sells_per_run: 2
 web_search:
   enabled: true
   provider: tavily

@@ -19,10 +19,11 @@
       <section class="metrics">
         <div class="metric"><label>总权益</label><strong>{{ money(account.total_equity || account.initial_cash) }}</strong><div class="subtle">交易账户</div></div>
         <div class="metric"><label>现金</label><strong>{{ money(account.cash) }}</strong><div class="subtle">可用模拟资金</div></div>
+        <div class="metric"><label>已实现盈亏</label><strong :class="clsByNumber(account.realized_pnl)">{{ money(account.realized_pnl) }}</strong><div class="subtle">历史持仓</div></div>
         <div class="metric"><label>浮动盈亏</label><strong>{{ money(account.unrealized_pnl) }}</strong><div class="subtle">未实现</div></div>
+        <div class="metric"><label>总盈亏</label><strong :class="clsByNumber(totalPnl)">{{ money(totalPnl) }}</strong><div class="subtle">已实现 + 未实现</div></div>
         <div class="metric"><label>观察标的</label><strong>{{ watchlist.length }}</strong><div class="subtle">ACTIVE</div></div>
         <div class="metric"><label>持仓数量</label><strong>{{ positions.length }}</strong><div class="subtle">OPEN</div></div>
-        <div class="metric"><label>候选数量</label><strong>{{ screener.candidate_count || audit.prefilter_count || '-' }}</strong><div class="subtle">{{ screener.profile || '规则雷达' }}</div></div>
       </section>
 
       <section class="layout">
@@ -53,19 +54,45 @@
           <section class="panel">
             <h2>交易仓</h2>
             <div class="panel-body">
+              <div class="cash-form">
+                <input v-model.number="cashInput" type="number" min="0" step="100" placeholder="设置现金" />
+                <label class="check-field"><input v-model="resetTradeBaseline" type="checkbox" /> 重置基准</label>
+                <button @click="handleSetCash" :disabled="cashSaving">{{ cashSaving ? '设置中...' : '设置现金' }}</button>
+              </div>
               <div v-if="!positions.length" class="empty">交易仓当前无 OPEN 持仓</div>
               <div class="table-wrap position-table" v-else>
                 <table>
-                  <thead><tr><th>代码</th><th>名称</th><th>数量</th><th>成本</th><th>现价</th><th>市值</th><th>浮盈亏</th></tr></thead>
+                  <thead><tr><th>代码</th><th>名称</th><th>持有</th><th>已卖</th><th>成本</th><th>现价</th><th>未实现</th><th>已实现</th><th>持仓盈亏</th></tr></thead>
                   <tbody>
                     <tr v-for="row in positions" :key="row.code" class="clickable" @click="loadStockDetail(row.code)">
                       <td><strong>{{ row.code }}</strong></td>
                       <td>{{ row.name }}</td>
                       <td>{{ money(row.quantity) }}</td>
+                      <td>{{ money(row.sold_quantity || 0) }}</td>
                       <td>{{ money(row.avg_cost) }}</td>
                       <td>{{ money(row.current_price) }}</td>
-                      <td>{{ money(row.market_value) }}</td>
                       <td>{{ money(row.unrealized_pnl) }} <span :class="['badge', clsByNumber(row.unrealized_return_pct)]">{{ pct(row.unrealized_return_pct) }}</span></td>
+                      <td>{{ money(row.realized_pnl) }}</td>
+                      <td>{{ money(positionTotalPnl(row)) }} <span :class="['badge', clsByNumber(positionTotalPnl(row))]">{{ pct(positionTotalReturnPct(row)) }}</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="subsection-title">历史持仓</div>
+              <div v-if="!historyPositions.length" class="empty compact">暂无 CLOSED 历史持仓</div>
+              <div class="table-wrap history-table" v-else>
+                <table>
+                  <thead><tr><th>代码</th><th>名称</th><th>状态</th><th>卖出数量</th><th>成本</th><th>卖出价</th><th>已实现盈亏</th><th>反思</th></tr></thead>
+                  <tbody>
+                    <tr v-for="row in historyPositions" :key="row.id" class="clickable" @click="loadStockDetail(row.code)">
+                      <td><strong>{{ row.code }}</strong></td>
+                      <td>{{ row.name }}</td>
+                      <td><span class="badge">{{ historyStatusText(row) }}</span></td>
+                      <td>{{ money(row.sold_quantity) }}</td>
+                      <td>{{ money(row.avg_cost) }}</td>
+                      <td>{{ money(row.current_price) }}</td>
+                      <td>{{ money(row.realized_pnl) }} <span :class="['badge', clsByNumber(row.realized_return_pct)]">{{ pct(row.realized_return_pct) }}</span></td>
+                      <td>{{ row.last_reflected_at ? '已反思' : '待反思' }}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -101,7 +128,8 @@
                     <span>观察档位</span><strong>{{ activeStock.watch?.tier || '-' }}</strong>
                     <span>观察收益</span><strong>{{ pct(activeStock.watch?.return_pct) }}</strong>
                     <span>持仓数量</span><strong>{{ money(activeStock.position?.quantity) }}</strong>
-                    <span>持仓收益</span><strong>{{ pct(activeStock.position?.unrealized_return_pct) }}</strong>
+                    <span>持仓状态</span><strong>{{ activeStock.position?.status || '-' }}</strong>
+                    <span>持仓收益</span><strong>{{ activeStockReturnText }}</strong>
                     <span>更新</span><strong>{{ activeStock.watch?.updated_at || activeStock.position?.opened_at || '-' }}</strong>
                   </div>
                 </div>
@@ -300,10 +328,20 @@ const refreshing = ref(false)
 const account = computed(() => overview.value.account || {})
 const watchlist = computed(() => overview.value.watchlist || [])
 const positions = computed(() => overview.value.positions || [])
+const historyPositions = computed(() => overview.value.history_positions || [])
 const screener = computed(() => overview.value.screener || {})
 const audit = computed(() => overview.value.audit || {})
 const backtest = computed(() => overview.value.backtest || {})
 const orders = computed(() => overview.value.orders || [])
+const totalPnl = computed(() => Number(account.value.realized_pnl || 0) + Number(account.value.unrealized_pnl || 0))
+const positionTotalPnl = row => Number(row?.realized_pnl || 0) + Number(row?.unrealized_pnl || 0)
+const positionTotalReturnPct = row => {
+  const avgCost = Number(row?.avg_cost || 0)
+  const baseQuantity = Number(row?.quantity || 0) + Number(row?.sold_quantity || 0)
+  if (!avgCost || !baseQuantity) return 0
+  return positionTotalPnl(row) / (avgCost * baseQuantity) * 100
+}
+const historyStatusText = row => Number(row?.sold_quantity || 0) > 0 ? '已清仓' : '历史'
 const jobs = ref([])
 const reportTabs = [
   { name: 'latest_report.md', label: '最新研报' },
@@ -319,6 +357,15 @@ const activeStockTitle = computed(() => {
   if (!d) return ''
   return `${d.code} ${d.basic?.name || d.watch?.name || d.position?.name || ''}`
 })
+const activeStockReturnText = computed(() => {
+  const pos = activeStock.value?.position || {}
+  if (!pos.status) return '-'
+  return pos.status === 'CLOSED' ? pct(pos.realized_return_pct) : pct(pos.unrealized_return_pct)
+})
+
+const cashInput = ref('')
+const resetTradeBaseline = ref(false)
+const cashSaving = ref(false)
 
 const availableTasks = [
   { key: 'sync', label: '同步数据' },
@@ -380,6 +427,9 @@ async function handleRefresh() {
   try {
     overview.value = await api.fetchOverview()
     jobs.value = overview.value.jobs || []
+    if (cashInput.value === '' || cashInput.value == null) {
+      cashInput.value = Number(overview.value.account?.cash || 0)
+    }
     await loadReport(activeReportName.value)
     
     const firstCode = watchlist.value[0]?.code || positions.value[0]?.code
@@ -390,6 +440,24 @@ async function handleRefresh() {
     console.error(e)
   } finally {
     refreshing.value = false
+  }
+}
+
+async function handleSetCash() {
+  const cash = Number(cashInput.value)
+  if (!Number.isFinite(cash) || cash < 0) {
+    alert('请输入有效现金金额')
+    return
+  }
+  cashSaving.value = true
+  try {
+    const res = await api.setTradeCash(cash, resetTradeBaseline.value)
+    overview.value.account = res.account || overview.value.account
+    await handleRefresh()
+  } catch(e) {
+    alert(e.message || '设置现金失败')
+  } finally {
+    cashSaving.value = false
   }
 }
 

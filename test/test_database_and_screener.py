@@ -17,6 +17,7 @@ if PROJECT_ROOT not in sys.path:
 from src.stock_screener import StockScreener
 from src.data_pipeline import DataPipeline
 from src.database import StockDatabase
+from src.agent.reflection_agent import ReflectionAgent
 from src.evaluation.paper_trading import PaperTrading
 from src.evaluation.trading_account import TradingAccount
 from src.evaluation.watchlist import Watchlist
@@ -1037,6 +1038,14 @@ class TradingAccountLifecycleTests(unittest.TestCase):
         self.assertEqual(orders[["action", "code", "quantity"]].values.tolist(), [["BUY", "000001", 100]])
 
     @patch("src.evaluation.trading_account.fetch_latest_prices", return_value={})
+    def test_account_cash_can_be_set_manually(self, _mock_prices):
+        account = TradingAccount(db=self.db)
+        updated = account.set_cash(50000, reset_baseline=True)
+
+        self.assertEqual(float(updated["cash"]), 50000.0)
+        self.assertEqual(float(updated["initial_cash"]), 50000.0)
+
+    @patch("src.evaluation.trading_account.fetch_latest_prices", return_value={})
     def test_trading_account_enforces_position_limit_and_cooldown(self, _mock_prices):
         account = TradingAccount(db=self.db, max_positions=5, max_buys_per_run=10)
         for idx in range(5):
@@ -1078,7 +1087,84 @@ class TradingAccountLifecycleTests(unittest.TestCase):
         report = account.format_report([])
 
         self.assertIn("浮动盈亏: -50.0", report)
-        self.assertIn("| unit sample | 000001 | 100 | 10.0 | 9.5 | -50.0 (-5.0%) |", report)
+        self.assertIn("| unit sample | 000001 | 100 | 0 | 10.0 | 9.5 | -50.0 | 0.0 | -50.0 (-5.0%) |", report)
+
+    @patch("src.evaluation.trading_account.fetch_latest_prices", return_value={})
+    def test_closed_positions_participate_in_pnl_and_post_market_diagnostics(self, _mock_prices):
+        account = TradingAccount(db=self.db)
+        account.buy({"code": "000001", "name": "unit sample", "quantity": 100, "price": 10.0, "reason": "unit"})
+        sell = account.sell(
+            {
+                "code": "000001",
+                "name": "unit sample",
+                "quantity": 100,
+                "price": 9.0,
+                "risk_override": True,
+                "reason": "risk sell",
+            }
+        )
+
+        refreshed = account.refresh_positions()
+        report = account.format_report([])
+        diagnostics = account.format_post_market_diagnostics(macro_context={})
+
+        self.assertEqual(sell["status"], "FILLED")
+        self.assertEqual(float(refreshed["realized_pnl"]), -100.0)
+        self.assertIn("总盈亏: -100.0", report)
+        self.assertIn("| unit sample | 000001 | 100 | 10.0 | 9.0 | -100.0 (-10.0%) |", report)
+        self.assertIn("历史复盘", diagnostics)
+        self.assertIn("已清仓亏损样本", diagnostics)
+
+    @patch("src.evaluation.trading_account.fetch_latest_prices", return_value={})
+    def test_partial_sell_stays_open_and_uses_total_position_pnl(self, _mock_prices):
+        account = TradingAccount(db=self.db, min_holding_days=0)
+        account.buy({"code": "000001", "name": "unit sample", "quantity": 200, "price": 10.0, "reason": "unit"})
+        account.sell({"code": "000001", "name": "unit sample", "quantity": 100, "price": 11.0, "reason": "take profit"})
+
+        report = account.format_report([])
+        positions = account.list_open_positions()
+        history_positions = account.list_positions(status="CLOSED")
+
+        self.assertEqual(len(positions), 1)
+        self.assertEqual(int(positions[0]["quantity"]), 100)
+        self.assertEqual(int(positions[0]["sold_quantity"]), 100)
+        self.assertEqual(float(positions[0]["realized_pnl"]), 100.0)
+        self.assertEqual(history_positions, [])
+        self.assertIn("| unit sample | 000001 | 100 | 100 | 10.0 | 11.0 | 100.0 | 100.0 | 200.0 (10.0%) |", report)
+
+    @patch("src.evaluation.trading_account.fetch_latest_prices", return_value={})
+    def test_buy_existing_position_uses_weighted_average_cost(self, _mock_prices):
+        account = TradingAccount(db=self.db, max_positions=1, max_buys_per_run=10)
+        first = account.buy({"code": "000001", "name": "unit sample", "quantity": 100, "price": 10.0, "reason": "first"})
+        second = account.buy({"code": "000001", "name": "unit sample", "quantity": 100, "price": 12.0, "reason": "add"})
+
+        positions = account.list_open_positions()
+
+        self.assertEqual(first["status"], "FILLED")
+        self.assertEqual(second["status"], "FILLED")
+        self.assertEqual(len(positions), 1)
+        self.assertEqual(int(positions[0]["quantity"]), 200)
+        self.assertEqual(float(positions[0]["avg_cost"]), 11.0)
+        self.assertIn("加仓：add", positions[0]["buy_reason"])
+
+    @patch("src.agent.reflection_agent.tools.fetch_recent_kline", return_value="recent bars")
+    @patch("src.agent.reflection_agent.tools.call_llm", return_value="不要在弱势破位后继续幻想反弹")
+    @patch("src.evaluation.trading_account.fetch_latest_prices", return_value={})
+    def test_trading_reflection_only_uses_closed_positions_once(self, _mock_prices, mock_llm, _mock_kline):
+        account = TradingAccount(db=self.db, min_holding_days=0)
+        account.buy({"code": "000001", "name": "unit sample", "quantity": 100, "price": 10.0, "reason": "unit"})
+        account.sell({"code": "000001", "name": "unit sample", "quantity": 100, "price": 9.0, "reason": "stop"})
+
+        reflection = ReflectionAgent()
+        reflection.db = self.db
+        reflection.rules_path = os.path.join(self.temp_dir, "rules_book.txt")
+        reflection.generate_trading_reflections(threshold_pct=-3.0)
+        reflection.generate_trading_reflections(threshold_pct=-3.0)
+
+        rows = account.list_positions(status="CLOSED")
+        self.assertEqual(mock_llm.call_count, 1)
+        self.assertEqual(int(rows[0]["reflection_count"]), 1)
+        self.assertTrue(rows[0]["last_reflected_at"])
 
 
 class WatchlistTests(unittest.TestCase):

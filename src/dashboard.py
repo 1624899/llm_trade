@@ -46,6 +46,7 @@ CONFIG_SECTION_LABELS = {
     "deepseek": "DeepSeek 模型",
     "qwen": "通义千问模型",
     "agent_workflow": "Agent 工作流",
+    "trading_account": "交易仓账户",
     "web_search": "联网搜索",
     "data": "数据同步与保留",
     "indicators": "技术指标",
@@ -71,6 +72,14 @@ CONFIG_FIELD_LABELS = {
     "llm_models.qwen.temperature": "通义千问温度",
     "active_llm": "当前启用模型",
     "agent_workflow.candidate_analysis_max_workers": "候选股并发分析数",
+    "trading_account.account_name": "交易仓账户名",
+    "trading_account.initial_cash": "交易仓初始资金",
+    "trading_account.max_positions": "交易仓持仓上限",
+    "trading_account.lot_size": "每手股数",
+    "trading_account.min_holding_days": "最短持有天数",
+    "trading_account.rebuy_cooldown_days": "卖出回买冷却天数",
+    "trading_account.max_buys_per_run": "单次最大买入笔数",
+    "trading_account.max_sells_per_run": "单次最大卖出笔数",
     "web_search.enabled": "启用联网搜索",
     "web_search.provider": "主搜索服务",
     "web_search.fallback_provider": "备用搜索服务",
@@ -220,6 +229,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             elif parsed.path == "/api/tasks":
                 payload = self._read_request_json()
                 self._send_json(start_task(payload), status=HTTPStatus.ACCEPTED)
+            elif parsed.path == "/api/trading-account/cash":
+                payload = self._read_request_json()
+                self._send_json(set_trading_account_cash(payload))
             else:
                 self.send_error(HTTPStatus.NOT_FOUND, "Not found")
         except ValueError as exc:
@@ -333,6 +345,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 
 def build_overview() -> dict[str, Any]:
+    ensure_database_schema()
     audit = _read_json(OUTPUTS_DIR / "latest_workflow_audit.json")
     screener = _read_json(OUTPUTS_DIR / "screener_audit.json")
     backtest = _read_json(OUTPUTS_DIR / "latest_backtest_report.json")
@@ -354,6 +367,15 @@ def build_overview() -> dict[str, Any]:
             FROM trading_positions
             WHERE status = 'OPEN'
             ORDER BY market_value DESC, opened_at
+            """
+        ),
+        "history_positions": query_all(
+            """
+            SELECT *
+            FROM trading_positions
+            WHERE status = 'CLOSED'
+            ORDER BY COALESCE(closed_at, last_sell_at, opened_at) DESC, id DESC
+            LIMIT 20
             """
         ),
         "watchlist": query_all(
@@ -393,6 +415,35 @@ def build_overview() -> dict[str, Any]:
         },
         "jobs": list_jobs(limit=5),
     }
+
+
+def ensure_database_schema() -> None:
+    """确保工作台直接读库前，旧库也已经补齐交易仓新增字段。"""
+    if not DB_PATH.exists():
+        return
+    try:
+        from src.database import StockDatabase
+
+        StockDatabase(db_path=str(DB_PATH))
+    except Exception:
+        return
+
+
+def set_trading_account_cash(payload: dict[str, Any]) -> dict[str, Any]:
+    """本地白名单接口：只允许设置模拟交易仓现金。"""
+    try:
+        cash = float(payload.get("cash"))
+    except (TypeError, ValueError):
+        raise ValueError("现金金额必须是数字")
+    if cash < 0 or cash > 1_000_000_000:
+        raise ValueError("现金金额超出允许范围")
+    reset_baseline = bool(payload.get("reset_baseline"))
+    from src.database import StockDatabase
+    from src.evaluation.trading_account import TradingAccount
+
+    db = StockDatabase(db_path=str(DB_PATH))
+    account = TradingAccount(db=db).set_cash(cash, reset_baseline=reset_baseline)
+    return {"ok": True, "account": account}
 
 
 def read_config_file() -> dict[str, Any]:
@@ -607,11 +658,21 @@ def _read_tail(path: Path, limit: int = 6000) -> str:
 
 
 def build_stock_detail(code: str) -> dict[str, Any]:
+    ensure_database_schema()
     normalized = "".join(ch for ch in code if ch.isdigit()).zfill(6)[-6:]
     basic = query_one("SELECT * FROM stock_basic WHERE code = ? LIMIT 1", (normalized,))
     watch = query_one("SELECT * FROM watchlist_items WHERE code = ? LIMIT 1", (normalized,))
     position = query_one(
-        "SELECT * FROM trading_positions WHERE code = ? AND status = 'OPEN' LIMIT 1",
+        """
+        SELECT *
+        FROM trading_positions
+        WHERE code = ?
+        ORDER BY
+            CASE status WHEN 'OPEN' THEN 0 ELSE 1 END,
+            COALESCE(closed_at, last_sell_at, opened_at) DESC,
+            id DESC
+        LIMIT 1
+        """,
         (normalized,),
     )
     bars = query_all(

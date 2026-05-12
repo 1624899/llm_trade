@@ -306,6 +306,14 @@ class StockDatabase:
                 "max_holding_days": "INTEGER",
                 "exit_hint": "TEXT",
             },
+            "trading_positions": {
+                "realized_pnl": "REAL DEFAULT 0",
+                "realized_return_pct": "REAL DEFAULT 0",
+                "sold_quantity": "INTEGER DEFAULT 0",
+                "closed_at": "TEXT",
+                "last_reflected_at": "TEXT",
+                "reflection_count": "INTEGER DEFAULT 0",
+            },
         }
 
         for table_name, columns in expected_columns.items():

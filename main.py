@@ -24,6 +24,8 @@ def main():
     parser.add_argument("--derive-bars", action="store_true", help="【K线聚合】基于本地日线派生周线/月线")
     parser.add_argument("--pick", action="store_true", help="【自动选股】执行技术面预筛选 + 多 Agent 深度分析选股流程")
     parser.add_argument("--trade", action="store_true", help="【模拟交易】根据观察仓推荐和交易仓状态运行 TradingAgent 调仓")
+    parser.add_argument("--set-trade-cash", type=float, help="【交易仓资金】手动设置模拟交易仓可用现金")
+    parser.add_argument("--reset-trade-baseline", action="store_true", help="设置交易仓现金时同步重置初始资金基准")
     parser.add_argument("--post", action="store_true", help="【盘后清算】运行盘后例行维护：虚拟观察仓结算 + 失败错题反思并沉淀风控规则")
     parser.add_argument("--dashboard", action="store_true", help="【可视化工作台】启动本地 Web 工作台，展示报告、观察仓、交易仓和审计摘要")
     parser.add_argument("--dashboard-host", default="127.0.0.1", help="工作台监听地址，默认 127.0.0.1")
@@ -34,7 +36,7 @@ def main():
     parser.add_argument("--backtest", action="store_true", help="遮盖旧数据做走步回测，生成因子权重参考")
     args = parser.parse_args()
     
-    if not any([args.sync, args.backfill_bars, args.derive_bars, args.pick, args.trade, args.analyze, args.post, args.backtest, args.dashboard]):
+    if not any([args.sync, args.backfill_bars, args.derive_bars, args.pick, args.trade, args.set_trade_cash is not None, args.analyze, args.post, args.backtest, args.dashboard]):
         parser.print_help()
         logger.info("\n没有输入任何指令。例如执行每日选股： python main.py --pick")
         return
@@ -101,6 +103,21 @@ def main():
         logger.info(f">>> 收到指定分析指令：{args.analyze}")
         coordinator = AgentCoordinator()
         report = coordinator.run_targeted_analysis(args.analyze)
+
+    if args.set_trade_cash is not None:
+        from src.agent.coordinator import AgentCoordinator
+
+        logger.info(">>> 收到交易仓资金设置指令：cash={}", args.set_trade_cash)
+        coordinator = AgentCoordinator()
+        account = coordinator.trading_account.set_cash(
+            args.set_trade_cash,
+            reset_baseline=args.reset_trade_baseline,
+        )
+        print(
+            "交易仓现金已更新："
+            f"现金={round(float(account.get('cash') or 0), 2)}，"
+            f"总权益={round(float(account.get('total_equity') or 0), 2)}"
+        )
 
     if args.trade:
         from src.agent.coordinator import AgentCoordinator

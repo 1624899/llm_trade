@@ -92,17 +92,56 @@ class TradingAccount:
             return {}
         return df.iloc[0].to_dict()
 
+    def set_cash(self, cash: float, *, reset_baseline: bool = False) -> Dict[str, Any]:
+        """手动设置交易仓可用现金，可选同步重置初始资金基准。"""
+        account = self.ensure_account()
+        cash_value = round(max(0.0, float(cash)), 2)
+        now = self._now()
+        if reset_baseline:
+            self.db.execute_non_query(
+                """
+                UPDATE trading_account
+                SET initial_cash = ?, cash = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (cash_value, cash_value, now, int(account["id"])),
+            )
+        else:
+            self.db.execute_non_query(
+                "UPDATE trading_account SET cash = ?, updated_at = ? WHERE id = ?",
+                (cash_value, now, int(account["id"])),
+            )
+        logger.info("[交易账户] 已手动设置 account={} cash={}", self.account_name, cash_value)
+        return self.refresh_positions()
+
     def list_open_positions(self) -> List[Dict[str, Any]]:
         """列出当前处于 'OPEN' 状态的所有持仓。"""
+        return self.list_positions(status="OPEN")
+
+    def list_positions(self, status: Optional[str] = None, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """列出交易仓持仓记录；不传 status 时包含 OPEN 和 CLOSED 历史记录。"""
         account = self.ensure_account()
+        params: list[Any] = [int(account["id"])]
+        where = "WHERE account_id = ?"
+        if status:
+            where += " AND status = ?"
+            params.append(str(status).upper())
+        limit_sql = ""
+        if limit:
+            limit_sql = "LIMIT ?"
+            params.append(int(limit))
         df = self.db.query_to_dataframe(
-            """
+            f"""
             SELECT *
             FROM trading_positions
-            WHERE account_id = ? AND status = 'OPEN'
-            ORDER BY opened_at, id
+            {where}
+            ORDER BY
+                CASE status WHEN 'OPEN' THEN 0 ELSE 1 END,
+                COALESCE(closed_at, last_sell_at, opened_at) DESC,
+                id DESC
+            {limit_sql}
             """,
-            (int(account["id"]),),
+            tuple(params),
         )
         if df.empty:
             return []
@@ -111,6 +150,7 @@ class TradingAccount:
     def refresh_positions(self) -> Dict[str, Any]:
         """调用最新行情，刷新所有持仓当前的市值、浮盈亏以及更新总权益。"""
         account = self.ensure_account()
+        self._backfill_legacy_realized_pnl(int(account["id"]))
         positions = self.list_open_positions()
         prices = self.get_latest_prices([item["code"] for item in positions])
 
@@ -141,16 +181,25 @@ class TradingAccount:
 
         cash = float(account.get("cash") or 0)
         total_equity = round(cash + total_market_value, 2)
+        realized_pnl = self._sum_realized_pnl(int(account["id"]))
         now = self._now()
         
         # 更新总账户看板记录
         self.db.execute_non_query(
             """
             UPDATE trading_account
-            SET total_market_value = ?, total_equity = ?, unrealized_pnl = ?, updated_at = ?
+            SET total_market_value = ?, total_equity = ?, realized_pnl = ?,
+                unrealized_pnl = ?, updated_at = ?
             WHERE id = ?
             """,
-            (round(total_market_value, 2), total_equity, round(total_unrealized, 2), now, int(account["id"])),
+            (
+                round(total_market_value, 2),
+                total_equity,
+                realized_pnl,
+                round(total_unrealized, 2),
+                now,
+                int(account["id"]),
+            ),
         )
         return self.get_account()
 
@@ -180,11 +229,10 @@ class TradingAccount:
             return self._rejected(decision, "invalid code")
         if self._run_buys >= self.max_buys_per_run:
             return self._rejected(decision, "本次运行买入次数已达上限")
-        if self._find_open_position(code):
-            return self._rejected(decision, "交易仓已持有该股票")
-        if len(self.list_open_positions()) >= self.max_positions:
+        existing_position = self._find_open_position(code)
+        if not existing_position and len(self.list_open_positions()) >= self.max_positions:
             return self._rejected(decision, "交易仓持仓数量已达上限")
-        if self._in_rebuy_cooldown(code):
+        if not existing_position and self._in_rebuy_cooldown(code):
             return self._rejected(decision, "卖出冷却期内禁止回买")
 
         # 2. 定价与数量换算
@@ -206,39 +254,72 @@ class TradingAccount:
         if quantity <= 0 or amount > cash_before:
             return self._rejected(decision, "现金不足一手或买入金额超过可用现金")
 
-        # 3. 数据层入库 (包含订单记录及扣款)
+        # 3. 数据层入库 (包含订单记录及扣款)。已有持仓时按加权平均成本加仓。
         now = self._now()
         cash_after = round(cash_before - amount, 2)
         name = str(decision.get("name") or code)
-        
-        self.db.execute_non_query(
-            """
-            INSERT INTO trading_positions
-            (account_id, code, name, quantity, avg_cost, current_price, market_value,
-             unrealized_pnl, unrealized_return_pct, opened_at, last_buy_at, status,
-             linked_watchlist_id, buy_reason, risk_note)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, 'OPEN', ?, ?, ?)
-            """,
-            (
-                int(account["id"]),
-                code,
-                name,
-                quantity,
-                price,
-                price,
-                amount,
-                now,
-                now,
-                self._to_int(decision.get("linked_watchlist_id")),
-                str(decision.get("reason") or ""),
-                str(decision.get("risk_note") or ""),
-            ),
-        )
+        position_before = int(existing_position.get("quantity") or 0)
+        position_after = position_before + quantity
+
+        if existing_position:
+            old_cost = float(existing_position.get("avg_cost") or 0)
+            new_avg_cost = round(((old_cost * position_before) + amount) / position_after, 4)
+            market_value = round(position_after * price, 2)
+            unrealized = round((price - new_avg_cost) * position_after, 2)
+            return_pct = round((price / new_avg_cost - 1) * 100, 2) if new_avg_cost else 0.0
+            merged_reason = self._merge_text(existing_position.get("buy_reason"), decision.get("reason"))
+            merged_risk = self._merge_text(existing_position.get("risk_note"), decision.get("risk_note"))
+            self.db.execute_non_query(
+                """
+                UPDATE trading_positions
+                SET name = ?, quantity = ?, avg_cost = ?, current_price = ?, market_value = ?,
+                    unrealized_pnl = ?, unrealized_return_pct = ?, last_buy_at = ?,
+                    buy_reason = ?, risk_note = ?
+                WHERE id = ?
+                """,
+                (
+                    name,
+                    position_after,
+                    new_avg_cost,
+                    price,
+                    market_value,
+                    unrealized,
+                    return_pct,
+                    now,
+                    merged_reason,
+                    merged_risk,
+                    int(existing_position["id"]),
+                ),
+            )
+        else:
+            self.db.execute_non_query(
+                """
+                INSERT INTO trading_positions
+                (account_id, code, name, quantity, avg_cost, current_price, market_value,
+                 unrealized_pnl, unrealized_return_pct, opened_at, last_buy_at, status,
+                 linked_watchlist_id, buy_reason, risk_note)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, 'OPEN', ?, ?, ?)
+                """,
+                (
+                    int(account["id"]),
+                    code,
+                    name,
+                    quantity,
+                    price,
+                    price,
+                    amount,
+                    now,
+                    now,
+                    self._to_int(decision.get("linked_watchlist_id")),
+                    str(decision.get("reason") or ""),
+                    str(decision.get("risk_note") or ""),
+                ),
+            )
         self.db.execute_non_query(
             "UPDATE trading_account SET cash = ?, updated_at = ? WHERE id = ?",
             (cash_after, now, int(account["id"])),
         )
-        self._record_order(account, decision, "BUY", quantity, price, amount, cash_before, cash_after, 0, quantity)
+        self._record_order(account, decision, "BUY", quantity, price, amount, cash_before, cash_after, position_before, position_after)
         
         self._run_buys += 1
         return {"code": code, "action": "BUY", "quantity": quantity, "price": price, "amount": amount, "status": "FILLED"}
@@ -280,6 +361,13 @@ class TradingAccount:
         
         avg_cost = float(position.get("avg_cost") or 0)
         realized_pnl_delta = round((price - avg_cost) * quantity, 2)
+        realized_pnl_position = round(float(position.get("realized_pnl") or 0) + realized_pnl_delta, 2)
+        sold_quantity = int(position.get("sold_quantity") or 0) + quantity
+        realized_return_pct = (
+            round(realized_pnl_position / (avg_cost * sold_quantity) * 100, 2)
+            if avg_cost > 0 and sold_quantity > 0
+            else 0.0
+        )
         now = self._now()
 
         # 全部清仓逻辑
@@ -288,10 +376,19 @@ class TradingAccount:
                 """
                 UPDATE trading_positions
                 SET quantity = 0, current_price = ?, market_value = 0, unrealized_pnl = 0,
-                    unrealized_return_pct = 0, last_sell_at = ?, status = 'CLOSED'
+                    unrealized_return_pct = 0, realized_pnl = ?, realized_return_pct = ?,
+                    sold_quantity = ?, last_sell_at = ?, closed_at = ?, status = 'CLOSED'
                 WHERE id = ?
                 """,
-                (price, now, int(position["id"])),
+                (
+                    price,
+                    realized_pnl_position,
+                    realized_return_pct,
+                    sold_quantity,
+                    now,
+                    now,
+                    int(position["id"]),
+                ),
             )
         # 部分减仓逻辑
         else:
@@ -302,13 +399,25 @@ class TradingAccount:
                 """
                 UPDATE trading_positions
                 SET quantity = ?, current_price = ?, market_value = ?, unrealized_pnl = ?,
-                    unrealized_return_pct = ?, last_sell_at = ?
+                    unrealized_return_pct = ?, realized_pnl = ?, realized_return_pct = ?,
+                    sold_quantity = ?, last_sell_at = ?
                 WHERE id = ?
                 """,
-                (quantity_after, price, market_value, unrealized, return_pct, now, int(position["id"])),
+                (
+                    quantity_after,
+                    price,
+                    market_value,
+                    unrealized,
+                    return_pct,
+                    realized_pnl_position,
+                    realized_return_pct,
+                    sold_quantity,
+                    now,
+                    int(position["id"]),
+                ),
             )
 
-        realized_pnl = float(account.get("realized_pnl") or 0) + realized_pnl_delta
+        realized_pnl = self._sum_realized_pnl(int(account["id"]))
         self.db.execute_non_query(
             """
             UPDATE trading_account
@@ -376,6 +485,9 @@ class TradingAccount:
         """生成 Markdown 格式的 AI 交易仓执行面板报告，用于直观展示当前资金与持仓变化。"""
         account = self.refresh_positions()
         positions = self.list_open_positions()
+        history_positions = self.list_positions(status="CLOSED", limit=5)
+        realized = round(float(account.get("realized_pnl") or 0), 2)
+        unrealized = round(float(account.get("unrealized_pnl") or 0), 2)
         lines = ["### AI 交易仓执行报告", ""]
         
         # 头部账户汇总
@@ -383,8 +495,9 @@ class TradingAccount:
             f"- 现金: {round(float(account.get('cash') or 0), 2)} | "
             f"总市值: {round(float(account.get('total_market_value') or 0), 2)} | "
             f"总权益: {round(float(account.get('total_equity') or 0), 2)} | "
-            f"已实现盈亏: {round(float(account.get('realized_pnl') or 0), 2)} | "
-            f"浮动盈亏: {round(float(account.get('unrealized_pnl') or 0), 2)}"
+            f"已实现盈亏: {realized} | "
+            f"浮动盈亏: {unrealized} | "
+            f"总盈亏: {round(realized + unrealized, 2)}"
         )
         lines.append("")
         
@@ -398,19 +511,128 @@ class TradingAccount:
             )
         lines.append("")
         
-        # 当前持仓明细展示
-        lines.append("| 持仓 | 代码 | 数量 | 成本 | 现价 | 浮盈亏 |")
-        lines.append("| :--- | :---: | ---: | ---: | ---: | ---: |")
+        # 当前持仓明细展示；减仓后保留在当前行，按券商常见口径展示未实现 + 已实现。
+        lines.append("| 持仓 | 代码 | 持有数量 | 已卖数量 | 成本 | 现价 | 未实现 | 已实现 | 持仓总盈亏 |")
+        lines.append("| :--- | :---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
         if not positions:
-            lines.append("| 当前无持仓 | - | 0 | - | - | - |")
+            lines.append("| 当前无持仓 | - | 0 | 0 | - | - | - | - | - |")
         for pos in positions:
             unrealized_pnl = round(float(pos.get("unrealized_pnl") or 0), 2)
-            return_pct = round(float(pos.get("unrealized_return_pct") or 0), 2)
+            realized_pnl = round(float(pos.get("realized_pnl") or 0), 2)
+            total_pnl = round(unrealized_pnl + realized_pnl, 2)
+            total_return_pct = self._position_total_return_pct(pos, total_pnl)
             lines.append(
                 f"| {pos.get('name')} | {pos.get('code')} | {pos.get('quantity')} | "
-                f"{pos.get('avg_cost')} | {pos.get('current_price')} | {unrealized_pnl} ({return_pct}%) |"
+                f"{pos.get('sold_quantity') or 0} | {pos.get('avg_cost')} | {pos.get('current_price')} | "
+                f"{unrealized_pnl} | {realized_pnl} | {total_pnl} ({total_return_pct}%) |"
+            )
+        lines.append("")
+        lines.append("| 历史持仓 | 代码 | 卖出数量 | 成本 | 卖出价 | 已实现盈亏 |")
+        lines.append("| :--- | :---: | ---: | ---: | ---: | ---: |")
+        if not history_positions:
+            lines.append("| 暂无历史持仓 | - | 0 | - | - | - |")
+        for pos in history_positions:
+            realized_pnl = round(float(pos.get("realized_pnl") or 0), 2)
+            return_pct = round(float(pos.get("realized_return_pct") or 0), 2)
+            lines.append(
+                f"| {pos.get('name')} | {pos.get('code')} | {pos.get('sold_quantity') or 0} | "
+                f"{pos.get('avg_cost')} | {pos.get('current_price')} | {realized_pnl} ({return_pct}%) |"
             )
         return "\n".join(lines)
+
+    def format_post_market_diagnostics(self, macro_context: Optional[Dict[str, Any]] = None) -> str:
+        """生成交易仓盘后诊断；交易仓只复盘已结算历史持仓，当前浮亏不做反思。"""
+        self.refresh_positions()
+        positions = self.list_positions(status="CLOSED", limit=20)
+        if not positions:
+            return "### AI 交易仓盘后诊断\n\n当前没有已结算的交易仓历史持仓。"
+
+        lines = ["### AI 交易仓盘后诊断", ""]
+        lines.append("当前持仓只刷新浮动盈亏，不触发交易仓亏损反思；下表仅复盘已清仓样本。")
+        lines.append("")
+        lines.append("| 类型 | 股票 | 代码 | 成本 | 卖出价 | 已实现盈亏 | 盘后动作 | 诊断原因 |")
+        lines.append("| :---: | :--- | :---: | ---: | ---: | ---: | :---: | :--- |")
+        for pos in positions:
+            item = self._diagnose_trading_position(pos, macro_context=macro_context)
+            lines.append(
+                f"| {item['kind']} | {item['name']} | {item['code']} | {item['avg_cost']} | "
+                f"{item['price']} | {item['pnl']} ({item['return_pct']}%) | "
+                f"{item['action']} | {item['reason']} |"
+            )
+        return "\n".join(lines)
+
+    def _diagnose_trading_position(
+        self,
+        position: Dict[str, Any],
+        macro_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """生成已结算历史持仓的诊断行。"""
+        status = str(position.get("status") or "OPEN").upper()
+        code = str(position.get("code") or "").zfill(6)
+        avg_cost = round(float(position.get("avg_cost") or 0), 2)
+        price = round(float(position.get("current_price") or 0), 2)
+        if status == "OPEN":
+            total_pnl = round(float(position.get("unrealized_pnl") or 0) + float(position.get("realized_pnl") or 0), 2)
+            return_pct = self._position_total_return_pct(position, total_pnl)
+            pnl = total_pnl
+            action = "仅刷新"
+            reason = "当前持仓属于未结算样本，只展示持仓总盈亏，不写入亏损反思。"
+            kind = "当前"
+        else:
+            return_pct = round(float(position.get("realized_return_pct") or 0), 2)
+            pnl = round(float(position.get("realized_pnl") or 0), 2)
+            action = "历史复盘"
+            if pnl < 0:
+                reason = "已清仓亏损样本，继续纳入总盈亏和风控反思。"
+            elif pnl > 0:
+                reason = "已清仓盈利样本，纳入历史胜负统计，检查卖点质量。"
+            else:
+                reason = "已清仓持平样本，保留用于后续交易质量统计。"
+            kind = "历史"
+        return {
+            "kind": kind,
+            "name": position.get("name") or code,
+            "code": code,
+            "avg_cost": avg_cost,
+            "price": price,
+            "pnl": pnl,
+            "return_pct": return_pct,
+            "action": action,
+            "reason": reason,
+        }
+
+    def _position_total_return_pct(self, position: Dict[str, Any], total_pnl: float) -> float:
+        """按建仓总股数估算持仓总收益率，减仓后避免收益率被剩余股数放大。"""
+        avg_cost = float(position.get("avg_cost") or 0)
+        held_quantity = int(position.get("quantity") or 0)
+        sold_quantity = int(position.get("sold_quantity") or 0)
+        base_quantity = max(held_quantity + sold_quantity, sold_quantity, held_quantity)
+        if avg_cost <= 0 or base_quantity <= 0:
+            return 0.0
+        return round(float(total_pnl or 0) / (avg_cost * base_quantity) * 100, 2)
+
+    def _diagnose_open_position(
+        self,
+        position: Dict[str, Any],
+        macro_context: Optional[Dict[str, Any]] = None,
+    ) -> tuple[str, str]:
+        """当前持仓使用 ExitAgent 做盘后动作建议，失败时回退到收益率规则。"""
+        try:
+            from src.agent.exit_agent import ExitAgent
+
+            exit_position = dict(position)
+            exit_position["recommend_price"] = position.get("avg_cost")
+            exit_position["return_pct"] = position.get("unrealized_return_pct")
+            signal = ExitAgent(db=self.db).evaluate_position(exit_position, macro_context=macro_context).to_dict()
+            return str(signal.get("action") or "继续持有"), str(signal.get("reason") or "")
+        except Exception as exc:
+            logger.warning("[交易账户] 当前持仓诊断降级: {}", exc)
+            return_pct = float(position.get("unrealized_return_pct") or 0)
+            if return_pct <= -5:
+                return "清仓退出", f"浮亏 {return_pct}% 已触发交易仓止损观察线。"
+            if return_pct >= 10:
+                return "减仓观察", f"浮盈 {return_pct}% 已达到锁定利润观察线。"
+            return "继续持有", f"浮动收益 {return_pct}% 仍在交易仓容忍区间。"
 
     def _record_order(
         self,
@@ -468,6 +690,75 @@ class TradingAccount:
         if df.empty:
             return {}
         return df.iloc[0].to_dict()
+
+    def _sum_realized_pnl(self, account_id: int) -> float:
+        """按持仓历史汇总已实现盈亏，保证清仓记录持续参与账户盈亏。"""
+        self._backfill_legacy_realized_pnl(account_id)
+        df = self.db.query_to_dataframe(
+            """
+            SELECT COALESCE(SUM(realized_pnl), 0) AS realized_pnl
+            FROM trading_positions
+            WHERE account_id = ?
+            """,
+            (int(account_id),),
+        )
+        if df.empty:
+            return 0.0
+        return round(float(df.iloc[0]["realized_pnl"] or 0), 2)
+
+    def _backfill_legacy_realized_pnl(self, account_id: int) -> None:
+        """为升级前缺少历史盈亏字段的清仓记录，从卖出流水反推一次。"""
+        df = self.db.query_to_dataframe(
+            """
+            SELECT id, code, avg_cost, opened_at, last_sell_at, closed_at
+            FROM trading_positions
+            WHERE account_id = ?
+              AND status = 'CLOSED'
+              AND COALESCE(sold_quantity, 0) = 0
+              AND COALESCE(realized_pnl, 0) = 0
+            """,
+            (int(account_id),),
+        )
+        if df.empty:
+            return
+
+        for _, row in df.iterrows():
+            opened_at = str(row.get("opened_at") or "")
+            ended_at = str(row.get("closed_at") or row.get("last_sell_at") or "")
+            code = str(row.get("code") or "").zfill(6)
+            avg_cost = float(row.get("avg_cost") or 0)
+            if not code or avg_cost <= 0:
+                continue
+            orders = self.db.query_to_dataframe(
+                """
+                SELECT quantity, price
+                FROM trade_orders
+                WHERE account_id = ?
+                  AND code = ?
+                  AND action = 'SELL'
+                  AND created_at >= ?
+                  AND (? = '' OR created_at <= ?)
+                """,
+                (int(account_id), code, opened_at, ended_at, ended_at),
+            )
+            if orders.empty:
+                continue
+            sold_quantity = int(orders["quantity"].fillna(0).sum())
+            if sold_quantity <= 0:
+                continue
+            realized_pnl = round(
+                sum((float(item["price"] or 0) - avg_cost) * int(item["quantity"] or 0) for _, item in orders.iterrows()),
+                2,
+            )
+            realized_return_pct = round(realized_pnl / (avg_cost * sold_quantity) * 100, 2)
+            self.db.execute_non_query(
+                """
+                UPDATE trading_positions
+                SET sold_quantity = ?, realized_pnl = ?, realized_return_pct = ?
+                WHERE id = ?
+                """,
+                (sold_quantity, realized_pnl, realized_return_pct, int(row["id"])),
+            )
 
     def _in_rebuy_cooldown(self, code: str) -> bool:
         """检查特定代码由于之前进行过 SELL（卖出），目前是否仍在重新买入的冷却期内。"""
@@ -561,3 +852,14 @@ class TradingAccount:
             return int(value)
         except (TypeError, ValueError):
             return None
+
+    @staticmethod
+    def _merge_text(old_value: Any, new_value: Any) -> str:
+        """合并多次建仓理由，避免加仓覆盖首笔买入依据。"""
+        old_text = str(old_value or "").strip()
+        new_text = str(new_value or "").strip()
+        if not old_text:
+            return new_text
+        if not new_text or new_text in old_text:
+            return old_text
+        return f"{old_text}\n加仓：{new_text}"
