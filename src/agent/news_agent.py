@@ -110,8 +110,10 @@ class NewsRiskAgent:
     def _apply_llm_verdict(self, assessment: Dict[str, Any], report: str) -> Dict[str, Any]:
         """把 LLM 风控等级同步到结构化字段，避免报告摘要和正文结论冲突。"""
         text = report or ""
-        high_risk = ("高危" in text and "风险等级" in text) or ("禁止" in text and "建议" in text)
-        cautious = ("中性偏谨慎" in text) or ("谨慎" in text and "建议" in text)
+        risk_level = self._extract_llm_field(text, "风险等级")
+        suggestion = self._extract_llm_field(text, "建议")
+        high_risk = self._is_llm_high_risk(risk_level, suggestion)
+        cautious = self._is_llm_cautious(risk_level, suggestion)
 
         if high_risk:
             assessment["risk_level"] = "high"
@@ -130,6 +132,30 @@ class NewsRiskAgent:
             assessment["action"] = "watch"
             assessment["hard_exclude"] = False
         return assessment
+
+    def _extract_llm_field(self, text: str, field_name: str) -> str:
+        """从 LLM 报告的指定字段行中提取结论，避免全文关键词误判。"""
+        pattern = rf"(?:^|\n)\s*(?:\d+\.\s*)?(?:[*#\s]*){re.escape(field_name)}(?:[*#\s]*)[：:]\s*(.+)"
+        match = re.search(pattern, text or "", flags=re.I)
+        if not match:
+            return ""
+        value = match.group(1).strip()
+        value = re.sub(r"^[【\[]|[】\]].*$", "", value).strip()
+        return value[:120]
+
+    def _is_llm_high_risk(self, risk_level: str, suggestion: str) -> bool:
+        """只采信结构化字段里的明确高危/禁止结论。"""
+        risk_text = risk_level or ""
+        suggestion_text = suggestion or ""
+        explicit_low = ("未见" in risk_text or "无明显" in risk_text or "非高危" in risk_text)
+        if "高危" in risk_text and not explicit_low:
+            return True
+        explicit_allow = "允许" in suggestion_text and "禁止" not in suggestion_text
+        return "禁止" in suggestion_text and not explicit_allow
+
+    def _is_llm_cautious(self, risk_level: str, suggestion: str) -> bool:
+        """识别谨慎但不硬排除的 LLM 结论。"""
+        return ("中性偏谨慎" in (risk_level or "")) or ("谨慎" in (suggestion or ""))
 
     def _first_meaningful_line(self, text: str) -> str:
         """提取 LLM 报告中的第一条可读证据。"""

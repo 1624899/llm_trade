@@ -260,6 +260,8 @@ class TradingAccount:
         name = str(decision.get("name") or code)
         position_before = int(existing_position.get("quantity") or 0)
         position_after = position_before + quantity
+        if existing_position and position_after <= 0:
+            return self._rejected(decision, "加仓后持仓数量无效")
 
         if existing_position:
             old_cost = float(existing_position.get("avg_cost") or 0)

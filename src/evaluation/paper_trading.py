@@ -132,11 +132,15 @@ class PaperTrading:
         latest_prices = self._get_latest_prices_batch(df["code"].tolist())
         for _, row in df.iterrows():
             code = str(row["code"]).zfill(6)
-            buy_price = float(row["recommend_price"])
-            if code not in latest_prices or buy_price <= 0:
+            buy_price = self._to_float(row["recommend_price"])
+            if code not in latest_prices or buy_price is None or buy_price <= 0:
+                logger.warning("跳过观察仓价格刷新: {} 推荐价无效或缺少最新价", code)
                 continue
 
             new_price = float(latest_prices[code])
+            if new_price <= 0:
+                logger.warning("跳过观察仓价格刷新: {} 最新价无效 {}", code, new_price)
+                continue
             return_pct = round((new_price - buy_price) / buy_price * 100, 2)
             update_sql = "UPDATE paper_trades SET current_price = ?, return_pct = ? WHERE id = ?"
             self.db.execute_non_query(update_sql, (new_price, return_pct, int(row["id"])))
@@ -172,7 +176,7 @@ class PaperTrading:
         return diagnostics
 
     def _diagnose_position(self, row, macro_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        return_pct = float(row["return_pct"])
+        return_pct = self._to_float(row["return_pct"]) or 0.0
         action, reason, action_level = self._diagnose_by_return_pct(return_pct)
 
         position = row.to_dict() if hasattr(row, "to_dict") else dict(row)
@@ -186,8 +190,8 @@ class PaperTrading:
             "id": int(row["id"]),
             "name": row["name"],
             "code": str(row["code"]).zfill(6),
-            "recommend_price": float(row["recommend_price"]),
-            "current_price": float(row["current_price"]),
+            "recommend_price": self._to_float(row["recommend_price"]) or 0.0,
+            "current_price": self._to_float(row["current_price"]) or 0.0,
             "return_pct": return_pct,
             "action": action,
             "reason": reason,
@@ -268,11 +272,21 @@ class PaperTrading:
                 f"| {row['name']} | {row['code']} | {row['recommend_date'][:10]} | "
                 f"{row['recommend_price']} | {row['current_price']} | {row['return_pct']}% |\n"
             )
-            total_pct += float(row["return_pct"])
+            total_pct += self._to_float(row["return_pct"]) or 0.0
 
         avg_pct = round(total_pct / len(df), 2)
         report += f"\n**当前持仓平均收益率:** {avg_pct}%\n"
         return report
+
+    @staticmethod
+    def _to_float(value: Any) -> float | None:
+        """把数据库里的脏数值安全转为 float，失败时返回 None。"""
+        try:
+            if value is None:
+                return None
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
 
 if __name__ == "__main__":

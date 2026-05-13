@@ -45,10 +45,9 @@
 - 回测信号快照表：`backtest_signal_snapshots`
 - 旧版观察仓兼容表：`paper_trades`
 
-行情快照优先使用腾讯/新浪等免费接口。日线 K 线主源为 Tushare，日常 `--sync`
-只做增量维护；历史缺口补全、周线/月线聚合分别由独立命令执行，避免盘后同步被
-大批量历史回填或全市场聚合卡住。AKShare、efinance 补全/校验默认关闭，可在
-`config/config.yaml` 中按需打开。
+行情快照优先使用腾讯/新浪等免费接口，腾讯负责补齐 PE/PB/市值/换手率等估值字段。
+日线 K 线主源为 mootdx，日常 `--sync` 只做增量维护；历史缺口补全、周线/月线聚合
+分别由独立命令执行，避免盘后同步被大批量历史回填或全市场聚合卡住。
 
 ### 2. 多策略选股雷达
 
@@ -254,9 +253,9 @@ python main.py --backtest
 
 当前默认数据源策略：
 
-- 日线主源：Tushare。
-- AKShare 日线补全：默认关闭，配置项 `enable_akshare_daily_fallback: false`。
-- efinance 抽样校验/补全：默认关闭，配置项 `enable_efinance_validation: false`、`enable_efinance_fallback: false`。
+- 日线主源：mootdx。
+- 腾讯快照：负责实时价、换手率、PE/PB、总市值等估值字段。
+- Yahoo/efinance/AKShare 日线兜底链路已删除，避免同一 K 线表混入语义不同的数据源。
 - 周线/月线：不从外部数据源拉取，统一由本地日线聚合生成，并分别写入 `market_bars_weekly`、`market_bars_monthly`。
 
 财务数据同步目前没有默认放进 `run_all()`，避免全市场请求过重。可以在 Python 中按候选股或指定列表同步：

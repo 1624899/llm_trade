@@ -75,17 +75,17 @@ class ExitAgent:
             report = self.signal_provider.build_report(code, lookback=120)
         except Exception as exc:
             logger.warning("[ExitAgent] 技术信号计算失败 {}: {}", code, exc)
-            return self._decision(code, ACTION_HOLD, "技术信号暂不可用，沿用收益率规则。")
+            return self._decision(code, ACTION_WAIT, "技术信号暂不可用，暂停退出判断并等待人工确认。")
 
         metrics = report.metrics or {}
         if not metrics.get("available"):
-            return self._decision(code, ACTION_HOLD, "K线样本不足，暂不触发技术退出。")
+            return self._decision(code, ACTION_WAIT, "K线样本不足，暂停退出判断并等待下一次确认。")
 
         levels = report.levels or {}
         risk_flags = report.risk_flags or []
         tags = report.tags or []
-        latest_close = self._to_float(metrics.get("close")) or current_price
-        price = current_price or latest_close
+        latest_close = self._to_float(metrics.get("close"))
+        price = current_price if current_price is not None else latest_close
 
         initial_stop = self._to_float(levels.get("atr_stop_1_5x")) or self._to_float(levels.get("atr_stop_1x"))
         breakdown_trigger = self._to_float(levels.get("breakdown_trigger"))

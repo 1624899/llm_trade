@@ -1397,6 +1397,32 @@ class NewsRiskDecisionTests(unittest.TestCase):
         self.assertEqual(promoted["action"], "hard_exclude")
         self.assertIn("LLM高危/禁止", [item["keyword"] for item in promoted["matched_keywords"]])
 
+    def test_news_risk_does_not_promote_negated_llm_high_risk_phrase(self):
+        agent = NewsRiskAgent()
+        assessment = agent.assess_keyword_risk("未命中规则关键词", code="601016", name="sample")
+
+        promoted = agent._apply_llm_verdict(
+            assessment,
+            "风险等级：【未见明显雷点】\n建议：【允许】。未见高危风险，也不建议禁止推荐。",
+        )
+
+        self.assertEqual(promoted["risk_level"], "low")
+        self.assertFalse(promoted["hard_exclude"])
+        self.assertEqual(promoted["action"], "pass")
+
+    def test_news_risk_promotes_only_structured_forbid_suggestion(self):
+        agent = NewsRiskAgent()
+        assessment = agent.assess_keyword_risk("未命中规则关键词", code="601016", name="sample")
+
+        promoted = agent._apply_llm_verdict(
+            assessment,
+            "风险评估：文本中提到禁止性规则，但当前并未触发。\n建议：【谨慎】持续观察公告。",
+        )
+
+        self.assertEqual(promoted["risk_level"], "medium")
+        self.assertFalse(promoted["hard_exclude"])
+        self.assertEqual(promoted["action"], "watch")
+
     def test_news_risk_ignores_query_keywords_and_unrelated_results(self):
         agent = NewsRiskAgent()
 

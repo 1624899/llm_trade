@@ -1,6 +1,6 @@
 import unittest
 
-from src.agent.exit_agent import ACTION_CLEAR, ACTION_HOLD, ACTION_REDUCE, ExitAgent, ExitDecision
+from src.agent.exit_agent import ACTION_CLEAR, ACTION_HOLD, ACTION_REDUCE, ACTION_WAIT, ExitAgent, ExitDecision
 from src.evaluation.paper_trading import PaperTrading
 from src.technical_indicators import TechnicalSignalReport
 
@@ -10,6 +10,8 @@ class _FakeSignalProvider:
         self.report = report
 
     def build_report(self, code, lookback=120):
+        if isinstance(self.report, Exception):
+            raise self.report
         return self.report
 
 
@@ -62,6 +64,31 @@ class ExitAgentTests(unittest.TestCase):
         )
 
         self.assertEqual(decision.action, ACTION_HOLD)
+
+    def test_exit_agent_waits_when_signal_provider_fails(self):
+        agent = ExitAgent(signal_provider=_FakeSignalProvider(RuntimeError("source unavailable")))
+
+        decision = agent.evaluate_position({"code": "000001", "current_price": 10.5, "return_pct": 1.0})
+
+        self.assertEqual(decision.action, ACTION_WAIT)
+        self.assertIn("技术信号暂不可用", decision.reason)
+
+    def test_exit_agent_waits_when_kline_sample_unavailable(self):
+        report = TechnicalSignalReport(
+            code="000001",
+            metrics={"available": False},
+            levels={},
+            tags=[],
+            risk_flags=[],
+            trade_plan={},
+            generated_at="2026-04-25T20:00:00",
+        )
+        agent = ExitAgent(signal_provider=_FakeSignalProvider(report))
+
+        decision = agent.evaluate_position({"code": "000001", "current_price": 10.5, "return_pct": 1.0})
+
+        self.assertEqual(decision.action, ACTION_WAIT)
+        self.assertIn("K线样本不足", decision.reason)
 
     def test_paper_trading_upgrades_action_when_exit_signal_is_stronger(self):
         decision = ExitDecision(
