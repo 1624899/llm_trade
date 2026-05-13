@@ -65,59 +65,70 @@ class PipelineConfigMixin:
         self.daily_lhb_retention_days = int(
             data_cfg.get("daily_lhb_retention_days", self.daily_lhb_retention_days)
         )
+        self.market_signal_lookback_days = max(
+            1,
+            int(data_cfg.get("market_signal_lookback_days", self.market_signal_lookback_days)),
+        )
+        self.restricted_release_forward_days = max(
+            1,
+            int(data_cfg.get("restricted_release_forward_days", self.restricted_release_forward_days)),
+        )
+        self.concept_membership_top_n = max(
+            1,
+            int(data_cfg.get("concept_membership_top_n", self.concept_membership_top_n)),
+        )
+        self.baidu_profile_max_codes = max(
+            1,
+            int(data_cfg.get("baidu_profile_max_codes", self.baidu_profile_max_codes)),
+        )
+        self.baidu_fund_flow_max_codes = max(
+            1,
+            int(data_cfg.get("baidu_fund_flow_max_codes", self.baidu_fund_flow_max_codes)),
+        )
+        self.baidu_fund_flow_days = max(
+            1,
+            int(data_cfg.get("baidu_fund_flow_days", self.baidu_fund_flow_days)),
+        )
+        self.info_source_max_codes = max(
+            1,
+            int(data_cfg.get("info_source_max_codes", self.info_source_max_codes)),
+        )
+        self.research_report_pages = max(
+            1,
+            int(data_cfg.get("research_report_pages", self.research_report_pages)),
+        )
+        self.stock_news_limit = max(
+            1,
+            int(data_cfg.get("stock_news_limit", self.stock_news_limit)),
+        )
+        self.global_news_limit = max(
+            1,
+            int(data_cfg.get("global_news_limit", self.global_news_limit)),
+        )
+        self.announcement_lookback_days = max(
+            1,
+            int(data_cfg.get("announcement_lookback_days", self.announcement_lookback_days)),
+        )
+        self.announcement_limit = max(
+            1,
+            int(data_cfg.get("announcement_limit", self.announcement_limit)),
+        )
         self.paper_trades_retention_days = int(
             data_cfg.get("paper_trades_retention_days", self.paper_trades_retention_days)
         )
-        self.yahoo_batch_size = int(data_cfg.get("yahoo_batch_size", self.yahoo_batch_size))
-        self.yahoo_max_workers = max(1, min(int(data_cfg.get("yahoo_max_workers", self.yahoo_max_workers)), 8))
-        self.yahoo_batch_pause = max(0.0, float(data_cfg.get("yahoo_batch_pause", self.yahoo_batch_pause)))
-        self.efinance_max_codes = max(0, int(data_cfg.get("efinance_max_codes", self.efinance_max_codes)))
-        self.efinance_max_workers = max(1, min(int(data_cfg.get("efinance_max_workers", self.efinance_max_workers)), 8))
-        self.efinance_timeout = max(1.0, float(data_cfg.get("efinance_timeout", self.efinance_timeout)))
-        self.efinance_request_pause = max(
-            0.0,
-            float(data_cfg.get("efinance_request_pause", self.efinance_request_pause)),
-        )
-        self.enable_efinance_validation = bool(
-            data_cfg.get("enable_efinance_validation", self.enable_efinance_validation)
-        )
-        self.enable_efinance_fallback = bool(
-            data_cfg.get("enable_efinance_fallback", self.enable_efinance_fallback)
-        )
-        self.tushare_token = self._resolve_env_value(data_cfg.get("tushare_token", self.tushare_token))
-        self.tushare_anomaly_pct = max(
-            0.0,
-            float(data_cfg.get("tushare_anomaly_pct", self.tushare_anomaly_pct)),
-        )
-        self.tushare_request_interval = max(
-            0.0,
-            float(data_cfg.get("tushare_request_interval", self.tushare_request_interval)),
-        )
-        self.tushare_max_retries = max(
-            1,
-            int(data_cfg.get("tushare_max_retries", self.tushare_max_retries)),
-        )
-        self.tushare_history_max_workers = max(
-            1,
-            min(int(data_cfg.get("tushare_history_max_workers", self.tushare_history_max_workers)), 8),
-        )
-        self.tushare_fetch_adj_factor = bool(
-            data_cfg.get("tushare_fetch_adj_factor", self.tushare_fetch_adj_factor)
-        )
-        self.enable_akshare_daily_fallback = bool(
-            data_cfg.get("enable_akshare_daily_fallback", self.enable_akshare_daily_fallback)
-        )
-        configured_history_start = data_cfg.get("tushare_history_start_date", self.tushare_history_start_date)
+        self.mootdx_bar_offset = max(1, int(data_cfg.get("mootdx_bar_offset", self.mootdx_bar_offset)))
+        self.mootdx_history_offset = max(1, int(data_cfg.get("mootdx_history_offset", self.mootdx_history_offset)))
+        self.mootdx_timeout = max(1, int(data_cfg.get("mootdx_timeout", self.mootdx_timeout)))
+        configured_history_start = data_cfg.get("market_bars_history_start_date", self.market_bars_history_start_date)
         if configured_history_start in (None, "", "auto_10y"):
-            self.tushare_history_start_date = self._date_days_ago(
+            self.market_bars_history_start_date = self._date_days_ago(
                 int(data_cfg.get("market_bars_daily_retention_days", self.market_bars_daily_retention_days))
             )
         else:
-            self.tushare_history_start_date = str(configured_history_start).replace("-", "")[:8]
+            self.market_bars_history_start_date = str(configured_history_start).replace("-", "")[:8]
         self.daily_update_after_time = str(
             data_cfg.get("daily_update_after_time", self.daily_update_after_time)
         )
-        self.efinance_sample_size = max(0, int(data_cfg.get("efinance_sample_size", self.efinance_sample_size)))
 
     @staticmethod
     def _resolve_env_value(value):

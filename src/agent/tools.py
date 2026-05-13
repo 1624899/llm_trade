@@ -23,9 +23,9 @@ from loguru import logger
 from src.database import StockDatabase
 from src.agent.trace_recorder import trace_recorder
 from src.market_extras import (
-    fetch_eastmoney_announcement_content,
-    fetch_eastmoney_announcements,
-    fetch_sina_stock_news,
+    fetch_cninfo_announcement_content,
+    fetch_cninfo_announcements,
+    fetch_stock_news_bundle,
     format_announcements_for_prompt,
     format_news_for_prompt,
 )
@@ -570,12 +570,12 @@ class AgentTools:
             logger.debug(f"写入 Web Search 缓存失败: {e}")
 
     def fetch_stock_news(self, symbol: str, limit: int = 5) -> str:
-        """获取个股近期新闻（新浪财经）。"""
+        """获取个股近期新闻、财联社快讯和全球资讯。"""
         try:
-            df = fetch_sina_stock_news(symbol, limit=limit)
+            df = fetch_stock_news_bundle(symbol, stock_limit=limit, global_limit=limit)
             return format_news_for_prompt(df, limit=limit)
         except Exception as e:
-            logger.warning(f"新浪个股新闻拉取失败 {symbol}: {e}")
+            logger.warning(f"AKShare 新闻三源拉取失败 {symbol}: {e}")
             return ""
 
     def fetch_stock_news_details(self, news_text: str, max_articles: int = 3, max_chars_per_article: int = 700) -> str:
@@ -723,12 +723,12 @@ class AgentTools:
         return noise_hits >= 2 or len(text) < 80
 
     def fetch_stock_announcements(self, symbol: str, limit: int = 10) -> str:
-        """获取个股近期公告（东方财富免费接口），作为排雷和基本面分析的结构化数据源。"""
+        """获取个股近期公告（巨潮 cninfo），作为排雷和基本面分析的结构化数据源。"""
         try:
-            df = fetch_eastmoney_announcements(symbol, limit=limit)
+            df = fetch_cninfo_announcements(symbol, limit=limit)
             return format_announcements_for_prompt(df, limit=limit)
         except Exception as e:
-            logger.warning(f"东方财富个股公告拉取失败 {symbol}: {e}")
+            logger.warning(f"巨潮个股公告拉取失败 {symbol}: {e}")
             return ""
 
     def fetch_stock_announcement_details(
@@ -741,9 +741,9 @@ class AgentTools:
     ) -> str:
         """按信息价值筛选公告正文，避免把低价值制度类公告全部塞进 Prompt。"""
         try:
-            df = fetch_eastmoney_announcements(symbol, limit=limit)
+            df = fetch_cninfo_announcements(symbol, limit=limit)
         except Exception as e:
-            logger.warning(f"东方财富重点公告列表拉取失败 {symbol}: {e}")
+            logger.warning(f"巨潮重点公告列表拉取失败 {symbol}: {e}")
             return ""
         if df is None or df.empty:
             return ""
@@ -758,16 +758,18 @@ class AgentTools:
 
         sections = []
         for index, row in enumerate(selected, start=1):
-            art_code = str(row.get("art_code") or "").strip()
-            if not art_code:
+            announcement_url = str(row.get("url") or row.get("pdf_url") or "").strip()
+            if not announcement_url:
                 continue
-            detail = fetch_eastmoney_announcement_content(art_code)
+            detail = fetch_cninfo_announcement_content(announcement_url)
             content = self._clean_announcement_text(str(detail.get("content") or ""))
+            if not content and detail.get("pdf_url"):
+                content = "PDF 公告正文未本地解析，请结合公告标题、分类和链接核验。"
             if not content:
                 continue
             title = str(detail.get("title") or row.get("title") or "").strip()
             date = str(detail.get("date") or row.get("date") or "").strip()
-            attach_url = str(detail.get("attach_url") or row.get("url") or "").strip()
+            attach_url = str(detail.get("attach_url") or row.get("url") or row.get("pdf_url") or "").strip()
             snippet = self._truncate_text(content, max_chars_per_announcement)
             header = f"{index}. {date} {title}".strip()
             if attach_url:

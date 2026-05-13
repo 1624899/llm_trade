@@ -1,7 +1,7 @@
 """
 轻量级 A 股主题热度标识器。
 
-评分器利用新浪财经的行业/概念板块数据，为通过了硬性技术筛选规则的股票打上热门主题标签。
+评分器利用本地信号层的行业/概念资金流数据，为通过了硬性技术筛选规则的股票打上热门主题标签。
 这有助于在深度分析或最终报告中标识出处于当前市场热点风口上的标的，但不参与技术分数的直接累加，避免因追逐情绪导致高位接盘。
 """
 
@@ -12,15 +12,16 @@ from typing import Any, Dict, Iterable, List
 import pandas as pd
 from loguru import logger
 
-from src.market_extras import fetch_sina_board_constituents, fetch_sina_board_list
+from src.database import StockDatabase
 
 
 class ThemeScorer:
-    def __init__(self, top_boards_per_kind: int = 8, max_bonus: float = 12.0):
+    def __init__(self, top_boards_per_kind: int = 8, max_bonus: float = 12.0, db: StockDatabase = None):
         # 每个类别（行业/概念）考虑的热门板块数量
         self.top_boards_per_kind = max(1, int(top_boards_per_kind or 8))
         # 最大加分上限
         self.max_bonus = max(0.0, float(max_bonus or 0.0))
+        self.db = db or StockDatabase()
 
     def score_candidates(self, candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -64,37 +65,42 @@ class ThemeScorer:
 
     def _load_hot_boards(self) -> List[Dict[str, Any]]:
         """
-        获取新浪热门行业和概念板块。
+        从本地信号层获取热门行业和概念板块。
+        """
+        query = """
+            SELECT board_name, kind, trade_date, change_pct, main_net_inflow,
+                   main_net_inflow_pct, leader_name, leader_change_pct
+            FROM board_fund_flows
+            WHERE trade_date = (SELECT MAX(trade_date) FROM board_fund_flows)
         """
         rows: List[Dict[str, Any]] = []
+        try:
+            boards = self.db.query_to_dataframe(query)
+        except Exception as exc:
+            logger.warning(f"[ThemeScorer] failed to load board fund flows: {exc}")
+            return rows
+        if boards is None or boards.empty:
+            return rows
+
+        boards = boards.copy()
+        boards["change_pct"] = pd.to_numeric(boards.get("change_pct"), errors="coerce")
+        boards["main_net_inflow"] = pd.to_numeric(boards.get("main_net_inflow"), errors="coerce")
+        boards["leader_change_pct"] = pd.to_numeric(boards.get("leader_change_pct"), errors="coerce")
+
         for kind in ("industry", "concept"):
-            try:
-                boards = fetch_sina_board_list(kind)
-            except Exception as exc:
-                logger.warning(f"[ThemeScorer] failed to load {kind} boards: {exc}")
-                continue
-            if boards is None or boards.empty:
-                continue
-            
-            boards = boards.copy()
-            # 数值转换
-            boards["change_pct"] = pd.to_numeric(boards.get("change_pct"), errors="coerce")
-            boards["amount"] = pd.to_numeric(boards.get("amount"), errors="coerce")
-            boards["leader_change_pct"] = pd.to_numeric(boards.get("leader_change_pct"), errors="coerce")
-            
-            # 按照涨跌幅和成交额排序，选取前 N 个板块
-            boards = boards.sort_values(["change_pct", "amount"], ascending=False).head(self.top_boards_per_kind)
-            
-            for _, row in boards.iterrows():
-                if pd.isna(row.get("change_pct")):
-                    continue
+            selected = (
+                boards[boards["kind"].astype(str) == kind]
+                .sort_values(["main_net_inflow", "change_pct"], ascending=False)
+                .head(self.top_boards_per_kind)
+            )
+            for _, row in selected.iterrows():
                 rows.append(
                     {
                         "kind": kind,
-                        "node": row.get("node"),
-                        "name": row.get("name"),
-                        "change_pct": float(row.get("change_pct") or 0.0),
-                        "amount": float(row.get("amount") or 0.0),
+                        "name": row.get("board_name"),
+                        "change_pct": self._float_or_zero(row.get("change_pct")),
+                        "main_net_inflow": self._float_or_zero(row.get("main_net_inflow")),
+                        "main_net_inflow_pct": self._float_or_zero(row.get("main_net_inflow_pct")),
                         "leader_name": row.get("leader_name"),
                         "leader_change_pct": self._float_or_zero(row.get("leader_change_pct")),
                     }
@@ -103,28 +109,31 @@ class ThemeScorer:
 
     def _map_codes_to_boards(self, board_rows: Iterable[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
         """
-        拉取板块成分股，建立 股票代码 -> 板块信息 的映射字典。
+        建立 股票代码 -> 板块信息 的映射字典。
         """
+        board_by_name = {str(board.get("name") or ""): board for board in board_rows if board.get("kind") == "concept"}
+        if not board_by_name:
+            return {}
+        placeholders = ", ".join(["?"] * len(board_by_name))
+        query = f"""
+            SELECT code, concept_name
+            FROM stock_concepts
+            WHERE concept_name IN ({placeholders})
+        """
+        try:
+            members = self.db.query_to_dataframe(query, tuple(board_by_name.keys()))
+        except Exception as exc:
+            logger.warning(f"[ThemeScorer] failed to load stock concept members: {exc}")
+            return {}
+        if members is None or members.empty:
+            return {}
+
         code_to_boards: Dict[str, List[Dict[str, Any]]] = {}
-        for board in board_rows:
-            node = board.get("node")
-            if not node:
-                continue
-            try:
-                members = fetch_sina_board_constituents(str(node))
-            except Exception as exc:
-                logger.warning(f"[ThemeScorer] failed to load board constituents {node}: {exc}")
-                continue
-            if members is None or members.empty or "code" not in members.columns:
-                continue
-            
-            # 统计板块内上涨家数比例
-            stats = self._summarize_board_members(members)
-            enriched_board = {**board, **stats}
-            
-            # 记录成分股
-            for code in members["code"].astype(str).str.zfill(6).dropna().unique():
-                code_to_boards.setdefault(code, []).append(enriched_board)
+        for _, row in members.iterrows():
+            code = str(row.get("code") or "").zfill(6)
+            board = board_by_name.get(str(row.get("concept_name") or ""))
+            if code and board:
+                code_to_boards.setdefault(code, []).append({**board, "up_count": 0, "member_count": 0, "up_ratio": 0.0, "active_amount": 0.0})
         return code_to_boards
 
     def _summarize_board_members(self, members: pd.DataFrame) -> Dict[str, Any]:
@@ -164,7 +173,7 @@ class ThemeScorer:
         不再进行分数累加，仅作为标识用途。
         """
         if not boards:
-            return {"score": 0.0, "reason": "未命中新浪热门行业/概念板块", "matched_themes": []}
+            return {"score": 0.0, "reason": "未命中资金流强势行业/概念板块", "matched_themes": []}
 
         # 去重并保留最强的板块信号
         by_name: Dict[str, Dict[str, Any]] = {}
@@ -184,10 +193,13 @@ class ThemeScorer:
             change_pct = float(board.get("change_pct") or 0.0)
             up_ratio = float(board.get("up_ratio") or 0.0)
             leader_change_pct = float(board.get("leader_change_pct") or 0.0)
+            main_net_inflow = float(board.get("main_net_inflow") or 0.0)
+            flow_bonus = min(max(main_net_inflow, 0.0) / 100000000, 5.0)
             weight = [1.0, 0.6, 0.4][idx]
             score += weight * (
                 max(0.0, change_pct) * 0.8
                 + max(0.0, leader_change_pct) * 0.25
+                + flow_bonus
                 + max(0.0, up_ratio) * 4.0
             )
             
@@ -199,11 +211,12 @@ class ThemeScorer:
                     "up_count": int(board.get("up_count") or 0),
                     "member_count": int(board.get("member_count") or 0),
                     "up_ratio": round(up_ratio, 4),
+                    "main_net_inflow": main_net_inflow,
                 }
             )
 
         theme_names = "、".join(str(item["name"]) for item in matched_themes)
-        reason = f"当前处于热门主题概念内：{theme_names}。"
+        reason = f"当前处于资金流强势行业/概念内：{theme_names}。"
         return {"score": min(self.max_bonus, round(score, 2)), "reason": reason, "matched_themes": matched_themes}
 
     def _attach_empty_theme_score(self, item: Dict[str, Any]) -> Dict[str, Any]:

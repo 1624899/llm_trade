@@ -22,7 +22,7 @@ from src.agent.quick_filter_agent import QuickFilterAgent
 from src.agent.reflection_agent import ReflectionAgent
 from src.agent.trading_agent import TradingAgent
 from src.agent.tools import AgentTools
-from src.market_extras import fetch_sina_board_list, fetch_sina_stock_news
+from src.market_extras import fetch_akshare_stock_news, fetch_sina_board_list
 from src.market_sentiment import MarketSentiment
 from src.stock_universe import StockUniverse
 from src.theme_scorer import ThemeScorer
@@ -296,21 +296,26 @@ class StockUniverseTests(unittest.TestCase):
 
 
 class FreeMarketDataTests(unittest.TestCase):
-    @patch("src.market_extras.requests.get")
-    def test_sina_stock_news_parser(self, mock_get):
-        response = MagicMock()
-        response.text = (
-            "2026-04-25&nbsp;09:02&nbsp;&nbsp;"
-            "<a target='_blank' href='https://finance.sina.com.cn/a.shtml'>Headline A</a><br>"
+    @patch("src.market_extras.ak.stock_news_em")
+    def test_akshare_stock_news_normalizer(self, mock_news):
+        mock_news.return_value = pd.DataFrame(
+            [
+                {
+                    "发布时间": "2026-04-25 09:02:00",
+                    "新闻标题": "Headline A",
+                    "新闻链接": "https://finance.eastmoney.com/a.html",
+                    "文章来源": "东方财富",
+                    "新闻内容": "Important update",
+                }
+            ]
         )
-        response.raise_for_status.return_value = None
-        mock_get.return_value = response
 
-        df = fetch_sina_stock_news("600519", limit=1)
+        df = fetch_akshare_stock_news("600519", limit=1)
 
         self.assertEqual(len(df), 1)
-        self.assertEqual(df.iloc[0]["datetime"], "2026-04-25 09:02")
+        self.assertEqual(df.iloc[0]["datetime"], "2026-04-25 09:02:00")
         self.assertEqual(df.iloc[0]["title"], "Headline A")
+        self.assertEqual(df.iloc[0]["source"], "eastmoney_stock_news_akshare")
 
     @patch("src.market_extras.requests.get")
     def test_sina_board_list_parser(self, mock_get):
@@ -329,15 +334,26 @@ class FreeMarketDataTests(unittest.TestCase):
         self.assertEqual(df.iloc[0]["name"], "Demo Board")
         self.assertEqual(df.iloc[0]["change_pct"], 5.0)
 
-    @patch("src.market_sentiment.fetch_sina_board_list")
-    def test_market_sentiment_uses_local_quotes_and_free_boards(self, mock_boards):
-        mock_boards.return_value = pd.DataFrame(
-            [{"name": "Demo Board", "change_pct": 3.0, "leader_name": "Leader", "leader_change_pct": 10.0}]
-        )
-        sentiment = MarketSentiment(db=MagicMock())
-        sentiment.db.query_to_dataframe.return_value = pd.DataFrame(
-            [{"change_pct": 1.0}, {"change_pct": 10.0}, {"change_pct": -2.0}]
-        )
+    def test_market_sentiment_uses_local_quotes_and_board_fund_flows(self):
+        db = MagicMock()
+        db.query_to_dataframe.side_effect = [
+            pd.DataFrame([{"latest": "20260429"}]),
+            pd.DataFrame([{"latest": "20260429"}]),
+            pd.DataFrame([{"change_pct": 1.0}, {"change_pct": 10.0}, {"change_pct": -2.0}]),
+            pd.DataFrame(
+                [
+                    {
+                        "board_name": "Demo Board",
+                        "kind": "concept",
+                        "change_pct": 3.0,
+                        "main_net_inflow": 100000000,
+                        "leader_name": "Leader",
+                        "leader_change_pct": 10.0,
+                    }
+                ]
+            ),
+        ]
+        sentiment = MarketSentiment(db=db)
 
         snapshot = sentiment.build_snapshot(top_n=1)
 
@@ -345,9 +361,7 @@ class FreeMarketDataTests(unittest.TestCase):
         self.assertEqual(snapshot["market"]["up_count"], 2)
         self.assertEqual(snapshot["hot_concepts"][0]["name"], "Demo Board")
 
-    @patch("src.market_sentiment.fetch_sina_board_list")
-    def test_market_sentiment_prefers_newer_market_bars(self, mock_boards):
-        mock_boards.return_value = pd.DataFrame()
+    def test_market_sentiment_prefers_newer_market_bars(self):
         db = MagicMock()
         db.query_to_dataframe.side_effect = [
             pd.DataFrame([{"latest": "20260424"}]),
@@ -359,6 +373,7 @@ class FreeMarketDataTests(unittest.TestCase):
                     {"code": "000003", "trade_date": "20260429", "change_pct": -0.5},
                 ]
             ),
+            pd.DataFrame(),
         ]
         sentiment = MarketSentiment(db=db)
 
@@ -370,43 +385,33 @@ class FreeMarketDataTests(unittest.TestCase):
 
 
 class ThemeScorerTests(unittest.TestCase):
-    @patch("src.theme_scorer.fetch_sina_board_constituents")
-    @patch("src.theme_scorer.fetch_sina_board_list")
-    def test_theme_scorer_adds_bonus_from_hot_sina_boards(self, mock_boards, mock_members):
-        def board_side_effect(kind):
-            if kind == "industry":
-                return pd.DataFrame(
-                    [
-                        {
-                            "node": "hy_ai",
-                            "name": "人工智能",
-                            "change_pct": 4.0,
-                            "amount": 3000000000,
-                            "leader_name": "leader",
-                            "leader_change_pct": 10.0,
-                        }
-                    ]
-                )
-            return pd.DataFrame(
+    def test_theme_scorer_adds_bonus_from_board_fund_flows(self):
+        db = MagicMock()
+        db.query_to_dataframe.side_effect = [
+            pd.DataFrame(
                 [
                     {
-                        "node": "gn_robot",
-                        "name": "机器人",
+                        "board_name": "人工智能",
+                        "kind": "industry",
+                        "change_pct": 4.0,
+                        "main_net_inflow": 300000000,
+                        "main_net_inflow_pct": 5.0,
+                        "leader_name": "leader",
+                        "leader_change_pct": 10.0,
+                    },
+                    {
+                        "board_name": "机器人",
+                        "kind": "concept",
                         "change_pct": 3.0,
-                        "amount": 2000000000,
+                        "main_net_inflow": 200000000,
+                        "main_net_inflow_pct": 4.0,
                         "leader_name": "leader",
                         "leader_change_pct": 8.0,
-                    }
+                    },
                 ]
-            )
-
-        mock_boards.side_effect = board_side_effect
-        mock_members.return_value = pd.DataFrame(
-            [
-                {"code": "000001", "change_pct": 5.0, "amount": 100000000},
-                {"code": "000002", "change_pct": -1.0, "amount": 80000000},
-            ]
-        )
+            ),
+            pd.DataFrame([{"code": "000001", "concept_name": "机器人"}]),
+        ]
         candidates = [
             {
                 "code": "000001",
@@ -424,18 +429,20 @@ class ThemeScorerTests(unittest.TestCase):
             },
         ]
 
-        scored = ThemeScorer(max_bonus=12).score_candidates(candidates)
+        scored = ThemeScorer(max_bonus=12, db=db).score_candidates(candidates)
 
         self.assertGreater(scored[0]["theme_score"], 0)
         self.assertGreater(scored[0]["technical_score"], scored[1]["technical_score"])
         self.assertTrue(scored[0]["matched_themes"])
         self.assertEqual(scored[1]["theme_score"], 0.0)
+        self.assertTrue(any(item["name"] == "机器人" for item in scored[0]["matched_themes"]))
 
-    @patch("src.theme_scorer.fetch_sina_board_list", side_effect=RuntimeError("network down"))
-    def test_theme_scorer_keeps_candidates_when_board_data_unavailable(self, _mock_boards):
+    def test_theme_scorer_keeps_candidates_when_board_data_unavailable(self):
+        db = MagicMock()
+        db.query_to_dataframe.return_value = pd.DataFrame()
         candidates = [{"code": "000001", "technical_score": 50.0, "key_metrics": {}}]
 
-        scored = ThemeScorer().score_candidates(candidates)
+        scored = ThemeScorer(db=db).score_candidates(candidates)
 
         self.assertEqual(scored[0]["technical_score"], 50.0)
         self.assertEqual(scored[0]["theme_score"], 0.0)
@@ -565,25 +572,25 @@ class WebSearchTests(unittest.TestCase):
         self.assertIn("Company revenue improved.", details)
         self.assertNotIn("ignore()", details)
 
-    @patch("src.agent.tools.fetch_eastmoney_announcement_content")
-    @patch("src.agent.tools.fetch_eastmoney_announcements")
+    @patch("src.agent.tools.fetch_cninfo_announcement_content")
+    @patch("src.agent.tools.fetch_cninfo_announcements")
     def test_stock_announcement_details_fetches_only_high_value_items(self, mock_announcements, mock_content):
         mock_announcements.return_value = pd.DataFrame(
             [
                 {
-                    "art_code": "AN_MONTH",
+                    "url": "https://static.cninfo.com.cn/month.pdf",
                     "title": "春秋航空2026年3月份主要运营数据公告",
                     "date": "2026-04-16",
                     "categories": "月度经营情况",
                 },
                 {
-                    "art_code": "AN_POLICY",
+                    "url": "https://static.cninfo.com.cn/policy.pdf",
                     "title": "董事、高级管理人员薪酬管理制度",
                     "date": "2026-04-11",
                     "categories": "管理办法/制度",
                 },
                 {
-                    "art_code": "AN_REPORT",
+                    "url": "https://static.cninfo.com.cn/report.pdf",
                     "title": "春秋航空2025年年度报告摘要",
                     "date": "2026-04-11",
                     "categories": "年度报告摘要",
@@ -604,7 +611,7 @@ class WebSearchTests(unittest.TestCase):
         self.assertIn("134 架", details)
         self.assertNotIn("薪酬管理制度", details)
         self.assertNotIn("年度报告摘要", details)
-        mock_content.assert_called_once_with("AN_MONTH")
+        mock_content.assert_called_once_with("https://static.cninfo.com.cn/month.pdf")
 
 
 class MacroContextTests(unittest.TestCase):

@@ -28,7 +28,7 @@ class NewsRiskAgent:
         """对单只股票进行近期资讯和防雷预警分析。"""
         logger.info(f"[News Risk Agent] 正在检查 {name}({code}) 近期资讯雷点...")
 
-        # 数据源 1：新浪财经个股新闻
+        # 数据源 1：AKShare 新闻三源：东财个股新闻、财联社快讯、东财全球资讯
         news_info = tools.fetch_stock_news(code, limit=8)
         direct_news_info, mention_news_info = self._split_relevant_news(news_info, code=code, name=name)
         direct_news_headlines = direct_news_info
@@ -38,7 +38,7 @@ class NewsRiskAgent:
                 f"{direct_news_headlines}\n\n"
                 f"直接相关新闻正文摘要：\n{news_detail_info}"
             )
-        # 数据源 2：东方财富个股公告（免费结构化接口，替代 Tavily/DDG 搜索）
+        # 数据源 2：巨潮 cninfo 公告（沪深北公告主源）
         announcement_info = tools.fetch_stock_announcements(code, limit=10)
         announcement_detail_info = tools.fetch_stock_announcement_details(
             code,

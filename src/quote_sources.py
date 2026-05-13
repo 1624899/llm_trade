@@ -50,7 +50,7 @@ def fetch_tencent_quotes(codes: Iterable[str], batch_size: int = 700) -> pd.Data
                 continue
             payload = line.split('="', 1)[1].rstrip('";')
             parts = payload.split("~")
-            if len(parts) < 46:
+            if len(parts) < 47:
                 continue
 
             code = parts[2].strip()
@@ -69,7 +69,7 @@ def fetch_tencent_quotes(codes: Iterable[str], batch_size: int = 700) -> pd.Data
                     "amount": _to_float(parts[37]) * 10000 if _is_valid_number(_to_float(parts[37])) else None,
                     "turnover_rate": _to_float(parts[38]),
                     "pe_ttm": _to_float(parts[39]),
-                    "pb": None,
+                    "pb": _to_float(parts[46]),
                     "total_market_cap": _to_float(parts[45]) * 100000000 if _is_valid_number(_to_float(parts[45])) else None,
                     "source": "tencent",
                     "fetched_at": fetched_at,

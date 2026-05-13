@@ -29,12 +29,8 @@ class DailyQuotesMixin:
             if df is not None and not df.empty:
                 return self._upsert_daily_quotes(self._normalize_ak_spot_quotes(df, today_str))
 
-            logger.warning("AKShare snapshot backup unavailable, trying Yahoo daily fallback")
-            df = self._build_daily_quotes_from_yahoo()
-            if df is None or df.empty:
-                logger.error("Failed to fetch market snapshot from all sources")
-                return False
-            return self._upsert_daily_quotes(df)
+            logger.error("Failed to fetch market snapshot from Tencent/Sina/AKShare")
+            return False
 
         return self._upsert_daily_quotes(df)
 
@@ -166,41 +162,6 @@ class DailyQuotesMixin:
         except Exception as e:
             logger.error(f"行情快照清洗入库失败 {e}")
             return False
-
-    def _build_daily_quotes_from_yahoo(self):
-        """从 Yahoo 历史日线构造最近交易日行情快照。"""
-        codes = self._load_stock_codes_from_lake()
-        bars = self._fetch_yahoo_bars(codes, "daily") if codes else None
-        if bars is None or bars.empty:
-            return None
-
-        rows = []
-        for code, group in bars.sort_values("trade_date").groupby("code"):
-            tail = group.tail(2)
-            if tail.empty:
-                continue
-            latest = tail.iloc[-1]
-            prev_close = tail.iloc[-2]["close"] if len(tail) >= 2 else None
-            change_pct = None
-            if prev_close and pd.notna(prev_close) and prev_close != 0:
-                change_pct = (latest["close"] / prev_close - 1) * 100
-
-            rows.append(
-                {
-                    "code": code,
-                    "trade_date": latest["trade_date"],
-                    "price": latest["close"],
-                    "change_pct": change_pct,
-                    "volume": latest.get("volume"),
-                    "amount": latest.get("amount"),
-                    "turnover_rate": None,
-                    "pe_ttm": None,
-                    "pb": None,
-                    "total_market_cap": None,
-                }
-            )
-
-        return self._clean_daily_quotes(pd.DataFrame(rows)) if rows else None
 
     def _daily_quotes_is_fresh(self) -> bool:
         """检查本地行情快照是否已覆盖最新交易日，且估值字段覆盖率达标。"""

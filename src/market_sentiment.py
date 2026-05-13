@@ -5,11 +5,10 @@ import pandas as pd
 from loguru import logger
 
 from src.database import StockDatabase
-from src.market_extras import fetch_sina_board_list
 
 
 class MarketSentiment:
-    """基于本地行情快照和新浪板块数据构建 A 股市场情绪快照。"""
+    """基于本地行情快照和信号层资金流构建 A 股市场情绪快照。"""
 
     def __init__(self, db: StockDatabase = None):
         self.db = db or StockDatabase()
@@ -24,7 +23,7 @@ class MarketSentiment:
 
         snapshot = {
             "as_of": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "source": "local_quotes_or_bars+sina_free_boards",
+            "source": "local_quotes_or_bars+board_fund_flows",
             "market": self._summarize_quotes(quotes),
             "hot_industries": board_strength.get("industry", []),
             "hot_concepts": board_strength.get("concept", []),
@@ -146,27 +145,41 @@ class MarketSentiment:
 
     def _load_board_strength(self, top_n: int) -> Dict[str, list]:
         """
-        从新浪财经加载热门行业和概念板块的强度。
+        从本地信号层资金流加载热门行业和概念板块的强度。
         """
         result = {"industry": [], "concept": []}
+        query = """
+            SELECT board_name, kind, change_pct, main_net_inflow, main_net_inflow_pct,
+                   leader_name, leader_change_pct
+            FROM board_fund_flows
+            WHERE trade_date = (SELECT MAX(trade_date) FROM board_fund_flows)
+        """
+        try:
+            boards = self.db.query_to_dataframe(query)
+        except Exception as exc:
+            logger.warning(f"Failed to load board fund flows for sentiment: {exc}")
+            return result
+        if boards is None or boards.empty:
+            return result
+
+        boards = boards.copy()
+        boards["change_pct"] = pd.to_numeric(boards.get("change_pct"), errors="coerce")
+        boards["main_net_inflow"] = pd.to_numeric(boards.get("main_net_inflow"), errors="coerce")
+        boards["leader_change_pct"] = pd.to_numeric(boards.get("leader_change_pct"), errors="coerce")
+        boards = boards.sort_values(["main_net_inflow", "change_pct"], ascending=False)
+
         for kind in ("industry", "concept"):
-            try:
-                boards = fetch_sina_board_list(kind)
-            except Exception as exc:
-                logger.warning(f"Failed to fetch Sina {kind} boards for sentiment: {exc}")
-                continue
-            if boards is None or boards.empty or "change_pct" not in boards.columns:
-                continue
-            # 按涨跌幅排序并取前 top_n
-            boards = boards.sort_values("change_pct", ascending=False).head(top_n)
+            selected = boards[boards["kind"].astype(str) == kind].head(top_n)
             result[kind] = [
                 {
-                    "name": row.get("name"),
+                    "name": row.get("board_name"),
                     "change_pct": row.get("change_pct"),
+                    "main_net_inflow": row.get("main_net_inflow"),
+                    "main_net_inflow_pct": row.get("main_net_inflow_pct"),
                     "leader_name": row.get("leader_name"),
                     "leader_change_pct": row.get("leader_change_pct"),
                 }
-                for _, row in boards.iterrows()
+                for _, row in selected.iterrows()
             ]
         return result
 

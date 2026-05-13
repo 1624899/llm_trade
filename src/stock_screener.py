@@ -1010,7 +1010,7 @@ class StockScreener:
         volumes = pd.to_numeric(bars.get("volume"), errors="coerce")
         hand_based_amount = closes * volumes * 100
 
-        # Tushare 日线 amount 常见单位是千元，volume 是手；本地阈值统一按元比较。
+        # 部分历史源的 amount 单位是千元，volume 是手；本地阈值统一按元比较。
         valid = amount.notna() & (amount > 0) & hand_based_amount.notna() & (hand_based_amount > 0)
         if valid.any():
             median_ratio = (hand_based_amount[valid] / amount[valid]).replace([np.inf, -np.inf], np.nan).dropna().median()

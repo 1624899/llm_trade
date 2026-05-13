@@ -136,6 +136,200 @@ class StockDatabase:
             )
             """,
             """
+            CREATE TABLE IF NOT EXISTS stock_fund_flows (
+                code TEXT,
+                trade_date TEXT,
+                period TEXT,
+                name TEXT,
+                latest_price REAL,
+                change_pct REAL,
+                main_net_inflow REAL,
+                main_net_inflow_pct REAL,
+                super_large_net_inflow REAL,
+                large_net_inflow REAL,
+                medium_net_inflow REAL,
+                small_net_inflow REAL,
+                source TEXT,
+                fetched_at TEXT,
+                PRIMARY KEY (code, trade_date, period, source)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS baidu_stock_fund_flows (
+                code TEXT,
+                trade_date TEXT,
+                close REAL,
+                change_pct REAL,
+                super_net_inflow REAL,
+                large_net_inflow REAL,
+                medium_net_inflow REAL,
+                small_net_inflow REAL,
+                main_net_inflow REAL,
+                source TEXT,
+                fetched_at TEXT,
+                PRIMARY KEY (code, trade_date, source)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS board_fund_flows (
+                board_name TEXT,
+                kind TEXT,
+                trade_date TEXT,
+                period TEXT,
+                change_pct REAL,
+                main_net_inflow REAL,
+                main_net_inflow_pct REAL,
+                leader_name TEXT,
+                leader_change_pct REAL,
+                source TEXT,
+                fetched_at TEXT,
+                PRIMARY KEY (board_name, kind, trade_date, period, source)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS lhb_details (
+                code TEXT,
+                trade_date TEXT,
+                name TEXT,
+                reason TEXT,
+                close REAL,
+                change_pct REAL,
+                net_buy REAL,
+                buy_amount REAL,
+                sell_amount REAL,
+                turnover REAL,
+                source TEXT,
+                fetched_at TEXT,
+                PRIMARY KEY (code, trade_date, reason, source)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS restricted_releases (
+                code TEXT,
+                release_date TEXT,
+                name TEXT,
+                release_shares REAL,
+                release_market_value REAL,
+                release_ratio REAL,
+                holder_type TEXT,
+                source TEXT,
+                fetched_at TEXT,
+                PRIMARY KEY (code, release_date, holder_type, source)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS concept_boards (
+                concept_name TEXT,
+                concept_code TEXT,
+                source TEXT,
+                fetched_at TEXT,
+                PRIMARY KEY (concept_name, source)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS stock_concepts (
+                code TEXT,
+                concept_name TEXT,
+                concept_code TEXT,
+                name TEXT,
+                latest_price REAL,
+                change_pct REAL,
+                turnover_rate REAL,
+                pe_ttm REAL,
+                pb REAL,
+                source TEXT,
+                fetched_at TEXT,
+                PRIMARY KEY (code, concept_name, source)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS stock_profiles (
+                code TEXT,
+                name TEXT,
+                industry TEXT,
+                region TEXT,
+                industry_blocks TEXT,
+                region_blocks TEXT,
+                concepts TEXT,
+                source TEXT,
+                fetched_at TEXT,
+                PRIMARY KEY (code, source)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS research_reports (
+                code TEXT,
+                info_code TEXT,
+                title TEXT,
+                publish_date TEXT,
+                org_name TEXT,
+                author TEXT,
+                rating TEXT,
+                rating_change TEXT,
+                industry TEXT,
+                eps_this_year REAL,
+                eps_next_year REAL,
+                eps_next_two_year REAL,
+                pdf_url TEXT,
+                source TEXT,
+                fetched_at TEXT,
+                PRIMARY KEY (code, info_code, source)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS eps_forecasts (
+                code TEXT,
+                forecast_year TEXT,
+                institution_count REAL,
+                eps_min REAL,
+                eps_avg REAL,
+                eps_max REAL,
+                industry_avg REAL,
+                source TEXT,
+                fetched_at TEXT,
+                PRIMARY KEY (code, forecast_year, source)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS stock_news (
+                code TEXT,
+                datetime TEXT,
+                title TEXT,
+                content TEXT,
+                url TEXT,
+                provider TEXT,
+                source TEXT,
+                fetched_at TEXT,
+                PRIMARY KEY (code, title, datetime, source)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS market_news (
+                datetime TEXT,
+                title TEXT,
+                content TEXT,
+                url TEXT,
+                provider TEXT,
+                source TEXT,
+                fetched_at TEXT,
+                PRIMARY KEY (title, datetime, source)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS company_announcements (
+                code TEXT,
+                announcement_id TEXT,
+                title TEXT,
+                date TEXT,
+                categories TEXT,
+                url TEXT,
+                pdf_url TEXT,
+                source TEXT,
+                fetched_at TEXT,
+                PRIMARY KEY (code, announcement_id, source)
+            )
+            """,
+            """
             CREATE TABLE IF NOT EXISTS financial_metrics (
                 code TEXT,
                 report_date TEXT,
@@ -354,6 +548,19 @@ class StockDatabase:
             ("market_bars_weekly", "idx_market_bars_weekly_code_trade_date", ["code", "trade_date"]),
             ("market_bars_monthly", "idx_market_bars_monthly_code_trade_date", ["code", "trade_date"]),
             ("daily_lhb", "idx_daily_lhb_code_trade_date", ["code", "trade_date"]),
+            ("stock_fund_flows", "idx_stock_fund_flows_code_date_period_source", ["code", "trade_date", "period", "source"]),
+            ("baidu_stock_fund_flows", "idx_baidu_stock_fund_flows_code_date_source", ["code", "trade_date", "source"]),
+            ("board_fund_flows", "idx_board_fund_flows_name_kind_date_period_source", ["board_name", "kind", "trade_date", "period", "source"]),
+            ("lhb_details", "idx_lhb_details_code_date_reason_source", ["code", "trade_date", "reason", "source"]),
+            ("restricted_releases", "idx_restricted_releases_code_date_type_source", ["code", "release_date", "holder_type", "source"]),
+            ("concept_boards", "idx_concept_boards_name_source", ["concept_name", "source"]),
+            ("stock_concepts", "idx_stock_concepts_code_name_source", ["code", "concept_name", "source"]),
+            ("stock_profiles", "idx_stock_profiles_code_source", ["code", "source"]),
+            ("research_reports", "idx_research_reports_code_info_source", ["code", "info_code", "source"]),
+            ("eps_forecasts", "idx_eps_forecasts_code_year_source", ["code", "forecast_year", "source"]),
+            ("stock_news", "idx_stock_news_code_title_datetime_source", ["code", "title", "datetime", "source"]),
+            ("market_news", "idx_market_news_title_datetime_source", ["title", "datetime", "source"]),
+            ("company_announcements", "idx_company_announcements_code_id_source", ["code", "announcement_id", "source"]),
             ("financial_metrics", "idx_financial_metrics_code_report_date", ["code", "report_date"]),
             ("watchlist_items", "idx_watchlist_items_code", ["code"]),
             ("trading_account", "idx_trading_account_name", ["account_name"]),
@@ -378,6 +585,50 @@ class StockDatabase:
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_daily_quotes_trade_date "
             "ON daily_quotes (trade_date)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_stock_fund_flows_trade_date "
+            "ON stock_fund_flows (trade_date)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_baidu_stock_fund_flows_trade_date "
+            "ON baidu_stock_fund_flows (trade_date)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_board_fund_flows_trade_date "
+            "ON board_fund_flows (trade_date)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_lhb_details_trade_date "
+            "ON lhb_details (trade_date)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_restricted_releases_release_date "
+            "ON restricted_releases (release_date)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_stock_concepts_concept_name "
+            "ON stock_concepts (concept_name)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_stock_profiles_industry_region "
+            "ON stock_profiles (industry, region)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_research_reports_publish_date "
+            "ON research_reports (publish_date)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_stock_news_datetime "
+            "ON stock_news (datetime)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_market_news_datetime "
+            "ON market_news (datetime)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_company_announcements_date "
+            "ON company_announcements (date)"
         )
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_financial_metrics_report_date "
