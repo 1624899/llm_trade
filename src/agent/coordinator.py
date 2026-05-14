@@ -32,6 +32,7 @@ from src.agent.trading_agent import TradingAgent
 from src.stock_screener import StockScreener
 from src.agent.technical_agent import TechnicalAgent
 from src.agent.trace_recorder import trace_recorder
+from src.candidate_enrichment import CandidateEnrichmentService
 from src.database import StockDatabase
 from src.evaluation.paper_trading import PaperTrading
 from src.evaluation.trading_account import TradingAccount
@@ -65,6 +66,10 @@ class AgentCoordinator:
         self.decision_agent = DecisionAgent()
         self.reflection_agent = ReflectionAgent()
         self.db = StockDatabase()
+        self.candidate_enrichment = CandidateEnrichmentService(
+            db=self.db,
+            config=(self.config.get("candidate_enrichment") or {}),
+        )
         self.paper_trading = PaperTrading(db=self.db)
         self.watchlist = Watchlist(db=self.db, max_items=10)
         self.trading_account = TradingAccount(db=self.db, **self._get_trading_account_config())
@@ -263,7 +268,18 @@ class AgentCoordinator:
         name = stock["name"]
         logger.info(f"  -> 正在分析: {name}({code})")
 
-        news_risk_report = self.news_risk_agent.analyze(code, name, macro_context=macro_context)
+        enrichment_service = getattr(self, "candidate_enrichment", None)
+        enrichment = (
+            enrichment_service.enrich_candidate(code, name)
+            if enrichment_service is not None
+            else {"code": code, "name": name, "summary": ""}
+        )
+        enriched_stock = dict(stock)
+        enriched_stock["external_enrichment"] = enrichment
+        enriched_macro_context = dict(macro_context or {})
+        enriched_macro_context["candidate_enrichment"] = enrichment
+
+        news_risk_report = self.news_risk_agent.analyze(code, name, macro_context=enriched_macro_context)
         logger.info(
             f"  -> NewsRisk done: {name}({code}), "
             f"level={news_risk_report.get('risk_level') if isinstance(news_risk_report, dict) else 'unknown'}, "
@@ -277,22 +293,24 @@ class AgentCoordinator:
             )
             logger.warning(f"  -> NewsRisk hard exclude: {name}({code}); skip deep review.")
             return {
-                "asset_info": stock,
+                "asset_info": enriched_stock,
                 "fundamental_analysis": skip_reason,
                 "technical_analysis": skip_reason,
                 "news_risk_analysis": news_risk_report,
+                "external_enrichment": enrichment,
             }
 
-        fund_report = self.fundamental_agent.analyze(code, name, macro_context=macro_context)
+        fund_report = self.fundamental_agent.analyze(code, name, macro_context=enriched_macro_context)
         logger.info(f"  -> Fundamental done: {name}({code}), chars={len(str(fund_report or ''))}")
-        tech_report = self.technical_agent.analyze(code, name, macro_context=macro_context)
+        tech_report = self.technical_agent.analyze(code, name, macro_context=enriched_macro_context)
         logger.info(f"  -> Technical done: {name}({code}), chars={len(str(tech_report or ''))}")
 
         return {
-            "asset_info": stock,
+            "asset_info": enriched_stock,
             "fundamental_analysis": fund_report,
             "technical_analysis": tech_report,
             "news_risk_analysis": news_risk_report,
+            "external_enrichment": enrichment,
         }
 
     def _build_failed_candidate_profile(self, stock: Dict[str, Any], exc: Exception) -> Dict[str, Any]:
@@ -1048,7 +1066,6 @@ class AgentCoordinator:
         self.watchlist.refresh_recommendation_performance(include_removed=True)
         self.watchlist.refresh_prices()
         self.trading_account.refresh_positions()
-        self.reflection_agent.generate_trading_reflections(threshold_pct=-3.0)
 
         self.paper_trading.update_portfolio()
 
@@ -1057,6 +1074,9 @@ class AgentCoordinator:
         review_report = self.paper_trading.format_diagnostics_report(diagnostics)
         trading_diagnostics = self.trading_account.format_post_market_diagnostics(macro_context=macro_context)
         trading_report = self.trading_account.format_report([])
+
+        self.reflection_agent.generate_trading_reflections(threshold_pct=-3.0)
+
         print(review_report)
         print(self.paper_trading.show_portfolio())
         print(trading_diagnostics)

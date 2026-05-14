@@ -54,8 +54,10 @@ class NewsRiskAgent:
             )
 
         macro_text = json.dumps(macro_context or {}, ensure_ascii=False, indent=2)
+        enrichment = (macro_context or {}).get("candidate_enrichment") if isinstance(macro_context, dict) else {}
+        enrichment_summary = str((enrichment or {}).get("summary") or "").strip()
         # 关键词排雷同时扫描新闻和公告
-        combined_text = f"{direct_news_info}\n{announcement_prompt_info}"
+        combined_text = f"{direct_news_info}\n{announcement_prompt_info}\n{enrichment_summary}"
         assessment = self.assess_keyword_risk(combined_text, code=code, name=name)
 
         system_prompt = """
@@ -89,6 +91,9 @@ class NewsRiskAgent:
 
 近期公告（东方财富）：
 {announcement_prompt_info or "东方财富未获取到该股近期公告。"}
+
+候选增强数据（龙虎榜/解禁/资金流/概念/研报等，小批量即时源）：
+{enrichment_summary or "未获取到额外增强数据。"}
 """
 
         report = tools.call_llm(system_prompt, user_prompt, temperature=0.1)
@@ -104,6 +109,7 @@ class NewsRiskAgent:
         assessment["news_quality"] = self._assess_news_quality(news_info, direct_news_headlines, mention_news_info)
         assessment["announcement_info"] = announcement_info
         assessment["announcement_detail_info"] = announcement_detail_info
+        assessment["enrichment_summary"] = enrichment_summary
         assessment["summary"] = self._format_structured_summary(assessment)
         return assessment
 

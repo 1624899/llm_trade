@@ -22,6 +22,7 @@ from src.agent.quick_filter_agent import QuickFilterAgent
 from src.agent.reflection_agent import ReflectionAgent
 from src.agent.trading_agent import TradingAgent
 from src.agent.tools import AgentTools
+from src.candidate_enrichment import CandidateEnrichmentService, format_enrichment_for_prompt
 from src.market_extras import fetch_akshare_stock_news, fetch_sina_board_list
 from src.market_sentiment import MarketSentiment
 from src.stock_universe import StockUniverse
@@ -189,11 +190,11 @@ class LegacyCleanupTests(unittest.TestCase):
         self.assertIn("env:DEEPSEEK_API_KEY", content)
         self.assertIn("env:TAVILY_API_KEY", content)
 
-    def test_requirements_do_not_add_paid_point_data_source(self):
+    def test_requirements_use_tushare_daily_source(self):
         with open(os.path.join(PROJECT_ROOT, "requirements.txt"), "r", encoding="utf-8") as f:
             requirements = f.read().lower()
 
-        self.assertNotIn("tushare", requirements)
+        self.assertIn("tushare", requirements)
 
     @patch.dict(os.environ, {"UNIT_TEST_SECRET": "resolved-secret"}, clear=False)
     def test_agent_tools_resolves_env_config_placeholders(self):
@@ -316,6 +317,69 @@ class FreeMarketDataTests(unittest.TestCase):
         self.assertEqual(df.iloc[0]["datetime"], "2026-04-25 09:02:00")
         self.assertEqual(df.iloc[0]["title"], "Headline A")
         self.assertEqual(df.iloc[0]["source"], "eastmoney_stock_news_akshare")
+
+
+class CandidateEnrichmentTests(unittest.TestCase):
+    @patch("src.candidate_enrichment.fetch_ths_eps_forecast")
+    @patch("src.candidate_enrichment.fetch_eastmoney_research_reports")
+    @patch("src.candidate_enrichment.fetch_eastmoney_restricted_release")
+    @patch("src.candidate_enrichment.fetch_eastmoney_lhb")
+    @patch("src.candidate_enrichment.fetch_baidu_stock_fund_flow_history")
+    @patch("src.candidate_enrichment.fetch_baidu_stock_profile")
+    def test_candidate_enrichment_builds_compact_prompt_summary(
+        self,
+        mock_profile,
+        mock_flow,
+        mock_lhb,
+        mock_release,
+        mock_reports,
+        mock_eps,
+    ):
+        mock_db = MagicMock()
+        mock_db.query_to_dataframe.return_value = pd.DataFrame(
+            [{"concept_name": "机器人", "concept_code": "308000", "source": "unit"}]
+        )
+        service = CandidateEnrichmentService(
+            db=mock_db,
+            config={"lhb_lookback_days": 3, "release_forward_days": 30, "max_summary_items": 2},
+        )
+        mock_profile.return_value = pd.DataFrame(
+            [
+                {
+                    "industry": "银行",
+                    "region": "广东",
+                    "concepts": '[{"name": "融资融券"}]',
+                    "industry_blocks": "[]",
+                    "region_blocks": "[]",
+                }
+            ]
+        )
+        mock_flow.return_value = pd.DataFrame(
+            [{"code": "000001", "trade_date": "20260513", "main_net_inflow": 123456.0, "change_pct": 1.2}]
+        )
+        mock_lhb.return_value = pd.DataFrame(
+            [{"code": "000001", "trade_date": "20260512", "reason": "日涨幅偏离值达7%", "net_buy": 1000000.0}]
+        )
+        mock_release.return_value = pd.DataFrame(
+            [{"code": "000001", "release_date": "20260601", "release_ratio": 2.5, "holder_type": "首发限售"}]
+        )
+        mock_reports.return_value = pd.DataFrame(
+            [{"publish_date": "2026-05-12", "rating": "买入", "title": "盈利修复"}]
+        )
+        mock_eps.return_value = pd.DataFrame(
+            [{"forecast_year": "2026", "eps_avg": 1.23, "institution_count": 5}]
+        )
+
+        result = service.enrich_candidate("000001", "平安银行")
+
+        self.assertIn("画像/概念", result["summary"])
+        self.assertIn("龙虎榜", result["summary"])
+        self.assertIn("解禁", result["summary"])
+        self.assertIn("研报", result["summary"])
+        self.assertIn("EPS一致预期", result["summary"])
+
+    def test_format_enrichment_for_prompt_handles_empty_input(self):
+        self.assertEqual(format_enrichment_for_prompt({}), "")
 
     @patch("src.market_extras.requests.get")
     def test_sina_board_list_parser(self, mock_get):

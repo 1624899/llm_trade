@@ -149,10 +149,20 @@ CODE_LIST 只放“强推荐”和“配置/轻仓验证”的代码，不放“
                         f"- 基本面分析: {profile.get('fundamental_analysis', '无')}",
                         f"- 技术面分析: {profile.get('technical_analysis', '无')}",
                         f"- 资讯风险: {self._format_news_risk_for_prompt(profile.get('news_risk_analysis'))}",
+                        f"- 候选增强数据: {self._format_enrichment_for_prompt(profile)}",
                     ]
                 )
             )
         return "\n\n".join(chunks)
+
+    @staticmethod
+    def _format_enrichment_for_prompt(profile: Dict[str, Any]) -> str:
+        """格式化候选增强摘要，供最终决策交叉验证。"""
+        enrichment = profile.get("external_enrichment")
+        if not isinstance(enrichment, dict):
+            enrichment = (profile.get("asset_info") or {}).get("external_enrichment")
+        summary = str((enrichment or {}).get("summary") or "").strip()
+        return summary or "无"
 
     @staticmethod
     def _format_strategy_tags(tags: Any) -> str:

@@ -24,6 +24,8 @@ class TechnicalAgent:
         kline_data = tools.fetch_multi_period_kline(code)
         signal_summary = self.signal_provider.format_summary(code, lookback=120)
         macro_text = json.dumps(macro_context or {}, ensure_ascii=False, indent=2)
+        enrichment = (macro_context or {}).get("candidate_enrichment") if isinstance(macro_context, dict) else {}
+        enrichment_summary = str((enrichment or {}).get("summary") or "").strip()
 
         system_prompt = """
 你是 A 股技术分析员。你必须优先使用“量化技术信号摘要”里的确定性指标，再结合多周期 K 线文本和宏观环境判断。
@@ -57,6 +59,9 @@ class TechnicalAgent:
 
 多周期 K 线摘要：
 {kline_data}
+
+候选增强数据（龙虎榜/资金流/解禁等，仅作交易证据补充）：
+{enrichment_summary or "未获取到额外增强数据。"}
 """
 
         report = tools.call_llm(system_prompt, user_prompt, temperature=0.1)

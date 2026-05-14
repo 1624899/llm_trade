@@ -121,11 +121,11 @@ def fetch_sina_board_list(kind: str = "industry") -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def fetch_sina_board_constituents(node: str, page_size: int = 500) -> pd.DataFrame:
+def fetch_sina_board_constituents(node: str, page_size: int = 500, max_pages: int = 20) -> pd.DataFrame:
     rows = []
     page = 1
     fetched_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    while True:
+    while page <= max_pages:
         params = {
             "page": page,
             "num": page_size,

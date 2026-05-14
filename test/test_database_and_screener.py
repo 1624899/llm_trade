@@ -308,6 +308,11 @@ class DataPipelineNormalizationTests(unittest.TestCase):
             code="1",
             source="unit_baidu_flow",
         )
+        empty_baidu_flow = _normalize_baidu_fund_flow_history(
+            {"ResultCode": 0, "Result": None},
+            code="1",
+            source="unit_baidu_flow",
+        )
 
         self.assertEqual(fund_flow.iloc[0]["code"], "000001")
         self.assertEqual(fund_flow.iloc[0]["main_net_inflow"], 123456.0)
@@ -323,6 +328,7 @@ class DataPipelineNormalizationTests(unittest.TestCase):
         self.assertEqual([item["name"] for item in json.loads(baidu_profile["concepts"])], ["融资融券", "互联金融"])
         self.assertEqual(baidu_flow.iloc[0]["trade_date"], "20260512")
         self.assertEqual(baidu_flow.iloc[0]["main_net_inflow"], 300.0)
+        self.assertTrue(empty_baidu_flow.empty)
 
     def test_clean_market_bars_drops_inconsistent_ohlc_rows(self):
         pipeline = DataPipeline.__new__(DataPipeline)
@@ -408,7 +414,7 @@ class DataPipelineNormalizationTests(unittest.TestCase):
                     "adj_close": 10.5,
                     "volume": 1000,
                     "amount": None,
-                    "source": "mootdx",
+                    "source": "tushare_daily",
                     "fetched_at": "2026-04-25 18:00:00",
                 }
             ]
@@ -418,6 +424,23 @@ class DataPipelineNormalizationTests(unittest.TestCase):
         pending = pipeline._filter_codes_needing_bars(["000001", "000002"], "daily")
 
         self.assertEqual(pending, ["000002"])
+
+    def test_filter_codes_needing_daily_bars_uses_target_date_check(self):
+        db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))
+        pipeline = DataPipeline.__new__(DataPipeline)
+        pipeline.db = db
+        pipeline._filter_codes_needing_period_bars = MagicMock(return_value=["000002"])
+
+        expected_date = pipeline._expected_latest_trade_date("daily")
+
+        pending = pipeline._filter_codes_needing_bars(["000001", "000002"], "daily")
+
+        self.assertEqual(pending, ["000002"])
+        pipeline._filter_codes_needing_period_bars.assert_called_once_with(
+            ["000001", "000002"],
+            "daily",
+            expected_date,
+        )
 
     def test_filter_codes_needing_bars_refreshes_untrusted_daily_source(self):
         db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))
@@ -605,10 +628,10 @@ class DataPipelineNormalizationTests(unittest.TestCase):
         self.assertEqual(result["name"].tolist(), ["Ping An Bank", "Kweichow Moutai"])
         self.assertTrue((result["update_date"] == pd.Timestamp.now().strftime("%Y-%m-%d")).all())
 
-    @patch.object(DataPipeline, "_fetch_mootdx_bars", return_value=pd.DataFrame())
+    @patch.object(DataPipeline, "_fetch_tushare_daily_bars", return_value=pd.DataFrame())
     def test_sync_market_bars_does_not_fetch_when_all_codes_are_fresh(
         self,
-        mock_mootdx,
+        mock_tushare,
     ):
         db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))
         pipeline = DataPipeline.__new__(DataPipeline)
@@ -633,22 +656,22 @@ class DataPipelineNormalizationTests(unittest.TestCase):
                 }
             ]
         )
-        bars_df["source"] = "mootdx"
+        bars_df["source"] = "tushare_daily"
         self.assertTrue(db.upsert_dataframe("market_bars", bars_df, key_columns=["code", "period", "trade_date"]))
 
         self.assertTrue(pipeline.sync_market_bars(codes=["000001"], periods=("daily",)))
 
-        mock_mootdx.assert_not_called()
+        mock_tushare.assert_not_called()
 
-    @patch.object(DataPipeline, "_fetch_mootdx_bars")
-    def test_sync_market_bars_uses_mootdx_daily_as_primary(self, mock_mootdx):
+    @patch.object(DataPipeline, "_fetch_tushare_daily_bars")
+    def test_sync_market_bars_uses_tushare_daily_as_primary(self, mock_tushare):
         db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))
         pipeline = DataPipeline.__new__(DataPipeline)
         pipeline.db = db
         pipeline.market_bars_daily_retention_days = 540
         pipeline.market_bars_weekly_retention_days = 1825
         pipeline.market_bars_monthly_retention_days = 3650
-        mock_mootdx.return_value = pd.DataFrame(
+        mock_tushare.return_value = pd.DataFrame(
             [
                 {
                     "code": "000001",
@@ -661,7 +684,7 @@ class DataPipelineNormalizationTests(unittest.TestCase):
                     "adj_close": 10.5,
                     "volume": 1000,
                     "amount": 10000,
-                    "source": "mootdx",
+                    "source": "tushare_daily",
                     "fetched_at": "2026-04-24 18:00:00",
                 }
             ]
@@ -670,312 +693,11 @@ class DataPipelineNormalizationTests(unittest.TestCase):
         self.assertTrue(pipeline._sync_daily_bars_for_codes(["000001"]))
         rows = db.query_to_dataframe("SELECT code, period, trade_date, close, source FROM market_bars")
 
-        mock_mootdx.assert_called_once()
+        mock_tushare.assert_called_once_with("20260513", ["000001"])
         self.assertEqual(
             rows[["code", "period", "trade_date", "close", "source"]].values.tolist(),
-            [["000001", "daily", "20260424", 10.5, "mootdx"]],
+            [["000001", "daily", "20260424", 10.5, "tushare_daily"]],
         )
-
-    @patch("src.data_pipeline.fetch_baidu_stock_profile")
-    @patch("src.data_pipeline.fetch_baidu_stock_fund_flow_history")
-    @patch("src.data_pipeline.fetch_eastmoney_restricted_release")
-    @patch("src.data_pipeline.fetch_eastmoney_lhb")
-    @patch("src.data_pipeline.fetch_eastmoney_concept_constituents")
-    @patch("src.data_pipeline.fetch_ths_concept_boards")
-    @patch("src.data_pipeline.fetch_ths_board_fund_flow")
-    @patch("src.data_pipeline.fetch_ths_stock_fund_flow")
-    def test_sync_market_signals_writes_signal_tables(
-        self,
-        mock_stock_flow,
-        mock_board_flow,
-        mock_concept_boards,
-        mock_concept_members,
-        mock_lhb,
-        mock_release,
-        mock_baidu_flow,
-        mock_baidu_profile,
-    ):
-        db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))
-        pipeline = DataPipeline.__new__(DataPipeline)
-        pipeline.db = db
-        pipeline.market_signal_lookback_days = 7
-        pipeline.restricted_release_forward_days = 30
-        pipeline.concept_membership_top_n = 1
-        pipeline.baidu_profile_max_codes = 1
-        pipeline.baidu_fund_flow_max_codes = 1
-        pipeline.baidu_fund_flow_days = 20
-        pipeline._expected_latest_trade_date = MagicMock(return_value="20260512")
-
-        mock_stock_flow.return_value = pd.DataFrame(
-            [
-                {
-                    "code": "000001",
-                    "trade_date": "20260512",
-                    "period": "即时",
-                    "name": "平安银行",
-                    "latest_price": 10.1,
-                    "change_pct": 1.2,
-                    "main_net_inflow": 1000,
-                    "main_net_inflow_pct": 1.5,
-                    "super_large_net_inflow": None,
-                    "large_net_inflow": None,
-                    "medium_net_inflow": None,
-                    "small_net_inflow": None,
-                    "source": "unit_stock_flow",
-                    "fetched_at": "2026-05-12 16:00:00",
-                }
-            ]
-        )
-        mock_board_flow.return_value = pd.DataFrame(
-            [
-                {
-                    "board_name": "机器人",
-                    "kind": "concept",
-                    "trade_date": "20260512",
-                    "period": "即时",
-                    "change_pct": 2.1,
-                    "main_net_inflow": 2000,
-                    "main_net_inflow_pct": 2.5,
-                    "leader_name": "示例股份",
-                    "leader_change_pct": 10,
-                    "source": "unit_board_flow",
-                    "fetched_at": "2026-05-12 16:00:00",
-                }
-            ]
-        )
-        mock_lhb.return_value = pd.DataFrame(
-            [
-                {
-                    "code": "000001",
-                    "trade_date": "20260512",
-                    "name": "平安银行",
-                    "reason": "日涨幅偏离值达7%",
-                    "close": 10.1,
-                    "change_pct": 9.9,
-                    "net_buy": 1000,
-                    "buy_amount": 2000,
-                    "sell_amount": 1000,
-                    "turnover": 3000,
-                    "source": "unit_lhb",
-                    "fetched_at": "2026-05-12 16:00:00",
-                }
-            ]
-        )
-        mock_release.return_value = pd.DataFrame(
-            [
-                {
-                    "code": "000002",
-                    "release_date": "20260520",
-                    "name": "示例股份",
-                    "release_shares": 100000,
-                    "release_market_value": 5000000,
-                    "release_ratio": 1.1,
-                    "holder_type": "首发原股东限售股份",
-                    "source": "unit_release",
-                    "fetched_at": "2026-05-12 16:00:00",
-                }
-            ]
-        )
-        mock_concept_boards.return_value = pd.DataFrame(
-            [{"concept_name": "机器人", "concept_code": "308000", "source": "unit_concept", "fetched_at": "2026-05-12 16:00:00"}]
-        )
-        mock_concept_members.return_value = pd.DataFrame(
-            [
-                {
-                    "code": "300001",
-                    "concept_name": "机器人",
-                    "concept_code": "308000",
-                    "name": "示例股份",
-                    "latest_price": 10.5,
-                    "change_pct": 2.5,
-                    "turnover_rate": 3.1,
-                    "pe_ttm": 20.0,
-                    "pb": 2.0,
-                    "source": "unit_concept_member",
-                    "fetched_at": "2026-05-12 16:00:00",
-                }
-            ]
-        )
-        mock_baidu_profile.return_value = pd.DataFrame(
-            [
-                {
-                    "code": "000001",
-                    "name": "",
-                    "industry": "银行",
-                    "region": "广东",
-                    "industry_blocks": '[{"name": "银行"}]',
-                    "region_blocks": '[{"name": "广东"}]',
-                    "concepts": '[{"name": "融资融券"}]',
-                    "source": "unit_baidu",
-                    "fetched_at": "2026-05-12 16:00:00",
-                }
-            ]
-        )
-        mock_baidu_flow.return_value = pd.DataFrame(
-            [
-                {
-                    "code": "000001",
-                    "trade_date": "20260512",
-                    "close": 10.2,
-                    "change_pct": 1.5,
-                    "super_net_inflow": 100,
-                    "large_net_inflow": 200,
-                    "medium_net_inflow": -50,
-                    "small_net_inflow": -250,
-                    "main_net_inflow": 300,
-                    "source": "unit_baidu_flow",
-                    "fetched_at": "2026-05-12 16:00:00",
-                }
-            ]
-        )
-        self.assertTrue(
-            db.upsert_dataframe(
-                "daily_quotes",
-                pd.DataFrame(
-                    [
-                        {
-                            "code": "000001",
-                            "trade_date": "20260512",
-                            "price": 10,
-                            "change_pct": 1.2,
-                            "volume": 100,
-                            "amount": 1000000,
-                        }
-                    ]
-                ),
-                key_columns=["code", "trade_date"],
-            )
-        )
-
-        self.assertTrue(pipeline.sync_market_signals())
-
-        self.assertEqual(db.query_to_dataframe("SELECT COUNT(*) AS c FROM stock_fund_flows").iloc[0]["c"], 1)
-        self.assertEqual(db.query_to_dataframe("SELECT COUNT(*) AS c FROM board_fund_flows").iloc[0]["c"], 1)
-        self.assertEqual(db.query_to_dataframe("SELECT COUNT(*) AS c FROM lhb_details").iloc[0]["c"], 1)
-        self.assertEqual(db.query_to_dataframe("SELECT COUNT(*) AS c FROM restricted_releases").iloc[0]["c"], 1)
-        self.assertEqual(db.query_to_dataframe("SELECT COUNT(*) AS c FROM concept_boards").iloc[0]["c"], 1)
-        self.assertEqual(db.query_to_dataframe("SELECT COUNT(*) AS c FROM stock_concepts").iloc[0]["c"], 1)
-        self.assertEqual(db.query_to_dataframe("SELECT COUNT(*) AS c FROM stock_profiles").iloc[0]["c"], 1)
-        self.assertEqual(db.query_to_dataframe("SELECT COUNT(*) AS c FROM baidu_stock_fund_flows").iloc[0]["c"], 1)
-
-    @patch("src.data_pipeline.fetch_cninfo_announcements")
-    @patch("src.data_pipeline.fetch_eastmoney_global_news")
-    @patch("src.data_pipeline.fetch_cls_global_news")
-    @patch("src.data_pipeline.fetch_akshare_stock_news")
-    @patch("src.data_pipeline.fetch_ths_eps_forecast")
-    @patch("src.data_pipeline.fetch_eastmoney_research_reports")
-    def test_sync_information_sources_writes_research_news_and_announcements(
-        self,
-        mock_reports,
-        mock_eps,
-        mock_stock_news,
-        mock_cls_news,
-        mock_em_news,
-        mock_announcements,
-    ):
-        db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))
-        pipeline = DataPipeline.__new__(DataPipeline)
-        pipeline.db = db
-        pipeline.info_source_max_codes = 1
-        pipeline.research_report_pages = 1
-        pipeline.stock_news_limit = 2
-        pipeline.global_news_limit = 2
-        pipeline.announcement_lookback_days = 30
-        pipeline.announcement_limit = 2
-        pipeline._expected_latest_trade_date = MagicMock(return_value="20260512")
-
-        self.assertTrue(
-            db.upsert_dataframe(
-                "daily_quotes",
-                pd.DataFrame([{"code": "000001", "trade_date": "20260512", "price": 10, "amount": 1000}]),
-                key_columns=["code", "trade_date"],
-            )
-        )
-        mock_reports.return_value = pd.DataFrame(
-            [
-                {
-                    "code": "000001",
-                    "info_code": "R1",
-                    "title": "银行深度报告",
-                    "publish_date": "2026-05-12",
-                    "org_name": "示例证券",
-                    "author": "分析师",
-                    "rating": "买入",
-                    "rating_change": "维持",
-                    "industry": "银行",
-                    "eps_this_year": 1.1,
-                    "eps_next_year": 1.2,
-                    "eps_next_two_year": 1.3,
-                    "pdf_url": "https://pdf.dfcfw.com/pdf/H3_R1_1.pdf",
-                    "source": "unit_report",
-                    "fetched_at": "2026-05-12 16:00:00",
-                }
-            ]
-        )
-        mock_eps.return_value = pd.DataFrame(
-            [
-                {
-                    "code": "000001",
-                    "forecast_year": "2026",
-                    "institution_count": 5,
-                    "eps_min": 1.0,
-                    "eps_avg": 1.1,
-                    "eps_max": 1.2,
-                    "industry_avg": 0.8,
-                    "source": "unit_eps",
-                    "fetched_at": "2026-05-12 16:00:00",
-                }
-            ]
-        )
-        mock_stock_news.return_value = pd.DataFrame(
-            [
-                {
-                    "code": "000001",
-                    "datetime": "2026-05-12 09:00:00",
-                    "title": "个股新闻",
-                    "content": "内容",
-                    "url": "https://example.com/news",
-                    "provider": "东财",
-                    "source": "unit_stock_news",
-                    "fetched_at": "2026-05-12 16:00:00",
-                }
-            ]
-        )
-        global_row = {
-            "code": "",
-            "datetime": "2026-05-12 10:00:00",
-            "title": "全球资讯",
-            "content": "快讯",
-            "url": "https://example.com/global",
-            "provider": "财联社",
-            "source": "unit_global_news",
-            "fetched_at": "2026-05-12 16:00:00",
-        }
-        mock_cls_news.return_value = pd.DataFrame([global_row])
-        mock_em_news.return_value = pd.DataFrame([{**global_row, "title": "东财全球资讯", "source": "unit_em_global"}])
-        mock_announcements.return_value = pd.DataFrame(
-            [
-                {
-                    "code": "000001",
-                    "announcement_id": "A1",
-                    "title": "主要经营数据公告",
-                    "date": "2026-05-12",
-                    "categories": "月度经营",
-                    "url": "https://static.cninfo.com.cn/A1.pdf",
-                    "pdf_url": "https://static.cninfo.com.cn/A1.pdf",
-                    "source": "unit_cninfo",
-                    "fetched_at": "2026-05-12 16:00:00",
-                }
-            ]
-        )
-
-        self.assertTrue(pipeline.sync_information_sources())
-
-        self.assertEqual(db.query_to_dataframe("SELECT COUNT(*) AS c FROM research_reports").iloc[0]["c"], 1)
-        self.assertEqual(db.query_to_dataframe("SELECT COUNT(*) AS c FROM eps_forecasts").iloc[0]["c"], 1)
-        self.assertEqual(db.query_to_dataframe("SELECT COUNT(*) AS c FROM stock_news").iloc[0]["c"], 1)
-        self.assertEqual(db.query_to_dataframe("SELECT COUNT(*) AS c FROM market_news").iloc[0]["c"], 2)
-        self.assertEqual(db.query_to_dataframe("SELECT COUNT(*) AS c FROM company_announcements").iloc[0]["c"], 1)
 
     def test_sync_market_bars_reuses_daily_refresh_for_derived_periods(self):
         pipeline = DataPipeline.__new__(DataPipeline)
@@ -1002,6 +724,35 @@ class DataPipelineNormalizationTests(unittest.TestCase):
         pipeline._upsert_derived_period_bars = MagicMock(return_value=True)
 
         self.assertTrue(pipeline.sync_market_bars(periods=("daily", "weekly", "monthly")))
+
+        pipeline.sync_daily_bars_incremental.assert_called_once_with(["000001"])
+        self.assertEqual(pipeline._build_period_bars_from_daily.call_count, 2)
+
+    def test_sync_market_bars_does_not_retry_failed_daily_refresh_for_derived_periods(self):
+        pipeline = DataPipeline.__new__(DataPipeline)
+        pipeline._load_stock_codes_from_lake = MagicMock(return_value=["000001"])
+        pipeline._filter_codes_needing_bars = MagicMock(return_value=["000001"])
+        pipeline.sync_daily_bars_incremental = MagicMock(return_value=False)
+        pipeline._current_period_start_date = MagicMock(return_value="20260427")
+        pipeline._build_period_bars_from_daily = MagicMock(
+            return_value=pd.DataFrame(
+                [
+                    {
+                        "code": "000001",
+                        "period": "weekly",
+                        "trade_date": "20260430",
+                        "open": 10,
+                        "high": 11,
+                        "low": 9,
+                        "close": 10.5,
+                    }
+                ]
+            )
+        )
+        pipeline._clean_market_bars = MagicMock(side_effect=lambda df, _period: df)
+        pipeline._upsert_derived_period_bars = MagicMock(return_value=True)
+
+        self.assertFalse(pipeline.sync_market_bars(periods=("daily", "weekly", "monthly")))
 
         pipeline.sync_daily_bars_incremental.assert_called_once_with(["000001"])
         self.assertEqual(pipeline._build_period_bars_from_daily.call_count, 2)
@@ -1063,6 +814,34 @@ class DataPipelineNormalizationTests(unittest.TestCase):
             ["000001", "000002"],
             trade_date="20260429",
         )
+
+    def test_run_all_excludes_fragile_external_sources(self):
+        pipeline = DataPipeline.__new__(DataPipeline)
+        pipeline.enable_cleanup = True
+        pipeline.backfill_history_on_sync = False
+        pipeline.derive_period_bars_on_sync = True
+        calls = []
+
+        def mark(name, value=True):
+            def inner(*args, **kwargs):
+                calls.append(name)
+                return value
+
+            return inner
+
+        pipeline.cleanup_old_data = mark("cleanup")
+        pipeline.sync_stock_basic = mark("stock_basic")
+        pipeline.sync_daily_quotes = mark("daily_quotes")
+        pipeline._market_bars_needs_history_init = mark("needs_history", False)
+        pipeline.sync_market_bars = mark("market_bars")
+        pipeline.sync_index_bars = mark("index_bars")
+        pipeline.fragile_signal_sync = mark("market_signals")
+        pipeline.fragile_information_sync = mark("information_sources")
+
+        self.assertTrue(pipeline.run_all())
+        self.assertIn("market_bars", calls)
+        self.assertNotIn("market_signals", calls)
+        self.assertNotIn("information_sources", calls)
 
     def test_build_weekly_bars_from_daily_qfq(self):
         db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))

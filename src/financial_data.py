@@ -156,20 +156,23 @@ class FinancialDataProvider:
                     "report_type": _first_value(indicator, ["REPORT_TYPE"]) or _first_value(profit, ["REPORT_TYPE"]),
                     "revenue": revenue,
                     "revenue_yoy": _to_float(_first_value(indicator, ["TOTALOPERATEREVETZ", "DJD_TOI_YOY"]))
-                    or _to_float(_first_value(profit, ["TOTAL_OPERATE_INCOME_YOY", "OPERATE_INCOME_YOY"])),
+                    if _to_float(_first_value(indicator, ["TOTALOPERATEREVETZ", "DJD_TOI_YOY"])) is not None
+                    else _to_float(_first_value(profit, ["TOTAL_OPERATE_INCOME_YOY", "OPERATE_INCOME_YOY"])),
                     "parent_netprofit": parent_netprofit,
                     "parent_netprofit_yoy": _to_float(_first_value(indicator, ["PARENTNETPROFITTZ", "DJD_DPNP_YOY"]))
-                    or _to_float(_first_value(profit, ["PARENT_NETPROFIT_YOY", "NETPROFIT_YOY"])),
+                    if _to_float(_first_value(indicator, ["PARENTNETPROFITTZ", "DJD_DPNP_YOY"])) is not None
+                    else _to_float(_first_value(profit, ["PARENT_NETPROFIT_YOY", "NETPROFIT_YOY"])),
                     "deduct_parent_netprofit": _to_float(_first_value(indicator, ["KCFJCXSYJLR"]))
-                    or _to_float(_first_value(profit, ["DEDUCT_PARENT_NETPROFIT"])),
+                    if _to_float(_first_value(indicator, ["KCFJCXSYJLR"])) is not None
+                    else _to_float(_first_value(profit, ["DEDUCT_PARENT_NETPROFIT"])),
                     "deduct_parent_netprofit_yoy": _to_float(_first_value(indicator, ["KCFJCXSYJLRTZ", "DJD_DEDUCTDPNP_YOY"]))
-                    or _to_float(_first_value(profit, ["DEDUCT_PARENT_NETPROFIT_YOY"])),
+                    if _to_float(_first_value(indicator, ["KCFJCXSYJLRTZ", "DJD_DEDUCTDPNP_YOY"])) is not None
+                    else _to_float(_first_value(profit, ["DEDUCT_PARENT_NETPROFIT_YOY"])),
                     "gross_margin": _to_float(_first_value(indicator, ["XSMLL", "MLR"])),
                     "net_margin": _to_float(_first_value(indicator, ["XSJLL"])),
                     "roe": _to_float(_first_value(indicator, ["ROEJQ"])),
                     "roic": _to_float(_first_value(indicator, ["ROIC"])),
-                    "debt_to_assets": _to_float(_first_value(indicator, ["ZCFZL"]))
-                    or _to_float(_first_value(balance, ["TOTAL_LIABILITIES_YOY"])),
+                    "debt_to_assets": _to_float(_first_value(indicator, ["ZCFZL"])),
                     "current_ratio": _to_float(_first_value(indicator, ["LD"])),
                     "quick_ratio": _to_float(_first_value(indicator, ["SD"])),
                     "cash_ratio": _to_float(_first_value(indicator, ["XJLLB", "CASH_RATIO"])),

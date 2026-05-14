@@ -41,6 +41,8 @@ class FundamentalAgent:
 
         # 处理宏观背景文本
         macro_text = json.dumps(macro_context or {}, ensure_ascii=False, indent=2)
+        enrichment = (macro_context or {}).get("candidate_enrichment") if isinstance(macro_context, dict) else {}
+        enrichment_summary = str((enrichment or {}).get("summary") or "").strip()
         
         # 获取近期公告列表（前10条）
         announcement_info = tools.fetch_stock_announcements(code, limit=10)
@@ -91,6 +93,9 @@ class FundamentalAgent:
 
 近期公告：
 {announcement_prompt_info or "东方财富未获取到该股近期公告。"}
+
+候选增强数据（研报/EPS/解禁/龙虎榜/概念/资金流，仅作证据补充）：
+{enrichment_summary or "未获取到额外增强数据。"}
 """
 
         # 调用 LLM 生成报告

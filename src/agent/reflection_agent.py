@@ -40,8 +40,6 @@ class ReflectionAgent:
         reflected_position_ids = []
         for case in cases:
             position_id = case.get("position_id")
-            if position_id is not None:
-                reflected_position_ids.append(int(position_id))
             code = str(case.get("code") or "").zfill(6)
             name = case.get("name") or code
             recent_kline = tools.fetch_recent_kline(code, days=5)
@@ -66,10 +64,11 @@ class ReflectionAgent:
             clean_rule = self._clean_reflection_rule(rule)
             if clean_rule:
                 new_rules.append(f"[{datetime.now().strftime('%Y-%m-%d')}] 交易亏损复盘({name}): {clean_rule}")
+                if position_id is not None:
+                    reflected_position_ids.append(int(position_id))
 
-        if new_rules:
-            self._save_rules(new_rules)
-        if reflected_position_ids:
+        save_ok = self._save_rules(new_rules) if new_rules else False
+        if save_ok and reflected_position_ids:
             self._mark_trading_cases_reflected(reflected_position_ids)
 
     def _load_trading_failure_cases(self, threshold_pct: float) -> list:
@@ -195,16 +194,42 @@ class ReflectionAgent:
 
         return clean_rule
             
-    def _save_rules(self, new_rules: list):
-        """持久化教训库"""
+    def _save_rules(self, new_rules: list) -> bool:
+        """持久化教训库，保存前按正文去重；返回是否已可靠处理。"""
         os.makedirs(os.path.dirname(self.rules_path), exist_ok=True)
+        existing_bodies = set()
+        try:
+            if os.path.exists(self.rules_path):
+                with open(self.rules_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            body = re.sub(r"^\[\d{4}-\d{2}-\d{2}\]\s*", "", line)
+                            existing_bodies.add(body)
+        except Exception as e:
+            logger.warning(f"[Reflection] 读取反思库失败，暂不标记案例已反思: {e}")
+            return False
+
+        unique_new = []
+        for rule in new_rules:
+            body = re.sub(r"^\[\d{4}-\d{2}-\d{2}\]\s*", "", rule)
+            if body not in existing_bodies:
+                unique_new.append(rule)
+                existing_bodies.add(body)
+
+        if not unique_new:
+            logger.info("[Reflection] 所有新教训已存在，跳过写入。")
+            return True
+
         try:
             with open(self.rules_path, "a", encoding="utf-8") as f:
-                for rule in new_rules:
+                for rule in unique_new:
                     f.write(rule + "\n")
-            logger.info(f"[Reflection] 成功将 {len(new_rules)} 条新教训刻入系统风控法则库！")
+            logger.info(f"[Reflection] 成功将 {len(unique_new)} 条新教训刻入系统风控法则库！")
+            return True
         except Exception as e:
             logger.error(f"[Reflection] 保存反思库失败: {e}")
+            return False
 
 if __name__ == "__main__":
     agent = ReflectionAgent()

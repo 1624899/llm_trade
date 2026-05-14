@@ -20,6 +20,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import yaml
+from loguru import logger
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -92,6 +93,12 @@ CONFIG_FIELD_LABELS = {
     "web_search.cache_ttl_seconds": "搜索缓存秒数",
     "web_search.timeout": "搜索超时秒数",
     "web_search.max_results": "搜索结果数量",
+    "candidate_enrichment.enabled": "启用候选增强",
+    "candidate_enrichment.lhb_lookback_days": "龙虎榜回看天数",
+    "candidate_enrichment.release_forward_days": "解禁前瞻天数",
+    "candidate_enrichment.baidu_fund_flow_days": "百度资金流回看天数",
+    "candidate_enrichment.research_report_pages": "东财研报页数",
+    "candidate_enrichment.max_summary_items": "增强摘要条数",
     "data.enable_cleanup": "启用文件清理",
     "data.enable_database_cleanup": "启用数据库清理",
     "data.enable_database_vacuum": "启用数据库压缩",
@@ -107,23 +114,14 @@ CONFIG_FIELD_LABELS = {
     "data.market_bars_weekly_retention_days": "周线 K 线保留天数",
     "data.market_bars_monthly_retention_days": "月线 K 线保留天数",
     "data.daily_lhb_retention_days": "龙虎榜保留天数",
-  "data.market_signal_lookback_days": "信号层回看天数",
-  "data.restricted_release_forward_days": "解禁前瞻天数",
-  "data.concept_membership_top_n": "热门概念成分同步数量",
-  "data.baidu_profile_max_codes": "百度股市通画像同步股票数",
-  "data.baidu_fund_flow_max_codes": "百度股市通资金流同步股票数",
-  "data.baidu_fund_flow_days": "百度股市通资金流回看天数",
-  "data.info_source_max_codes": "研报新闻公告同步股票数",
-  "data.research_report_pages": "东财研报同步页数",
-  "data.stock_news_limit": "个股新闻同步条数",
-  "data.global_news_limit": "全球资讯同步条数",
-  "data.announcement_lookback_days": "巨潮公告回看天数",
-  "data.announcement_limit": "巨潮公告同步条数",
-  "data.paper_trades_retention_days": "旧观察仓记录保留天数",
-    "data.mootdx_bar_offset": "mootdx 日常 K 线回看条数",
-    "data.mootdx_history_offset": "mootdx 历史 K 线回看条数",
-    "data.mootdx_timeout": "mootdx 超时秒数",
-    "data.market_bars_history_start_date": "历史 K 线起始日期",
+    "data.paper_trades_retention_days": "旧观察仓记录保留天数",
+    "data.tushare_token": "Tushare Token",
+    "data.tushare_anomaly_pct": "Tushare 日线异常涨跌阈值",
+    "data.tushare_history_start_date": "Tushare 历史 K 线起始日期",
+    "data.tushare_request_interval": "Tushare 请求间隔秒数",
+    "data.tushare_history_max_workers": "Tushare 历史同步线程数",
+    "data.tushare_max_retries": "Tushare 最大重试次数",
+    "data.tushare_fetch_adj_factor": "同步 Tushare 复权因子",
     "data.daily_update_after_time": "日常更新开始时间",
     "data.retry_times": "通用重试次数",
     "data.timeout": "通用超时秒数",
@@ -319,8 +317,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         
         last_jobs_hash = None
         last_log_size = -1
+        max_duration = 3600
+        start_time = time.time()
         
-        while True:
+        while time.time() - start_time < max_duration:
             try:
                 jobs_list = list_jobs(limit=5)
                 jobs_hash = str([(j["id"], j["status"]) for j in jobs_list])
@@ -342,7 +342,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             self.wfile.write(f"data: {payload}\n\n".encode("utf-8"))
                             self.wfile.flush()
                             last_log_size = current_size
-            except Exception:
+            except Exception as exc:
+                logger.debug(f"[SSE] 连接异常断开: {exc}")
                 break
             time.sleep(0.5)
 
@@ -467,7 +468,8 @@ def ensure_database_schema() -> None:
         from src.database import StockDatabase
 
         StockDatabase(db_path=str(DB_PATH))
-    except Exception:
+    except Exception as exc:
+        logger.debug(f"[Dashboard] 数据库 schema 初始化跳过: {exc}")
         return
 
 
@@ -703,8 +705,19 @@ def _safe_int(value: Any, default: int, minimum: int, maximum: int) -> int:
 def _read_tail(path: Path, limit: int = 6000) -> str:
     if not path.exists():
         return ""
-    text = path.read_text(encoding="utf-8", errors="replace")
-    return text[-limit:]
+    try:
+        file_size = path.stat().st_size
+        if file_size <= limit:
+            return path.read_text(encoding="utf-8", errors="replace")
+        with open(path, "rb") as f:
+            f.seek(max(0, file_size - limit))
+            raw = f.read()
+        text = raw.decode("utf-8", errors="replace")
+        first_newline = text.find("\n")
+        return text[first_newline + 1:] if first_newline >= 0 else text
+    except Exception as exc:
+        logger.debug(f"[Dashboard] 读取日志尾部失败 {path}: {exc}")
+        return ""
 
 
 def build_stock_detail(code: str) -> dict[str, Any]:

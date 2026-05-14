@@ -1571,12 +1571,4 @@ class StockScreener:
             logger.warning("[Screener] failed to inspect table {}: {}", table_name, exc)
             return set()
 
-
 ScreenerAgent = StockScreener
-
-
-if __name__ == "__main__":
-    screener = StockScreener()
-    result = screener.run_technical_screening(top_n=10)
-    for row in result:
-        print(row)

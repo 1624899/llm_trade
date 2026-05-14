@@ -485,8 +485,8 @@ class BacktestEngine:
         for label, day in horizons.items():
             key = f"return_{day}d"
             outcome_key = f"outcome_return_{day}d"
-            raw_values = [float(item[key]) for item in evaluations if item.get(key) is not None]
-            values = [float(item.get(outcome_key, item[key])) for item in evaluations if item.get(key) is not None]
+            raw_values = [float(item.get(key)) for item in evaluations if item.get(key) is not None]
+            values = [float(item.get(outcome_key, item.get(key))) for item in evaluations if item.get(key) is not None]
             if not values:
                 stats[label] = {
                     "holding_days": day,
@@ -887,7 +887,7 @@ class BacktestEngine:
                 }
 
         final_close = self._safe_float(stock_bars.iloc[max_index].get("close"))
-        final_return = round((final_close / entry_close - 1) * 100, 4) if final_close is not None else 0.0
+        final_return = round((final_close / entry_close - 1) * 100, 4) if final_close is not None and entry_close > 0 else 0.0
         return {
             "return_pct": final_return,
             "outcome": "period_win" if final_return >= DEFAULT_WIN_RATE_THRESHOLD_PCT else "period_loss",

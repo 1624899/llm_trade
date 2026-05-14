@@ -23,7 +23,10 @@ class IndexBarsMixin:
         fetched_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         for code, name in DEFAULT_INDEX_BARS.items():
             try:
-                raw = ak.stock_zh_index_daily(symbol=code)
+                if hasattr(self, "_safe_fetch"):
+                    raw = self._safe_fetch(ak.stock_zh_index_daily, symbol=code, retries=3, delay=2)
+                else:
+                    raw = ak.stock_zh_index_daily(symbol=code)
             except Exception as exc:
                 logger.warning(f"指数 K 线同步失败{name}({code}): {exc}")
                 continue

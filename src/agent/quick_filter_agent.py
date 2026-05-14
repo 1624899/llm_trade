@@ -337,13 +337,12 @@ class QuickFilterAgent:
             data = json.loads(cleaned)
             return data if isinstance(data, dict) else {}
         except json.JSONDecodeError:
-            match = re.search(r"\{.*\}", cleaned, flags=re.S)
-            if not match:
-                return {}
             try:
-                data = json.loads(match.group(0))
+                decoder = json.JSONDecoder()
+                idx = cleaned.index("{")
+                data, _ = decoder.raw_decode(cleaned, idx)
                 return data if isinstance(data, dict) else {}
-            except json.JSONDecodeError:
+            except (ValueError, json.JSONDecodeError):
                 return {}
 
     def _normalize_selected_codes(self, codes: Any, candidates: List[Dict[str, Any]], target_n: int) -> List[str]:

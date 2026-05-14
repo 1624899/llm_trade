@@ -725,7 +725,19 @@ class Watchlist:
                 pass
                 
         reason = str(decision.get("reason") or "")
-        return any(word in reason for word in ("清仓", "回避", "硬风险", "风险恶化", "趋势失效", "基本面恶化"))
+        if not reason:
+            return False
+        negative_prefixes = ("避免", "不触发", "未触发", "防止", "预防", "无需", "没有")
+        hard_keywords = ("清仓", "回避", "硬风险", "风险恶化", "趋势失效", "基本面恶化")
+        for keyword in hard_keywords:
+            if keyword not in reason:
+                continue
+            idx = reason.index(keyword)
+            prefix = reason[max(0, idx - 10) : idx]
+            if any(neg in prefix for neg in negative_prefixes):
+                continue
+            return True
+        return False
 
     @staticmethod
     def _to_float(value: Any) -> float | None:

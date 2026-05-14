@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
+import time
 from typing import Any
 
 import akshare as ak
@@ -68,17 +69,30 @@ def fetch_ths_concept_boards() -> pd.DataFrame:
     return _normalize_concept_boards(raw, source="ths_concept_boards")
 
 
+def fetch_eastmoney_concept_boards() -> pd.DataFrame:
+    """读取东方财富概念板块目录。"""
+    raw = _fetch_akshare_frame(
+        ak.stock_board_concept_name_em,
+        label="东方财富概念板块目录",
+        retries=2,
+        delay=1.5,
+    )
+    return _normalize_concept_boards(raw, source="eastmoney_concept_boards")
+
+
 def fetch_eastmoney_concept_constituents(symbol: str, concept_code: str = "") -> pd.DataFrame:
     """读取东方财富概念成分股。"""
-    try:
-        raw = ak.stock_board_concept_cons_em(symbol=symbol)
-    except Exception as exc:
-        logger.warning("东方财富概念成分获取失败 {}: {}", symbol, exc)
-        return pd.DataFrame()
+    raw = _fetch_akshare_frame(
+        ak.stock_board_concept_cons_em,
+        label=f"东方财富概念成分 {symbol}",
+        retries=3,
+        delay=1.5,
+        symbol=symbol,
+    )
     return _normalize_concept_constituents(raw, concept_name=symbol, concept_code=concept_code, source="eastmoney_concept_constituents")
 
 
-def fetch_baidu_stock_profile(code: str, timeout: int = 10) -> pd.DataFrame:
+def fetch_baidu_stock_profile(code: str, timeout: int = 15) -> pd.DataFrame:
     """读取百度股市通个股画像，提取行业、地域和概念标签。"""
     code = _code(code)
     if not code:
@@ -97,24 +111,22 @@ def fetch_baidu_stock_profile(code: str, timeout: int = 10) -> pd.DataFrame:
         "Origin": "https://gushitong.baidu.com",
         "Referer": "https://gushitong.baidu.com/",
     }
-    try:
-        response = requests.get(
-            "https://finance.pae.baidu.com/api/getrelatedblock",
-            params=params,
-            headers=headers,
-            timeout=timeout,
-        )
-        response.raise_for_status()
-        payload = response.json()
-    except Exception as exc:
-        logger.warning("百度股市通个股画像获取失败 {}: {}", code, exc)
+    payload = _request_json_with_retries(
+        "https://finance.pae.baidu.com/api/getrelatedblock",
+        label=f"百度股市通个股画像 {code}",
+        params=params,
+        headers=headers,
+        timeout=timeout,
+    )
+    if not isinstance(payload, dict):
+        logger.warning("百度股市通个股画像返回结构异常 {}", code)
         return pd.DataFrame()
 
     row = _parse_baidu_profile_payload(payload, code=code, source="baidu_gushitong")
     return pd.DataFrame([row]) if row else pd.DataFrame()
 
 
-def fetch_baidu_stock_fund_flow_history(code: str, days: int = 20, timeout: int = 10) -> pd.DataFrame:
+def fetch_baidu_stock_fund_flow_history(code: str, days: int = 20, timeout: int = 15) -> pd.DataFrame:
     """读取百度股市通个股日级资金流。"""
     code = _code(code)
     if not code:
@@ -134,20 +146,58 @@ def fetch_baidu_stock_fund_flow_history(code: str, days: int = 20, timeout: int 
         "Origin": "https://gushitong.baidu.com",
         "Referer": "https://gushitong.baidu.com/",
     }
-    try:
-        response = requests.get(
-            "https://finance.pae.baidu.com/vapi/v1/fundsortlist",
-            params=params,
-            headers=headers,
-            timeout=timeout,
-        )
-        response.raise_for_status()
-        payload = response.json()
-    except Exception as exc:
-        logger.warning("百度股市通资金流获取失败 {}: {}", code, exc)
+    payload = _request_json_with_retries(
+        "https://finance.pae.baidu.com/vapi/v1/fundsortlist",
+        label=f"百度股市通资金流 {code}",
+        params=params,
+        headers=headers,
+        timeout=timeout,
+    )
+    if not isinstance(payload, dict):
+        logger.warning("百度股市通资金流返回结构异常 {}", code)
         return pd.DataFrame()
 
     return _normalize_baidu_fund_flow_history(payload, code=code, source="baidu_fundsortlist")
+
+
+def _fetch_akshare_frame(func, label: str, retries: int = 2, delay: float = 1.0, **kwargs) -> pd.DataFrame:
+    """带退避重试读取 AKShare，外部数据源异常时返回空表。"""
+    last_exc = None
+    for attempt in range(max(1, int(retries))):
+        try:
+            raw = func(**kwargs)
+            return raw if raw is not None else pd.DataFrame()
+        except Exception as exc:
+            last_exc = exc
+            if attempt < retries - 1:
+                time.sleep(delay * (attempt + 1))
+    logger.warning("{}获取失败: {}", label, last_exc)
+    return pd.DataFrame()
+
+
+def _request_json_with_retries(
+    url: str,
+    label: str,
+    params: dict,
+    headers: dict,
+    timeout: int = 15,
+    retries: int = 2,
+    delay: float = 1.0,
+) -> dict:
+    """带退避重试读取 JSON，兼容百度偶发 EOF 和超时。"""
+    last_exc = None
+    for attempt in range(max(1, int(retries))):
+        try:
+            response = requests.get(url, params=params, headers=headers, timeout=timeout)
+            response.raise_for_status()
+            payload = response.json()
+            return payload if isinstance(payload, dict) else {}
+        except Exception as exc:
+            last_exc = exc
+            if attempt < retries - 1:
+                time.sleep(delay * (attempt + 1))
+    logger.warning("{}获取失败: {}", label, last_exc)
+    return {}
 
 
 def _normalize_stock_fund_flow(raw: pd.DataFrame | None, period: str, source: str) -> pd.DataFrame:
@@ -208,11 +258,18 @@ def _normalize_board_fund_flow(raw: pd.DataFrame | None, kind: str, period: str,
 
 
 def _normalize_baidu_fund_flow_history(payload: dict, code: str, source: str) -> pd.DataFrame:
+    if not isinstance(payload, dict):
+        return pd.DataFrame()
     if str(payload.get("ResultCode", -1)) != "0":
+        return pd.DataFrame()
+    result = payload.get("Result")
+    if not isinstance(result, dict):
         return pd.DataFrame()
     fetched_at = _now()
     rows = []
-    for item in payload.get("Result", {}).get("list", []) or []:
+    for item in result.get("list", []) or []:
+        if not isinstance(item, dict):
+            continue
         trade_date = _date(item.get("showtime"))
         if not trade_date:
             continue
@@ -342,15 +399,24 @@ def _normalize_concept_constituents(
 
 
 def _parse_baidu_profile_payload(payload: dict, code: str, source: str) -> dict:
+    if not isinstance(payload, dict):
+        return {}
     if str(payload.get("ResultCode", -1)) != "0":
         return {}
 
     industry_blocks = []
     region_blocks = []
     concepts = []
-    for block in payload.get("Result", []) or []:
+    result = payload.get("Result")
+    if not isinstance(result, list):
+        return {}
+    for block in result:
+        if not isinstance(block, dict):
+            continue
         block_type = str(block.get("type", ""))
         for item in block.get("list", []) or []:
+            if not isinstance(item, dict):
+                continue
             name = _clean_text(item.get("name"))
             if not name:
                 continue

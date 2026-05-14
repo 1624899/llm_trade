@@ -202,13 +202,12 @@ class MacroAgent:
             parsed = json.loads(cleaned)
             return parsed if isinstance(parsed, dict) else {}
         except json.JSONDecodeError:
-            match = re.search(r"\{.*\}", cleaned, flags=re.S)
-            if not match:
-                return {}
             try:
-                parsed = json.loads(match.group(0))
+                decoder = json.JSONDecoder()
+                idx = cleaned.index("{")
+                parsed, _ = decoder.raw_decode(cleaned, idx)
                 return parsed if isinstance(parsed, dict) else {}
-            except json.JSONDecodeError:
+            except (ValueError, json.JSONDecodeError):
                 return {}
 
     def _apply_market_snapshot_guardrails(

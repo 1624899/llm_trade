@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from datetime import datetime
 from typing import Iterable
 
@@ -29,6 +30,8 @@ def fetch_mootdx_bars(
     if frequency is None:
         raise ValueError(f"Unsupported mootdx period: {period}")
 
+    _patch_pandas_fillna_method_compat()
+
     try:
         from mootdx.quotes import Quotes
     except ImportError as exc:
@@ -40,28 +43,70 @@ def fetch_mootdx_bars(
     end_date = _normalize_trade_date(end_date)
 
     rows = []
-    for code in [str(item).zfill(6) for item in codes]:
-        try:
-            raw = client.bars(symbol=code, frequency=frequency, offset=max(1, int(offset or 1)), adjust="qfq")
-        except TypeError:
-            # 兼容旧版 mootdx 参数名，避免版本差异导致主链路中断。
-            raw = client.bars(symbol=code, category=frequency, offset=max(1, int(offset or 1)), adjust="qfq")
-        except Exception as exc:
-            logger.warning("mootdx K 线获取失败 {} {}: {}", code, period, exc)
-            continue
+    try:
+        for code in [str(item).zfill(6) for item in codes]:
+            try:
+                raw = client.bars(symbol=code, frequency=frequency, offset=max(1, int(offset or 1)), adjust="qfq")
+            except TypeError:
+                # 兼容旧版 mootdx 参数名，避免版本差异导致主链路中断。
+                raw = client.bars(symbol=code, category=frequency, offset=max(1, int(offset or 1)), adjust="qfq")
+            except Exception as exc:
+                logger.warning("mootdx K 线获取失败 {} {}: {}", code, period, exc)
+                continue
 
-        parsed = _parse_mootdx_bars(raw, code, period, fetched_at)
-        if parsed.empty:
-            continue
-        if start_date:
-            parsed = parsed[parsed["trade_date"] >= start_date]
-        if end_date:
-            parsed = parsed[parsed["trade_date"] <= end_date]
-        rows.append(parsed)
+            parsed = _parse_mootdx_bars(raw, code, period, fetched_at)
+            if parsed.empty:
+                continue
+            if start_date:
+                parsed = parsed[parsed["trade_date"] >= start_date]
+            if end_date:
+                parsed = parsed[parsed["trade_date"] <= end_date]
+            rows.append(parsed)
+    finally:
+        close = getattr(client, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception as exc:
+                logger.debug("mootdx 客户端关闭失败: {}", exc)
 
     if not rows:
         return pd.DataFrame()
     return pd.concat(rows, ignore_index=True)
+
+
+def _patch_pandas_fillna_method_compat() -> None:
+    """兼容 mootdx 旧代码在新版 pandas 中调用 fillna(method=...) 的写法。"""
+    fillna = pd.core.generic.NDFrame.fillna
+    if getattr(fillna, "_mootdx_method_compat", False):
+        return
+    if "method" in inspect.signature(fillna).parameters:
+        return
+
+    original_fillna = fillna
+
+    def fillna_compat(self, value=None, *, method=None, axis=None, inplace=False, limit=None, **kwargs):
+        if method is None:
+            return original_fillna(
+                self,
+                value=value,
+                axis=axis,
+                inplace=inplace,
+                limit=limit,
+                **kwargs,
+            )
+        if value is not None:
+            raise ValueError("Cannot specify both 'value' and 'method'.")
+
+        method_name = str(method).lower()
+        if method_name in ("ffill", "pad"):
+            return self.ffill(axis=axis, inplace=inplace, limit=limit)
+        if method_name in ("bfill", "backfill"):
+            return self.bfill(axis=axis, inplace=inplace, limit=limit)
+        raise ValueError(f"Invalid fillna method: {method}")
+
+    fillna_compat._mootdx_method_compat = True
+    pd.core.generic.NDFrame.fillna = fillna_compat
 
 
 def _parse_mootdx_bars(raw: pd.DataFrame | None, code: str, period: str, fetched_at: str) -> pd.DataFrame:

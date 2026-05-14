@@ -43,6 +43,8 @@ def main():
     args = parser.parse_args()
     
     if not any([args.sync, args.backfill_bars, args.derive_bars, args.pick, args.trade, args.set_trade_cash is not None, args.analyze, args.post, args.backtest, args.quick_filter_backtest, args.dashboard]):
+        if args.reset_trade_baseline:
+            logger.warning("--reset-trade-baseline 必须配合 --set-trade-cash 使用，例如：python main.py --set-trade-cash 50000 --reset-trade-baseline")
         parser.print_help()
         logger.info("\n没有输入任何指令。例如执行每日选股： python main.py --pick")
         return

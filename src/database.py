@@ -439,7 +439,13 @@ class StockDatabase:
                 status TEXT DEFAULT 'OPEN',
                 linked_watchlist_id INTEGER,
                 buy_reason TEXT,
-                risk_note TEXT
+                risk_note TEXT,
+                realized_pnl REAL DEFAULT 0,
+                realized_return_pct REAL DEFAULT 0,
+                sold_quantity INTEGER DEFAULT 0,
+                closed_at TEXT,
+                last_reflected_at TEXT,
+                reflection_count INTEGER DEFAULT 0
             )
             """,
             """

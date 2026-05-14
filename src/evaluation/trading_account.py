@@ -777,19 +777,25 @@ class TradingAccount:
         )
         if df.empty:
             return False
-        return self._days_since(str(df.iloc[0]["created_at"])) < self.rebuy_cooldown_days
+        days = self._days_since(str(df.iloc[0]["created_at"]))
+        if days is None:
+            return False
+        return days < self.rebuy_cooldown_days
 
     def _holding_period_satisfied(self, position: Dict[str, Any]) -> bool:
         """判断是否满足了最低持有天数 (控制换手率防频繁交易)。"""
         opened_at = str(position.get("opened_at") or "")
-        return self._days_since(opened_at) >= self.min_holding_days
+        days = self._days_since(opened_at)
+        if days is None:
+            return True
+        return days >= self.min_holding_days
 
-    def _days_since(self, timestamp: str) -> int:
-        """帮助方法：统计指定时间到目前相差的天数。"""
+    def _days_since(self, timestamp: str) -> int | None:
+        """帮助方法：统计指定时间到目前相差的天数。解析失败返回 None。"""
         try:
             dt = datetime.strptime(timestamp[:19], "%Y-%m-%d %H:%M:%S")
         except (TypeError, ValueError):
-            return 9999
+            return None
         return (datetime.now() - dt).days
 
     def _resolve_price(self, decision: Dict[str, Any], fallback: Any = None) -> float:

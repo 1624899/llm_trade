@@ -26,6 +26,14 @@ active_llm: "deepseek"
 agent_workflow:
   candidate_analysis_max_workers: 3
 
+candidate_enrichment:
+  enabled: true
+  lhb_lookback_days: 10
+  release_forward_days: 60
+  baidu_fund_flow_days: 5
+  research_report_pages: 1
+  max_summary_items: 3
+
 web_search:
   enabled: true
   provider: "tavily"
@@ -42,7 +50,7 @@ web_search:
 data:
   enable_cleanup: true
   derive_period_bars_on_sync: false
-  backfill_history_on_sync: true
+  backfill_history_on_sync: false
   enable_daily_bars_incremental_fill: true
   market_data_retention_days: 30
   macro_events_retention_days: 30
@@ -53,23 +61,14 @@ data:
   market_bars_weekly_retention_days: 1825
   market_bars_monthly_retention_days: 3650
   daily_lhb_retention_days: 180
-  market_signal_lookback_days: 7
-  restricted_release_forward_days: 60
-  concept_membership_top_n: 12
-  baidu_profile_max_codes: 300
-  baidu_fund_flow_max_codes: 120
-  baidu_fund_flow_days: 20
-  info_source_max_codes: 80
-  research_report_pages: 2
-  stock_news_limit: 20
-  global_news_limit: 50
-  announcement_lookback_days: 365
-  announcement_limit: 30
   paper_trades_retention_days: 365
-  mootdx_bar_offset: 900
-  mootdx_history_offset: 5000
-  mootdx_timeout: 15
-  market_bars_history_start_date: "20000101"
+  tushare_token: "env:TUSHARE_TOKEN"
+  tushare_anomaly_pct: 15
+  tushare_history_start_date: "20000101"
+  tushare_request_interval: 0.3
+  tushare_history_max_workers: 1
+  tushare_max_retries: 3
+  tushare_fetch_adj_factor: false
   retry_times: 3
   timeout: 30
   max_workers: 5

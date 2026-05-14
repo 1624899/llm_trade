@@ -39,7 +39,7 @@ class PaperTrading:
         logger.info("初始化虚拟观察仓 (Paper Trading) ...")
 
     def _get_current_price(self, symbol: str) -> float:
-        """优先从实时行情源取价，失败后回退到本地最新快照。"""
+        """优先从实时行情源取价，失败后回退到本地最新快照和日线 K 线。"""
         code = str(symbol).zfill(6)
         prices = fetch_latest_prices([code])
         if code in prices:
@@ -50,6 +50,19 @@ class PaperTrading:
             SELECT price
             FROM daily_quotes
             WHERE code = ?
+            ORDER BY trade_date DESC
+            LIMIT 1
+            """,
+            (code,),
+        )
+        if df is not None and not df.empty:
+            return float(df.iloc[0]["price"])
+
+        df = self.db.query_to_dataframe(
+            """
+            SELECT close AS price
+            FROM market_bars
+            WHERE code = ? AND period = 'daily'
             ORDER BY trade_date DESC
             LIMIT 1
             """,
@@ -288,8 +301,3 @@ class PaperTrading:
         except (TypeError, ValueError):
             return None
 
-
-if __name__ == "__main__":
-    pt = PaperTrading()
-    pt.add_trade("000001", "平安银行", "模拟 Agent 自动推荐测试")
-    print(pt.run_post_market_review())

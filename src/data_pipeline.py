@@ -5,6 +5,7 @@
 """
 
 import akshare as ak
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import glob
 import os
 import pandas as pd
@@ -19,25 +20,6 @@ from src.data_pipeline_derivation import PeriodBarDerivationMixin
 from src.data_pipeline_index import IndexBarsMixin
 from src.data_pipeline_quotes import DailyQuotesMixin
 from src.financial_data import FinancialDataProvider
-from src.market_extras import (
-    fetch_akshare_stock_news,
-    fetch_cls_global_news,
-    fetch_cninfo_announcements,
-    fetch_eastmoney_global_news,
-    fetch_eastmoney_research_reports,
-    fetch_ths_eps_forecast,
-)
-from src.mootdx_sources import fetch_mootdx_bars
-from src.signal_sources import (
-    fetch_baidu_stock_fund_flow_history,
-    fetch_baidu_stock_profile,
-    fetch_eastmoney_lhb,
-    fetch_eastmoney_concept_constituents,
-    fetch_eastmoney_restricted_release,
-    fetch_ths_concept_boards,
-    fetch_ths_board_fund_flow,
-    fetch_ths_stock_fund_flow,
-)
 
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -50,11 +32,16 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
         初始化数据流水线，配置数据库连接、各API参数及清理设置。
         """
         self.db = StockDatabase()
-        # mootdx 行情配置
-        self.mootdx_bar_offset = 900
-        self.mootdx_history_offset = 5000
-        self.mootdx_timeout = 15
-        self.market_bars_history_start_date = self._date_days_ago(3650)
+        # Tushare 日线配置
+        self.tushare_token = os.getenv("TUSHARE_TOKEN") or os.getenv("TUSHARE_API_KEY", "")
+        self.tushare_anomaly_pct = 15.0
+        self.tushare_history_start_date = self._date_days_ago(3650)
+        self.tushare_request_interval = 1.3
+        self.tushare_max_retries = 3
+        self.tushare_history_max_workers = 1
+        self.tushare_fetch_adj_factor = False
+        self._last_tushare_request_at = 0.0
+        self.market_bars_history_start_date = self.tushare_history_start_date
         # 每日更新时间
         self.daily_update_after_time = "15:30"
         # 数据清理与保留设置
@@ -73,18 +60,6 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
         self.market_bars_weekly_retention_days = 1825
         self.market_bars_monthly_retention_days = 3650
         self.daily_lhb_retention_days = 180
-        self.market_signal_lookback_days = 7
-        self.restricted_release_forward_days = 60
-        self.concept_membership_top_n = 12
-        self.baidu_profile_max_codes = 300
-        self.baidu_fund_flow_max_codes = 120
-        self.baidu_fund_flow_days = 20
-        self.info_source_max_codes = 80
-        self.research_report_pages = 2
-        self.stock_news_limit = 20
-        self.global_news_limit = 50
-        self.announcement_lookback_days = 365
-        self.announcement_limit = 30
         self.paper_trades_retention_days = 365
         # 财务数据提供者
         self.financial_data_provider = FinancialDataProvider()
@@ -94,6 +69,36 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
     @staticmethod
     def _date_days_ago(days: int) -> str:
         return (datetime.now() - timedelta(days=max(1, int(days)))).strftime("%Y%m%d")
+
+    def _call_tushare_api(self, api_func, **kwargs):
+        """调用 Tushare API，并处理限频重试。"""
+        max_retries = max(1, int(getattr(self, "tushare_max_retries", 3)))
+        request_interval = max(0.0, float(getattr(self, "tushare_request_interval", 1.3)))
+        for attempt in range(1, max_retries + 1):
+            elapsed = time.monotonic() - getattr(self, "_last_tushare_request_at", 0.0)
+            wait_seconds = request_interval - elapsed
+            if wait_seconds > 0:
+                time.sleep(wait_seconds)
+
+            self._last_tushare_request_at = time.monotonic()
+            try:
+                return api_func(**kwargs)
+            except Exception as exc:
+                message = str(exc)
+                if "频率超限" in message or "rate" in message.lower():
+                    sleep_seconds = max(65.0, request_interval * 2)
+                    logger.warning(
+                        "Tushare request hit rate limit; sleeping {:.0f}s before retry {}/{}",
+                        sleep_seconds,
+                        attempt,
+                        max_retries,
+                    )
+                    time.sleep(sleep_seconds)
+                    continue
+                if attempt >= max_retries:
+                    raise
+                time.sleep(min(10.0, attempt * request_interval))
+        return None
 
     def _safe_fetch(self, func, *args, retries=3, delay=5, **kwargs):
         """
@@ -120,7 +125,7 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
         2. 多周期支持：日线、周线、月线。
         3. 周/月线由清洗后的日线聚合而成。
         """
-        # 当前策略：mootdx 拉取日线，周/月线由清洗后的日线聚合生成。
+        # 当前策略：Tushare 按交易日批量拉取日线，周/月线由清洗后的日线聚合生成。
         codes = codes or self._load_stock_codes_from_lake()
         if not codes:
             logger.error("没有发现K 线的股票代码，请先同步 stock_basic")
@@ -128,6 +133,7 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
 
         all_success = True
         refreshed_daily_codes = set()
+        attempted_daily_codes = set()
         for period in periods:
             period = self._normalize_period(period)
             pending_codes = self._filter_codes_needing_bars(codes, period)
@@ -139,23 +145,30 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
             logger.info(f"Start syncing {period} bars: pending={len(pending_codes)}, skipped={skipped_count}")
 
             if period == "daily":
+                attempted_daily_codes.update(str(code).zfill(6) for code in pending_codes)
                 ok = self.sync_daily_bars_incremental(pending_codes)
                 if ok:
                     refreshed_daily_codes.update(str(code).zfill(6) for code in pending_codes)
                 all_success = all_success and ok
                 continue
 
+            pending_daily_codes = [str(code).zfill(6) for code in pending_codes]
             missing_daily_refresh_codes = [
                 code for code in pending_codes
                 if str(code).zfill(6) not in refreshed_daily_codes
+                and str(code).zfill(6) not in attempted_daily_codes
             ]
             if missing_daily_refresh_codes:
+                attempted_daily_codes.update(str(code).zfill(6) for code in missing_daily_refresh_codes)
                 daily_ok = self.sync_daily_bars_incremental(missing_daily_refresh_codes)
                 if daily_ok:
                     refreshed_daily_codes.update(str(code).zfill(6) for code in missing_daily_refresh_codes)
-            else:
+            elif all(code in refreshed_daily_codes for code in pending_daily_codes):
                 daily_ok = True
                 logger.info(f"{period} K line reuses daily refresh from current sync")
+            else:
+                daily_ok = False
+                logger.info(f"{period} K line skips repeated daily refresh after previous attempt")
             if not daily_ok:
                 logger.warning(f"{period} K line will use existing local daily bars because daily refresh failed")
             start_date = self._current_period_start_date(period)
@@ -182,29 +195,23 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
     def sync_daily_bars_by_trade_date(self, codes=None, trade_date: str = None) -> bool:
         """
         按交易日拉取并存储日线数据。
-        主数据源：mootdx。旧的 Yahoo/efinance/AKShare 兜底链路已移除，避免同一表内混入语义不同的 K 线。
+        主数据源：Tushare。不启用其他日线兜底，避免同一表内混入语义不同的 K 线。
         """
         codes = [str(code).zfill(6) for code in (codes or self._load_stock_codes_from_lake())]
         if not codes:
             return True
 
         trade_date = str(trade_date or self._expected_latest_trade_date("daily")).replace("-", "")[:8]
-        bars_df = self._fetch_mootdx_bars(
-            codes,
-            "daily",
-            start_date=trade_date,
-            end_date=trade_date,
-            offset=getattr(self, "mootdx_bar_offset", 900),
-        )
+        bars_df = self._fetch_tushare_daily_bars(trade_date, codes)
 
         if bars_df is None or bars_df.empty:
-            logger.error("每日 K 线同步失败：mootdx 未返回可用数据")
+            logger.error("每日 K 线同步失败：Tushare 未返回可用数据")
             return False
 
         final_codes = set(bars_df["code"].astype(str).str.zfill(6))
         missing_codes = [code for code in codes if code not in final_codes]
         if missing_codes:
-            logger.warning(f"mootdx daily K line missing {len(missing_codes)} codes")
+            logger.warning(f"Tushare daily K line missing {len(missing_codes)} codes")
 
         clean_df = self._clean_market_bars(bars_df, "daily")
         if clean_df.empty:
@@ -287,27 +294,61 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
         derive_periods=("weekly", "monthly"),
     ) -> bool:
         """
-        通过 mootdx 拉取全市场历史日线数据来初始化本地数据库。
+        通过 Tushare 按交易日拉取全市场历史日线数据来初始化本地数据库。
         """
         codes = [str(code).zfill(6) for code in (codes or self._load_stock_codes_from_lake())]
         if not codes:
             logger.error("No stock codes available for historical market_bars initialization")
             return False
 
-        start_date = str(start_date or getattr(self, "market_bars_history_start_date", "20000101")).replace("-", "")[:8]
+        start_date = str(
+            start_date
+            or getattr(self, "tushare_history_start_date", "")
+            or getattr(self, "market_bars_history_start_date", "20000101")
+        ).replace("-", "")[:8]
         end_date = str(end_date or self._expected_latest_trade_date("daily")).replace("-", "")[:8]
+        trade_dates = self._resolve_trade_dates(start_date, end_date)
+        if not trade_dates:
+            logger.error(f"No trade dates resolved for {start_date}..{end_date}")
+            return False
+        existing_dates = self._existing_daily_trade_dates()
+        pending_trade_dates = [trade_date for trade_date in trade_dates if trade_date not in existing_dates]
+        skipped_dates = len(trade_dates) - len(pending_trade_dates)
+        if not pending_trade_dates:
+            logger.info(
+                f"Historical daily K initialization already complete for {start_date}..{end_date}; "
+                f"skipped={skipped_dates}"
+            )
+
         logger.info(
-            f"Start mootdx historical daily K initialization: codes={len(codes)}, "
-            f"start={start_date}, end={end_date}"
+            f"Start Tushare historical daily K initialization: pending={len(pending_trade_dates)}, "
+            f"skipped={skipped_dates}, workers={self.tushare_history_max_workers}"
         )
-        bars_df = self._fetch_mootdx_bars(
-            codes,
-            "daily",
-            start_date=start_date,
-            end_date=end_date,
-            offset=getattr(self, "mootdx_history_offset", 5000),
-        )
-        all_success = self._clean_upsert_historical_daily(end_date, bars_df)
+        all_success = True
+        if self.tushare_history_max_workers <= 1:
+            for idx, trade_date in enumerate(pending_trade_dates, start=1):
+                all_success = self._fetch_clean_upsert_historical_daily(trade_date, codes) and all_success
+                if idx % 100 == 0 or idx == len(pending_trade_dates):
+                    logger.info(f"Historical daily K progress: {idx}/{len(pending_trade_dates)} trade dates")
+        else:
+            with ThreadPoolExecutor(max_workers=self.tushare_history_max_workers) as executor:
+                future_to_date = {
+                    executor.submit(self._fetch_tushare_daily_bars, trade_date, codes): trade_date
+                    for trade_date in pending_trade_dates
+                }
+                completed = 0
+                for future in as_completed(future_to_date):
+                    completed += 1
+                    trade_date = future_to_date[future]
+                    try:
+                        bars_df = future.result()
+                    except Exception as exc:
+                        logger.warning(f"Historical daily K line failed for {trade_date}: {exc}")
+                        all_success = False
+                        continue
+                    all_success = self._clean_upsert_historical_daily(trade_date, bars_df) and all_success
+                    if completed % 100 == 0 or completed == len(pending_trade_dates):
+                        logger.info(f"Historical daily K progress: {completed}/{len(pending_trade_dates)} trade dates")
 
         for period in derive_periods or ():
             period = self._normalize_period(period)
@@ -322,20 +363,109 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
             all_success = self._upsert_derived_period_bars(clean_df, period) and all_success
         return all_success
 
-    def _fetch_mootdx_bars(self, codes, period: str, start_date: str = None, end_date: str = None, offset: int = None):
-        """读取 mootdx K 线，集中处理超时和导入失败。"""
+    def _fetch_clean_upsert_historical_daily(self, trade_date: str, codes) -> bool:
+        bars_df = self._fetch_tushare_daily_bars(trade_date, codes)
+        return self._clean_upsert_historical_daily(trade_date, bars_df)
+
+    def _fetch_tushare_daily_bars(self, trade_date: str, codes=None):
+        """从 Tushare 获取指定交易日的日线行情。"""
+        token = str(
+            getattr(self, "tushare_token", "")
+            or os.getenv("TUSHARE_TOKEN")
+            or os.getenv("TUSHARE_API_KEY")
+            or ""
+        ).strip()
+        if not token:
+            logger.error("TUSHARE_TOKEN 未配置，无法同步日线")
+            return None
+
         try:
-            return fetch_mootdx_bars(
-                codes,
-                period=period,
-                start_date=start_date,
-                end_date=end_date,
-                offset=offset or getattr(self, "mootdx_bar_offset", 900),
-                timeout=getattr(self, "mootdx_timeout", 15),
-            )
+            import tushare as ts
+        except ImportError:
+            logger.error("tushare 未安装，无法同步日线")
+            return None
+
+        code_set = {str(code).zfill(6) for code in codes} if codes else None
+        fetched_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            pro = ts.pro_api(token)
+            raw = self._call_tushare_api(pro.daily, trade_date=trade_date)
         except Exception as exc:
-            logger.error("mootdx {} K 线主源不可用: {}", period, exc)
-            return pd.DataFrame()
+            logger.error(f"Tushare 日线获取失败 {trade_date}: {exc}")
+            return None
+
+        if raw is None or raw.empty:
+            logger.warning(f"Tushare 日线返回空数据 {trade_date}")
+            return None
+
+        adj = None
+        if getattr(self, "tushare_fetch_adj_factor", False):
+            try:
+                adj = self._call_tushare_api(pro.adj_factor, trade_date=trade_date)
+            except Exception as exc:
+                logger.warning(f"Tushare adj_factor 获取失败 {trade_date}: {exc}")
+
+        if adj is not None and not adj.empty and {"ts_code", "adj_factor"}.issubset(adj.columns):
+            raw = raw.merge(adj[["ts_code", "adj_factor"]], on="ts_code", how="left")
+
+        rows = []
+        for _, row in raw.iterrows():
+            code = str(row.get("ts_code", "")).split(".", 1)[0].zfill(6)
+            if code_set is not None and code not in code_set:
+                continue
+
+            close = row.get("close")
+            adj_factor = row.get("adj_factor")
+            adj_close = close
+            if pd.notna(close) and pd.notna(adj_factor):
+                adj_close = float(close) * float(adj_factor)
+
+            rows.append(
+                {
+                    "code": code,
+                    "period": "daily",
+                    "trade_date": str(row.get("trade_date", trade_date)).replace("-", "")[:8],
+                    "open": row.get("open"),
+                    "high": row.get("high"),
+                    "low": row.get("low"),
+                    "close": close,
+                    "adj_close": adj_close,
+                    "volume": row.get("vol"),
+                    "amount": row.get("amount"),
+                    "source": "tushare_daily",
+                    "fetched_at": fetched_at,
+                    "pre_close": row.get("pre_close"),
+                    "pct_chg": row.get("pct_chg"),
+                }
+            )
+
+        df = pd.DataFrame(rows)
+        if df.empty:
+            return None
+        return self._drop_anomalous_daily_bars(df)
+
+    def _drop_anomalous_daily_bars(self, df: pd.DataFrame) -> pd.DataFrame:
+        """剔除涨跌幅异常的日线数据。"""
+        anomaly_pct = getattr(self, "tushare_anomaly_pct", 15.0)
+        if df is None or df.empty or anomaly_pct <= 0:
+            return df
+
+        clean_df = df.copy()
+        close = pd.to_numeric(clean_df.get("close"), errors="coerce")
+        pct_chg = pd.to_numeric(clean_df.get("pct_chg"), errors="coerce")
+        if "pre_close" in clean_df.columns:
+            pre_close = pd.to_numeric(clean_df.get("pre_close"), errors="coerce")
+            derived_pct = (close - pre_close) / pre_close * 100
+            pct_chg = pct_chg.where(pct_chg.notna(), derived_pct)
+
+        anomalous = pct_chg.abs() > anomaly_pct
+        if anomalous.any():
+            logger.warning(
+                "Dropped {} daily bars with abs pct_chg above {}%",
+                int(anomalous.sum()),
+                anomaly_pct,
+            )
+        return clean_df[~anomalous].drop(columns=["pre_close", "pct_chg"], errors="ignore")
 
     def _clean_upsert_historical_daily(self, trade_date: str, bars_df: pd.DataFrame) -> bool:
         if bars_df is None or bars_df.empty:
@@ -422,298 +552,6 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
 
         return all_success
 
-    def sync_market_signals(
-        self,
-        start_date: str = None,
-        end_date: str = None,
-        fund_flow_period: str = "即时",
-    ) -> bool:
-        """同步信号层数据：资金流、龙虎榜、解禁。"""
-        end_date = str(end_date or self._expected_latest_trade_date("daily")).replace("-", "")[:8]
-        lookback_days = max(1, int(getattr(self, "market_signal_lookback_days", 7)))
-        start_date = str(
-            start_date
-            or (datetime.strptime(end_date, "%Y%m%d") - timedelta(days=lookback_days)).strftime("%Y%m%d")
-        ).replace("-", "")[:8]
-
-        ok = True
-        stock_flow = fetch_ths_stock_fund_flow(symbol=fund_flow_period)
-        ok = self._upsert_signal_frame(
-            "stock_fund_flows",
-            stock_flow,
-            ["code", "trade_date", "period", "source"],
-        ) and ok
-
-        for kind in ("industry", "concept"):
-            board_flow = fetch_ths_board_fund_flow(kind=kind, symbol=fund_flow_period)
-            ok = self._upsert_signal_frame(
-                "board_fund_flows",
-                board_flow,
-                ["board_name", "kind", "trade_date", "period", "source"],
-            ) and ok
-
-        lhb = fetch_eastmoney_lhb(start_date=start_date, end_date=end_date)
-        ok = self._upsert_signal_frame(
-            "lhb_details",
-            lhb,
-            ["code", "trade_date", "reason", "source"],
-        ) and ok
-
-        release_end = (
-            datetime.strptime(end_date, "%Y%m%d")
-            + timedelta(days=max(1, int(getattr(self, "restricted_release_forward_days", 60))))
-        ).strftime("%Y%m%d")
-        releases = fetch_eastmoney_restricted_release(start_date=end_date, end_date=release_end)
-        ok = self._upsert_signal_frame(
-            "restricted_releases",
-            releases,
-            ["code", "release_date", "holder_type", "source"],
-        ) and ok
-
-        ok = self.sync_concept_taxonomy(max_concepts=getattr(self, "concept_membership_top_n", 12)) and ok
-        ok = self.sync_baidu_stock_profiles(max_codes=getattr(self, "baidu_profile_max_codes", 300)) and ok
-        ok = self.sync_baidu_stock_fund_flows(
-            max_codes=getattr(self, "baidu_fund_flow_max_codes", 120),
-            days=getattr(self, "baidu_fund_flow_days", 20),
-        ) and ok
-        return ok
-
-    def sync_information_sources(self, codes=None) -> bool:
-        """同步研报、新闻和公告三类信息源。"""
-        max_codes = max(1, int(getattr(self, "info_source_max_codes", 80)))
-        target_codes = [str(code).zfill(6) for code in (codes or self._select_baidu_profile_codes(max_codes))]
-        if not target_codes:
-            logger.warning("信息源同步没有待处理股票代码")
-            return True
-
-        ok = True
-        ok = self.sync_research_reports(codes=target_codes) and ok
-        ok = self.sync_news_sources(codes=target_codes) and ok
-        ok = self.sync_cninfo_announcements(codes=target_codes) and ok
-        return ok
-
-    def sync_research_reports(self, codes=None) -> bool:
-        """同步东方财富研报列表、PDF 元数据和同花顺 EPS 一致预期。"""
-        codes = [str(code).zfill(6) for code in (codes or self._select_baidu_profile_codes(getattr(self, "info_source_max_codes", 80)))]
-        ok = True
-        report_frames = []
-        eps_frames = []
-        for code in codes:
-            reports = fetch_eastmoney_research_reports(code, max_pages=getattr(self, "research_report_pages", 2))
-            if reports is not None and not reports.empty:
-                report_frames.append(reports)
-            eps = fetch_ths_eps_forecast(code)
-            if eps is not None and not eps.empty:
-                eps_frames.append(eps)
-            time.sleep(0.15)
-
-        if report_frames:
-            ok = self._upsert_signal_frame(
-                "research_reports",
-                pd.concat(report_frames, ignore_index=True),
-                ["code", "info_code", "source"],
-            ) and ok
-        else:
-            logger.warning("research_reports 无可写入研报数据")
-
-        if eps_frames:
-            ok = self._upsert_signal_frame(
-                "eps_forecasts",
-                pd.concat(eps_frames, ignore_index=True),
-                ["code", "forecast_year", "source"],
-            ) and ok
-        else:
-            logger.warning("eps_forecasts 无可写入一致预期数据")
-        return ok
-
-    def sync_news_sources(self, codes=None) -> bool:
-        """同步 akshare 新闻三源：个股新闻、财联社快讯、全球资讯。"""
-        codes = [str(code).zfill(6) for code in (codes or self._select_baidu_profile_codes(getattr(self, "info_source_max_codes", 80)))]
-        ok = True
-        stock_frames = []
-        for code in codes:
-            df = fetch_akshare_stock_news(code, limit=getattr(self, "stock_news_limit", 20))
-            if df is not None and not df.empty:
-                stock_frames.append(df)
-            time.sleep(0.1)
-        if stock_frames:
-            ok = self._upsert_signal_frame(
-                "stock_news",
-                pd.concat(stock_frames, ignore_index=True),
-                ["code", "title", "datetime", "source"],
-            ) and ok
-        else:
-            logger.warning("stock_news 无可写入个股新闻")
-
-        market_frames = [
-            fetch_cls_global_news(limit=getattr(self, "global_news_limit", 50)),
-            fetch_eastmoney_global_news(limit=getattr(self, "global_news_limit", 50)),
-        ]
-        market_frames = [df for df in market_frames if df is not None and not df.empty]
-        if market_frames:
-            market_news = pd.concat(market_frames, ignore_index=True)
-            market_news = market_news.drop(columns=["code"], errors="ignore")
-            ok = self._upsert_signal_frame(
-                "market_news",
-                market_news,
-                ["title", "datetime", "source"],
-            ) and ok
-        else:
-            logger.warning("market_news 无可写入全球资讯")
-        return ok
-
-    def sync_cninfo_announcements(self, codes=None) -> bool:
-        """同步巨潮公告列表和 PDF 元数据。"""
-        codes = [str(code).zfill(6) for code in (codes or self._select_baidu_profile_codes(getattr(self, "info_source_max_codes", 80)))]
-        end_date = self._expected_latest_trade_date("daily")
-        start_date = (
-            datetime.strptime(end_date, "%Y%m%d")
-            - timedelta(days=max(1, int(getattr(self, "announcement_lookback_days", 365))))
-        ).strftime("%Y%m%d")
-        frames = []
-        for code in codes:
-            df = fetch_cninfo_announcements(
-                code,
-                limit=getattr(self, "announcement_limit", 30),
-                start_date=start_date,
-                end_date=end_date,
-            )
-            if df is not None and not df.empty:
-                frames.append(df)
-            time.sleep(0.1)
-        if not frames:
-            logger.warning("company_announcements 无可写入巨潮公告")
-            return True
-        return self._upsert_signal_frame(
-            "company_announcements",
-            pd.concat(frames, ignore_index=True),
-            ["code", "announcement_id", "source"],
-        )
-
-    def sync_concept_taxonomy(self, max_concepts: int = 12) -> bool:
-        """同步概念目录和热门概念成分股。"""
-        boards = fetch_ths_concept_boards()
-        ok = self._upsert_signal_frame("concept_boards", boards, ["concept_name", "source"])
-        concept_rows = self._select_concepts_for_membership(boards, max_concepts=max_concepts)
-        if not concept_rows:
-            return ok
-
-        frames = []
-        for item in concept_rows:
-            concept_name = str(item.get("concept_name") or "").strip()
-            if not concept_name:
-                continue
-            df = fetch_eastmoney_concept_constituents(
-                concept_name,
-                concept_code=str(item.get("concept_code") or ""),
-            )
-            if df is not None and not df.empty:
-                frames.append(df)
-            time.sleep(0.1)
-
-        if not frames:
-            logger.warning("stock_concepts 无可写入概念成分数据")
-            return ok
-        members = pd.concat(frames, ignore_index=True)
-        return self._upsert_signal_frame(
-            "stock_concepts",
-            members,
-            ["code", "concept_name", "source"],
-        ) and ok
-
-    def sync_baidu_stock_profiles(self, codes=None, max_codes: int = 300) -> bool:
-        """同步百度股市通行业、概念、地域三维归属。"""
-        target_codes = [str(code).zfill(6) for code in (codes or self._select_baidu_profile_codes(max_codes))]
-        if not target_codes:
-            logger.warning("stock_profiles 无待同步股票代码")
-            return True
-
-        frames = []
-        for code in target_codes[: max(1, int(max_codes or 1))]:
-            df = fetch_baidu_stock_profile(code)
-            if df is not None and not df.empty:
-                frames.append(df)
-            time.sleep(0.1)
-
-        if not frames:
-            logger.warning("stock_profiles 无可写入百度画像数据")
-            return True
-        profiles = pd.concat(frames, ignore_index=True)
-        return self._upsert_signal_frame("stock_profiles", profiles, ["code", "source"])
-
-    def sync_baidu_stock_fund_flows(self, codes=None, max_codes: int = 120, days: int = 20) -> bool:
-        """同步百度股市通日级资金流。"""
-        target_codes = [str(code).zfill(6) for code in (codes or self._select_baidu_profile_codes(max_codes))]
-        if not target_codes:
-            logger.warning("baidu_stock_fund_flows 无待同步股票代码")
-            return True
-
-        frames = []
-        for code in target_codes[: max(1, int(max_codes or 1))]:
-            df = fetch_baidu_stock_fund_flow_history(code, days=days)
-            if df is not None and not df.empty:
-                frames.append(df)
-            time.sleep(0.1)
-
-        if not frames:
-            logger.warning("baidu_stock_fund_flows 无可写入资金流数据")
-            return True
-        flows = pd.concat(frames, ignore_index=True)
-        return self._upsert_signal_frame("baidu_stock_fund_flows", flows, ["code", "trade_date", "source"])
-
-    def _select_baidu_profile_codes(self, max_codes: int = 300) -> list[str]:
-        """优先同步近期成交额活跃股票，避免全市场画像接口过重。"""
-        max_codes = max(1, int(max_codes or 1))
-        active_df = self.db.query_to_dataframe(
-            """
-            SELECT dq.code
-            FROM daily_quotes dq
-            WHERE dq.trade_date = (SELECT MAX(trade_date) FROM daily_quotes)
-            ORDER BY COALESCE(dq.amount, 0) DESC, ABS(COALESCE(dq.change_pct, 0)) DESC
-            LIMIT ?
-            """,
-            (max_codes,),
-        )
-        if active_df is not None and not active_df.empty:
-            return active_df["code"].astype(str).str.zfill(6).tolist()
-        return self._load_stock_codes_from_lake()[:max_codes]
-
-    def _select_concepts_for_membership(self, boards: pd.DataFrame, max_concepts: int = 12) -> list[dict]:
-        """优先选择资金流最强的概念，避免全量成分同步过重。"""
-        max_concepts = max(1, int(max_concepts or 1))
-        flow_df = self.db.query_to_dataframe(
-            """
-            SELECT board_name AS concept_name
-            FROM board_fund_flows
-            WHERE kind = 'concept'
-              AND trade_date = (SELECT MAX(trade_date) FROM board_fund_flows WHERE kind = 'concept')
-            ORDER BY COALESCE(main_net_inflow, 0) DESC, COALESCE(change_pct, 0) DESC
-            LIMIT ?
-            """,
-            (max_concepts,),
-        )
-
-        selected_names = []
-        if flow_df is not None and not flow_df.empty:
-            selected_names = flow_df["concept_name"].astype(str).dropna().tolist()
-        elif boards is not None and not boards.empty:
-            selected_names = boards["concept_name"].astype(str).dropna().head(max_concepts).tolist()
-
-        if not selected_names:
-            return []
-
-        code_map = {}
-        if boards is not None and not boards.empty:
-            code_map = dict(zip(boards["concept_name"].astype(str), boards.get("concept_code", "").astype(str)))
-        return [{"concept_name": name, "concept_code": code_map.get(name, "")} for name in selected_names[:max_concepts]]
-
-    def _upsert_signal_frame(self, table_name: str, df: pd.DataFrame, key_columns: list[str]) -> bool:
-        """统一写入信号层 DataFrame，空数据不让主流程失败。"""
-        if df is None or df.empty:
-            logger.warning("{} 无可写入信号数据", table_name)
-            return True
-        return self.db.upsert_dataframe(table_name, df, key_columns=key_columns)
-
     def _load_stock_codes_from_lake(self):
         """
         从本地 stock_basic 表中加载所有股票代码。
@@ -745,52 +583,40 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
         target_period = "daily" if period in {"weekly", "monthly"} else period
         target_date = self._expected_latest_trade_date(target_period)
         codes = [str(code).zfill(6) for code in codes]
+        return self._filter_codes_needing_period_bars(codes, period, target_date)
 
-        latest_df = self._latest_bar_status(period)
-        if latest_df is None or latest_df.empty:
-            logger.info("log message")
-            return codes
+    def _filter_codes_needing_period_bars(self, codes, period: str, target_date: str):
+        """按目标交易日做轻量检查，避免扫描多年全量 K 线。"""
+        if not codes:
+            return []
 
-        latest_df["code"] = latest_df["code"].astype(str).str.zfill(6)
-        latest_map = dict(zip(latest_df["code"], latest_df["latest_trade_date"].astype(str)))
-        source_map = dict(zip(latest_df["code"], latest_df["source"].fillna("").astype(str)))
-        pending_codes = [
-            code
-            for code in codes
-            if self._bar_is_stale(latest_map.get(code), target_date)
-            or not self._bar_source_is_trusted(period, source_map.get(code))
-        ]
-        logger.info(f"{period} bar freshness check: target={target_date}, existing={len(latest_map)}, pending={len(pending_codes)}")
-        return pending_codes
-
-    def _latest_bar_status(self, period: str) -> pd.DataFrame:
         if period == "daily":
             sql = (
-                "SELECT mb.code, mb.trade_date AS latest_trade_date, mb.source "
-                "FROM market_bars mb "
-                "JOIN ("
-                "    SELECT code, MAX(trade_date) AS latest_trade_date "
-                "    FROM market_bars "
-                "    WHERE period = ? "
-                "    GROUP BY code"
-                ") latest "
-                "ON latest.code = mb.code AND latest.latest_trade_date = mb.trade_date "
-                "WHERE mb.period = ?"
+                "SELECT code, source "
+                "FROM market_bars "
+                "WHERE period = 'daily' AND trade_date = ?"
             )
-            return self.db.query_to_dataframe(sql, (period, period))
+            existing_df = self.db.query_to_dataframe(sql, (target_date,))
+        else:
+            table_name = self._period_bar_table(period)
+            sql = f"SELECT code, source FROM {table_name} WHERE trade_date = ?"
+            existing_df = self.db.query_to_dataframe(sql, (target_date,))
 
-        table_name = self._period_bar_table(period)
-        sql = (
-            "SELECT mb.code, mb.trade_date AS latest_trade_date, mb.source "
-            f"FROM {table_name} mb "
-            "JOIN ("
-            "    SELECT code, MAX(trade_date) AS latest_trade_date "
-            f"    FROM {table_name} "
-            "    GROUP BY code"
-            ") latest "
-            "ON latest.code = mb.code AND latest.latest_trade_date = mb.trade_date"
+        if existing_df is None or existing_df.empty:
+            logger.info(f"{period} target-date check: target={target_date}, existing=0, pending={len(codes)}")
+            return codes
+
+        existing_df["code"] = existing_df["code"].astype(str).str.zfill(6)
+        fresh_codes = {
+            row["code"]
+            for _, row in existing_df.iterrows()
+            if self._bar_source_is_trusted(period, row.get("source"))
+        }
+        pending_codes = [code for code in codes if code not in fresh_codes]
+        logger.info(
+            f"{period} target-date check: target={target_date}, existing={len(fresh_codes)}, pending={len(pending_codes)}"
         )
-        return self.db.query_to_dataframe(sql)
+        return pending_codes
 
     def _current_period_start_date(self, period: str) -> str:
         latest_daily_str = self._expected_latest_trade_date("daily")
@@ -812,7 +638,7 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
     def _bar_source_is_trusted(period: str, source: str) -> bool:
         source = str(source or "")
         if period == "daily":
-            return source.startswith(("mootdx", "akshare_index"))
+            return source.startswith(("tushare", "akshare_index"))
         if period in {"weekly", "monthly"}:
             return source == "derived_daily_qfq" or source.startswith("akshare_index")
         return False
@@ -956,12 +782,6 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
         now = datetime.now()
         return now.hour > hour or (now.hour == hour and now.minute >= minute)
 
-    def _bar_is_stale(self, latest_trade_date, target_date: str) -> bool:
-        if not latest_trade_date or latest_trade_date == "nan":
-            return True
-        latest = str(latest_trade_date).replace("-", "")
-        return latest < target_date
-
     def cleanup_old_data(self) -> bool:
         """
         清理过期的数据库记录和本地数据文件，保持存储空间精简。
@@ -1100,7 +920,11 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
         return not row_count or int(row_count) == 0
 
     def _market_bars_needs_history_init(self) -> bool:
-        target_start = str(getattr(self, "market_bars_history_start_date", "") or "").replace("-", "")[:8]
+        target_start = str(
+            getattr(self, "tushare_history_start_date", "")
+            or getattr(self, "market_bars_history_start_date", "")
+            or ""
+        ).replace("-", "")[:8]
         if not target_start:
             return self._market_bars_is_empty()
 
@@ -1166,11 +990,11 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
                 return False
 
         if deleted:
-            logger.info("log message")
+            logger.info(f"过期文件清理完成，共删除 {deleted} 个文件")
         return True
 
     def _is_supported_bar_code(self, code: str) -> bool:
-        """判断代码是否适合进入 mootdx A 股 K 线同步。"""
+        """判断代码是否适合进入 A 股 K 线同步。"""
         code = str(code).zfill(6)
         return code.startswith(("000", "001", "002", "003", "300", "301", "600", "601", "603", "605", "688", "689"))
 
@@ -1228,7 +1052,7 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
         同步全市场股票的基础列表（代码、名称、行业等）。
         """
         if self._stock_basic_is_fresh():
-            logger.info("log message")
+            logger.info("股票基本信息已是最新，跳过同步")
             return True
 
         logger.info("同步股票基本信息...")
@@ -1283,20 +1107,17 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
 
     def run_all(self):
         """
-        执行完整的流水线流程：清理、同步基础表、行情快照、指数及 K 线。
+        执行离线主流水线：清理、同步基础表、行情快照、K 线和指数 K 线。
         """
         logger.info("=== 离线数据管道启动===")
         cleanup_ok = self.cleanup_old_data() if self.enable_cleanup else True
         success_basic = self.sync_stock_basic()
         success_quotes = self.sync_daily_quotes()
-        success_signals = self.sync_market_signals()
-        success_information = self.sync_information_sources()
-        success_index_bars = self.sync_index_bars()
         needs_history_init = self._market_bars_needs_history_init() if success_basic else False
         if success_basic and self.backfill_history_on_sync and needs_history_init:
             logger.info(
                 "market_bars history is incomplete; initializing 10-year daily history "
-                "from mootdx and deriving weekly/monthly bars"
+                "from Tushare and deriving weekly/monthly bars"
             )
             success_bars = self.sync_market_bars_history(derive_periods=("weekly", "monthly"))
         else:
@@ -1307,8 +1128,10 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
                 else:
                     logger.info("在每日同步中跳过每周/每月的推导计算，以节省时间；如果需要完整历史，请启用 backfill_history_on_sync")
             success_bars = self.sync_market_bars(periods=sync_periods) if success_basic else False
+
+        success_index_bars = self.sync_index_bars()
         
-        if cleanup_ok and success_basic and success_quotes and success_signals and success_information and success_index_bars and success_bars:
+        if cleanup_ok and success_basic and success_quotes and success_index_bars and success_bars:
             logger.info("=== 离线数据管道运行完成===")
             return True
         else:

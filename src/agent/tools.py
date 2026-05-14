@@ -10,6 +10,7 @@ import html
 import json
 import os
 import re
+import threading
 import time
 from pathlib import Path
 from urllib.parse import quote_plus, unquote, urlparse, parse_qs
@@ -36,6 +37,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(PROJECT_ROOT / ".env")
 
 class AgentTools:
+    _cache_lock = threading.Lock()
+
     def __init__(self):
         # 初始化只加载一次 LLM 配置
         self._load_config()
@@ -114,7 +117,10 @@ class AgentTools:
                 response = requests.post(f"{base_url}/chat/completions", headers=headers, json=data, timeout=90)
                 response.raise_for_status()
                 res_json = response.json()
-                content = res_json['choices'][0]['message']['content'].strip()
+                choices = res_json.get('choices')
+                if not choices:
+                    raise KeyError("choices is empty or missing")
+                content = choices[0]['message']['content'].strip()
                 logger.info(
                     f"[LLM] done model={model or 'unknown'} elapsed={time.time() - start_time:.1f}s "
                     f"output_chars={len(content)}"
@@ -136,7 +142,7 @@ class AgentTools:
                 else:
                     logger.error(f"LLM 网络请求失败 (最终失败): {e}")
                     return ""
-            except KeyError as e:
+            except (KeyError, IndexError, TypeError) as e:
                 logger.error(f"LLM 响应格式解析异常: {e}")
                 return ""
         return ""
@@ -546,7 +552,8 @@ class AgentTools:
             return ""
 
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
+            with self._cache_lock:
+                payload = json.loads(path.read_text(encoding="utf-8"))
             item = payload.get(cache_key)
             if not item:
                 return ""
@@ -559,13 +566,29 @@ class AgentTools:
 
     def _write_web_search_cache(self, cache_key: str, text: str) -> None:
         path = self._web_search_cache_path()
+        cfg = self.web_search_cfg or {}
+        ttl = int(cfg.get("cache_ttl_seconds", 21600))
+        max_entries = 500
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            payload = {}
-            if path.exists():
-                payload = json.loads(path.read_text(encoding="utf-8"))
-            payload[cache_key] = {"ts": time.time(), "text": text}
-            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            with self._cache_lock:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                payload = {}
+                if path.exists():
+                    try:
+                        payload = json.loads(path.read_text(encoding="utf-8"))
+                    except Exception:
+                        payload = {}
+                now = time.time()
+                payload = {
+                    k: v for k, v in payload.items()
+                    if now - float(v.get("ts", 0)) <= ttl
+                }
+                if len(payload) >= max_entries:
+                    oldest_keys = sorted(payload, key=lambda k: float(payload[k].get("ts", 0)))[: len(payload) - max_entries + 1]
+                    for k in oldest_keys:
+                        payload.pop(k, None)
+                payload[cache_key] = {"ts": now, "text": text}
+                path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception as e:
             logger.debug(f"写入 Web Search 缓存失败: {e}")
 

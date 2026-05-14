@@ -16,13 +16,15 @@ from src.agent.tools import tools
 class TradingAgent:
     """交易智能体类，根据观察仓（watchlist）和当前持仓（positions）生成可执行的模拟交易决策。"""
 
+    PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
     def __init__(
         self,
         *,
         max_positions: int = 5,
         max_buys_per_run: int = 2,
         max_sells_per_run: int = 2,
-        rules_path: str = "data/rules_book.txt",
+        rules_path: str | None = None,
     ):
         """
         初始化交易智能体。
@@ -36,7 +38,7 @@ class TradingAgent:
         self.max_positions = int(max_positions)
         self.max_buys_per_run = int(max_buys_per_run)
         self.max_sells_per_run = int(max_sells_per_run)
-        self.rules_path = rules_path
+        self.rules_path = rules_path or os.path.join(self.PROJECT_ROOT, "data", "rules_book.txt")
 
     def decide(
         self,

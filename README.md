@@ -33,11 +33,19 @@
 `DataPipeline` 会把基础股票信息、行情快照、多周期 K 线、指数 K 线和财务指标同步到本地 SQLite：
 
 - 数据库：`data/stock_lake.db`
+- 基础信息表：`stock_basic`
 - 行情快照表：`daily_quotes`
 - 日线 K 线表：`market_bars`
 - 周线 K 线表：`market_bars_weekly`
 - 月线 K 线表：`market_bars_monthly`
 - 财务指标表：`financial_metrics`
+- 个股资金流表：`stock_fund_flows`
+- 板块资金流表：`board_fund_flows`
+- 龙虎榜表：`daily_lhb`
+- 龙虎榜明细表：`lhb_details`
+- 限售解禁表：`restricted_releases`
+- 概念板块表：`concept_boards`
+- 个股概念表：`stock_concepts`
 - 观察仓候选池表：`watchlist_items`
 - 模拟交易账户表：`trading_account`
 - 模拟交易持仓表：`trading_positions`
@@ -46,8 +54,9 @@
 - 旧版观察仓兼容表：`paper_trades`
 
 行情快照优先使用腾讯/新浪等免费接口，腾讯负责补齐 PE/PB/市值/换手率等估值字段。
-日线 K 线主源为 mootdx，日常 `--sync` 只做增量维护；历史缺口补全、周线/月线聚合
+日线 K 线主源为 Tushare，日常 `--sync` 按交易日批量维护；历史缺口补全、周线/月线聚合
 分别由独立命令执行，避免盘后同步被大批量历史回填或全市场聚合卡住。
+mootdx 不进入全市场日线同步链路，保留给执行选股、个股分析、模拟交易等小批量实时行情场景。
 
 ### 2. 多策略选股雷达
 
@@ -179,8 +188,8 @@
 
 1. `StockScreener` 读取 `walk_forward_masked` 回测权重，进行多策略规则海选和技术分前置校准，按主策略分组配额生成约 20 只候选池，避免单一策略霸榜。
 2. `AgentCoordinator` 记录本轮海选信号快照，供未来持有周期完成后进入回测样本；本轮精筛不使用当前候选做“自证”。
-3. `MacroAgent` 判断市场状态、风险偏好和主线方向；它与遮盖式走步回测无关。
-4. `QuickFilterAgent` 读取宏观上下文和已校准的候选股极简快照，轻量精筛出最多 8 只进入资讯硬风控；候选不足时直接放行。
+3. `MacroAgent` 判断市场状态、风险偏好和有利/规避方向；它与遮盖式走步回测无关。
+4. `QuickFilterAgent` 读取宏观上下文和已校准的候选股极简快照，轻量精筛出最多 10 只进入资讯硬风控；候选不足时直接放行。
 5. `NewsRiskAgent` 先检查公告、新闻和重大风险词；命中 `hard_exclude` 的候选会立即停止后续基本面和技术面深度复核，避免继续消耗 Agent/LLM 资源。
 6. `FundamentalAgent` 仅对通过资讯硬风控的候选，结合财务数据和公告做基本面复核。
 7. `TechnicalAgent` 仅对通过资讯硬风控的候选，结合量化技术信号和 K 线摘要做技术复核。
@@ -228,7 +237,7 @@ web_search:
 python main.py --sync
 ```
 
-`--sync` 只做日常增量维护，不会自动补 10 年历史，也不会自动派生周线/月线。
+`--sync` 只做日常增量维护，不会自动补 10 年历史，也不会自动派生周线/月线。同步过程会执行过期数据清理，但不再批量请求容易失败的网页增强源。
 
 首次建库或历史 K 线被清空后，先单独补全近 10 年日线缺口：
 
@@ -253,9 +262,11 @@ python main.py --backtest
 
 当前默认数据源策略：
 
-- 日线主源：mootdx。
+- 日线主源：Tushare，需要配置 `TUSHARE_TOKEN`。
 - 腾讯快照：负责实时价、换手率、PE/PB、总市值等估值字段。
-- Yahoo/efinance/AKShare 日线兜底链路已删除，避免同一 K 线表混入语义不同的数据源。
+- Yahoo/efinance/AKShare/mootdx 不参与全市场日线兜底，避免同一 K 线表混入语义不同的数据源。
+- mootdx 保留为执行选股、个股分析、模拟交易时的小批量实时行情源，适合接入多周期 K 线、五档盘口、逐笔成交和 46 字段实时报价。
+- 东方财富概念、百度画像/资金流、巨潮公告、研报新闻等网页增强源不进入 `DataPipeline.run_all()`，避免免费接口批量失败拖垮离线主同步；其中新闻和公告由风控/基本面 Agent 对候选股即时读取，龙虎榜、解禁、研报/EPS、百度画像/资金流和本地概念由 `CandidateEnrichmentService` 对候选股、指定个股或交易持仓做小批量增强。
 - 周线/月线：不从外部数据源拉取，统一由本地日线聚合生成，并分别写入 `market_bars_weekly`、`market_bars_monthly`。
 
 财务数据同步目前没有默认放进 `run_all()`，避免全市场请求过重。可以在 Python 中按候选股或指定列表同步：
@@ -317,7 +328,7 @@ trading_account:
 - 初始化或读取持久模拟账户。
 - 刷新观察仓和交易仓当前价格。
 - 观察仓为空时，先补充候选池：已有持仓则分析持仓，完全空仓则自动选股。
-- 获取宏观环境和持仓退出信号。
+- 获取宏观环境和持仓退出信号。`ExitAgent` 会先对当前持仓生成退出信号（跌破止损、移动止盈、放量滞涨等），再交给 `TradingAgent` 做最终买卖/持有决策。
 - 调用 `TradingAgent` 生成买入、卖出、持有或继续观察决策。
 - 由 `TradingAccount` 校验现金、100 股一手、最多 5 只持仓、最短持有期和卖出冷却期。
 - 写入 `trade_orders`，并输出交易仓执行报告；历史清仓记录会继续展示在历史持仓区。
@@ -404,6 +415,12 @@ python main.py --dashboard
 python main.py --dashboard --dashboard-host 127.0.0.1 --dashboard-port 8765
 ```
 
+启动后自动打开浏览器：
+
+```bash
+python main.py --dashboard --open-browser
+```
+
 前端源码位于 `frontend/`：
 
 - `frontend/src/`：Vue 页面、组件、样式和 API 调用。
@@ -452,6 +469,13 @@ npm run dev
 ```bash
 python main.py --quick-filter-backtest --quick-filter-backtest-use-llm --quick-filter-backtest-windows 5
 ```
+
+可用的精筛回测参数：
+
+- `--quick-filter-backtest-windows N`：回测窗口数，默认 20。
+- `--quick-filter-backtest-step N`：窗口步长，默认每 5 个交易日取一个截面。
+- `--quick-filter-backtest-prefilter-n N`：每个截面海选候选数，默认 40。
+- `--quick-filter-backtest-top-n N`：每个截面精筛保留数，默认 10。
 
 如果只想快速、低成本地验证规则精筛方向，可直接运行 `python main.py --quick-filter-backtest`。报告会写入 `outputs/latest_backtest_report.json`，包含海选池、精筛池在 short=5 日、medium=10 日、long=20 日的路径胜率差异、原始固定窗口收益和路径退出明细，便于继续优化 QuickFilter Agent。
 

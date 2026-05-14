@@ -288,7 +288,7 @@ class MarketRegimeDetector:
             
             # 计算近期最大值及相对于它的回撤
             high60 = float(closes.tail(60).max())
-            drawdown60 = (close / high60 - 1) * 100 if high60 else 0.0
+            drawdown60 = (close / high60 - 1) * 100 if pd.notna(high60) and high60 > 0 else 0.0
             
             # 趋势评分公式（启发式）
             trend_score = ret20 + ret60 * 0.5 + (5 if close >= ma20 >= ma60 else 0) + drawdown60 * 0.3
