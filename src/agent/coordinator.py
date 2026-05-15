@@ -38,7 +38,7 @@ from src.evaluation.paper_trading import PaperTrading
 from src.evaluation.trading_account import TradingAccount
 from src.evaluation.watchlist import Watchlist
 from src.evaluation.backtest import BacktestEngine
-from src.quote_sources import fetch_latest_prices
+from src.quote_sources import fetch_latest_quotes
 
 
 DEFAULT_CANDIDATE_ANALYSIS_MAX_WORKERS = 3
@@ -480,11 +480,11 @@ class AgentCoordinator:
 
         basic_map = {row["code"]: row for _, row in basic_df.iterrows()} if not basic_df.empty else {}
         quote_map = {row["code"]: row for _, row in quote_df.iterrows()} if not quote_df.empty else {}
-        realtime_prices = fetch_latest_prices(codes)
-        if realtime_prices:
+        realtime_quotes = fetch_latest_quotes(codes)
+        if realtime_quotes:
             logger.info(
-                "[TargetedAnalysis] 实时行情覆盖 {} / {} 只指定标的价格",
-                len(realtime_prices),
+                "[TargetedAnalysis] 实时行情覆盖 {} / {} 只指定标的快照",
+                len(realtime_quotes),
                 len(codes),
             )
 
@@ -492,18 +492,32 @@ class AgentCoordinator:
         for code in codes:
             basic = basic_map.get(code, {})
             quote = quote_map.get(code, {})
-            realtime_price = realtime_prices.get(code)
-            profile_fallback = self._fetch_target_profile_fallback(code, quote)
+            realtime_quote = realtime_quotes.get(code, {})
+            merged_quote = {
+                "trade_date": self._first_present(realtime_quote.get("trade_date"), quote.get("trade_date")),
+                "price": self._first_present(realtime_quote.get("price"), quote.get("price")),
+                "change_pct": self._first_present(realtime_quote.get("change_pct"), quote.get("change_pct")),
+                "volume": self._first_present(realtime_quote.get("volume"), quote.get("volume")),
+                "amount": self._first_present(realtime_quote.get("amount"), quote.get("amount")),
+                "turnover_rate": self._first_present(realtime_quote.get("turnover_rate"), quote.get("turnover_rate")),
+                "pe_ttm": self._first_present(realtime_quote.get("pe_ttm"), quote.get("pe_ttm")),
+                "pb": self._first_present(realtime_quote.get("pb"), quote.get("pb")),
+                "total_market_cap": self._first_present(
+                    realtime_quote.get("total_market_cap"),
+                    quote.get("total_market_cap"),
+                ),
+            }
+            profile_fallback = self._fetch_target_profile_fallback(code, merged_quote)
             industry = self._first_present(
                 basic.get("industry"),
                 profile_fallback.get("industry"),
             )
             pb = self._first_present(
-                quote.get("pb"),
+                merged_quote.get("pb"),
                 profile_fallback.get("pb"),
             )
             total_market_cap = self._first_present(
-                quote.get("total_market_cap"),
+                merged_quote.get("total_market_cap"),
                 profile_fallback.get("total_market_cap"),
             )
             candidates.append(
@@ -511,15 +525,15 @@ class AgentCoordinator:
                     "code": code,
                     "name": basic.get("name") or profile_fallback.get("name") or code,
                     "industry": industry or "",
-                    "price": realtime_price if realtime_price is not None else quote.get("price"),
-                    "change_pct": quote.get("change_pct"),
-                    "volume": quote.get("volume"),
-                    "amount": quote.get("amount"),
-                    "turnover_rate": quote.get("turnover_rate"),
-                    "pe_ttm": quote.get("pe_ttm"),
+                    "price": merged_quote.get("price"),
+                    "change_pct": merged_quote.get("change_pct"),
+                    "volume": merged_quote.get("volume"),
+                    "amount": merged_quote.get("amount"),
+                    "turnover_rate": merged_quote.get("turnover_rate"),
+                    "pe_ttm": self._first_present(merged_quote.get("pe_ttm"), profile_fallback.get("pe_ttm")),
                     "pb": pb,
                     "total_market_cap": total_market_cap,
-                    "trade_date": quote.get("trade_date"),
+                    "trade_date": merged_quote.get("trade_date"),
                     "analysis_mode": "targeted",
                     "screen_reason": "用户指定股票，跳过规则海选。",
                 }

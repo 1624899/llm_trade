@@ -49,6 +49,7 @@ data/stock_lake.db
 data/trade_executions/
 .tesk/
 .test_tmp/
+.kilo/
 
 # Frontend dependencies and build cache
 frontend/node_modules/

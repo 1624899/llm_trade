@@ -27,7 +27,11 @@ class DailyQuotesMixin:
             logger.warning("Primary snapshot sources unavailable, trying AKShare as backup")
             df = self._safe_fetch(ak.stock_zh_a_spot_em)
             if df is not None and not df.empty:
-                return self._upsert_daily_quotes(self._normalize_ak_spot_quotes(df, today_str))
+                clean_df = self._normalize_ak_spot_quotes(df, today_str)
+                if not self._turnover_fields_are_usable(clean_df):
+                    logger.error("AKShare snapshot turnover coverage is unusable")
+                    return False
+                return self._upsert_daily_quotes(clean_df)
 
             logger.error("Failed to fetch market snapshot from Tencent/Sina/AKShare")
             return False
@@ -48,6 +52,9 @@ class DailyQuotesMixin:
             if df is not None and not df.empty:
                 logger.info(f"{source_name} snapshot source succeeded: {len(df)} rows")
                 clean_df = self._clean_daily_quotes(df)
+                if not self._turnover_fields_are_usable(clean_df):
+                    logger.warning(f"{source_name} snapshot turnover coverage is unusable; trying next source")
+                    continue
                 return self._enrich_daily_quote_valuations(clean_df, codes)
         return None
 
@@ -97,6 +104,14 @@ class DailyQuotesMixin:
         pb_coverage = pd.to_numeric(df.get("pb"), errors="coerce").notna().mean() if "pb" in df.columns else 0
         pe_coverage = pd.to_numeric(df.get("pe_ttm"), errors="coerce").notna().mean() if "pe_ttm" in df.columns else 0
         return cap_coverage >= min_coverage and (pb_coverage >= min_coverage or pe_coverage >= min_coverage)
+
+    def _turnover_fields_are_usable(self, df: pd.DataFrame, min_coverage: float = 0.5) -> bool:
+        """检查换手率字段是否可用于选股硬过滤。"""
+        if df is None or df.empty or "turnover_rate" not in df.columns:
+            return False
+        turnover = pd.to_numeric(df["turnover_rate"], errors="coerce")
+        positive_coverage = (turnover.notna() & (turnover > 0)).mean()
+        return positive_coverage >= min_coverage
 
     def _normalize_ak_spot_quotes(self, df: pd.DataFrame, trade_date: str) -> pd.DataFrame:
         """将 AKShare 行情快照字段标准化为 daily_quotes 表字段。"""
@@ -176,7 +191,7 @@ class DailyQuotesMixin:
 
         coverage_df = self.db.query_to_dataframe(
             """
-            SELECT pe_ttm, pb, total_market_cap
+            SELECT pe_ttm, pb, total_market_cap, turnover_rate
             FROM daily_quotes
             WHERE trade_date = ?
             """,
@@ -186,5 +201,8 @@ class DailyQuotesMixin:
             return False
         if not self._valuation_fields_are_usable(coverage_df):
             logger.info("daily_quotes latest date exists but valuation coverage is low")
+            return False
+        if not self._turnover_fields_are_usable(coverage_df):
+            logger.info("daily_quotes latest date exists but turnover coverage is low")
             return False
         return True

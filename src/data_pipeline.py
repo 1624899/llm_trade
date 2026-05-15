@@ -737,9 +737,9 @@ class DataPipeline(PipelineConfigMixin, DailyQuotesMixin, PeriodBarDerivationMix
         candidate_date = str(candidate_date).replace("-", "")[:8]
         candidate = datetime.strptime(candidate_date, "%Y%m%d").date()
         start_date = (candidate - timedelta(days=45)).strftime("%Y%m%d")
-        trade_dates = self._existing_trade_dates_between(start_date, candidate_date)
+        trade_dates = self._resolve_trade_dates(start_date, candidate_date)
         if not trade_dates:
-            trade_dates = self._resolve_trade_dates(start_date, candidate_date)
+            trade_dates = self._existing_trade_dates_between(start_date, candidate_date)
         if trade_dates:
             return trade_dates[-1]
 

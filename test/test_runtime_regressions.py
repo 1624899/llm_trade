@@ -827,6 +827,59 @@ class CoordinatorConcurrencyTests(unittest.TestCase):
 
         self.assertEqual(result, ["600519", "000001", "300750"])
 
+    @patch("src.agent.coordinator.fetch_latest_quotes")
+    def test_targeted_candidates_use_consistent_realtime_snapshot(self, mock_fetch_latest_quotes):
+        coordinator = AgentCoordinator.__new__(AgentCoordinator)
+        coordinator.db = MagicMock()
+        coordinator.db.query_to_dataframe.side_effect = [
+            pd.DataFrame([{"code": "000933", "name": "神火股份", "industry": None}]),
+            pd.DataFrame(
+                [
+                    {
+                        "code": "000933",
+                        "price": 32.0,
+                        "change_pct": 0.31,
+                        "volume": 52998600,
+                        "amount": 1722390000.0,
+                        "turnover_rate": 2.36,
+                        "pe_ttm": 12.88,
+                        "pb": 2.68,
+                        "total_market_cap": 71968000000.0,
+                        "trade_date": "20260514",
+                    }
+                ]
+            ),
+        ]
+        coordinator._fetch_target_profile_fallback = MagicMock(
+            return_value={"industry": "工业金属"}
+        )
+        mock_fetch_latest_quotes.return_value = {
+            "000933": {
+                "code": "000933",
+                "trade_date": "20260515",
+                "price": 30.44,
+                "change_pct": -4.88,
+                "volume": 88000000,
+                "amount": 2700000000.0,
+                "turnover_rate": 3.91,
+                "pe_ttm": 12.25,
+                "pb": 2.55,
+                "total_market_cap": 68460000000.0,
+            }
+        }
+
+        result = coordinator._build_target_candidates(["000933"])
+
+        self.assertEqual(len(result), 1)
+        snapshot = result[0]
+        self.assertEqual(snapshot["trade_date"], "20260515")
+        self.assertEqual(snapshot["price"], 30.44)
+        self.assertEqual(snapshot["change_pct"], -4.88)
+        self.assertEqual(snapshot["turnover_rate"], 3.91)
+        self.assertEqual(snapshot["pe_ttm"], 12.25)
+        self.assertEqual(snapshot["pb"], 2.55)
+        self.assertEqual(snapshot["industry"], "工业金属")
+
     def test_targeted_report_has_summary_and_hides_raw_news_key(self):
         coordinator = AgentCoordinator.__new__(AgentCoordinator)
         reports = [

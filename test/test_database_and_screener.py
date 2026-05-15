@@ -510,6 +510,14 @@ class DataPipelineNormalizationTests(unittest.TestCase):
         self.assertEqual(pipeline._latest_open_trade_date("20260505"), "20260430")
         pipeline._resolve_trade_dates.assert_called_once_with("20260321", "20260505")
 
+    def test_latest_open_trade_date_prefers_calendar_over_existing_bars(self):
+        pipeline = DataPipeline.__new__(DataPipeline)
+        pipeline._resolve_trade_dates = MagicMock(return_value=["20260513", "20260514"])
+        pipeline._existing_trade_dates_between = MagicMock(return_value=["20260513"])
+
+        self.assertEqual(pipeline._latest_open_trade_date("20260514"), "20260514")
+        pipeline._existing_trade_dates_between.assert_not_called()
+
     def test_current_period_start_date_uses_first_trade_date(self):
         pipeline = DataPipeline.__new__(DataPipeline)
         pipeline._expected_latest_trade_date = MagicMock(return_value="20260506")
@@ -547,6 +555,44 @@ class DataPipelineNormalizationTests(unittest.TestCase):
         self.assertTrue(db.upsert_dataframe("daily_quotes", quotes_df, key_columns=["code", "trade_date"]))
 
         self.assertTrue(pipeline._daily_quotes_is_fresh())
+
+    def test_daily_quotes_not_fresh_when_turnover_coverage_is_zero(self):
+        db = StockDatabase(db_path=os.path.join(self.temp_dir, "stock_lake.db"))
+        pipeline = DataPipeline.__new__(DataPipeline)
+        pipeline.db = db
+
+        expected_date = pipeline._expected_latest_trade_date("daily")
+        quotes_df = pd.DataFrame(
+            [
+                {
+                    "code": "000001",
+                    "trade_date": expected_date,
+                    "price": 10.2,
+                    "change_pct": 1.0,
+                    "volume": 1000,
+                    "amount": 10000,
+                    "turnover_rate": 0.0,
+                    "pe_ttm": 8.5,
+                    "pb": 0.9,
+                    "total_market_cap": 1000000000,
+                },
+                {
+                    "code": "000002",
+                    "trade_date": expected_date,
+                    "price": 20.0,
+                    "change_pct": 0.5,
+                    "volume": 2000,
+                    "amount": 20000,
+                    "turnover_rate": 0.0,
+                    "pe_ttm": 9.5,
+                    "pb": 1.1,
+                    "total_market_cap": 2000000000,
+                },
+            ]
+        )
+        self.assertTrue(db.upsert_dataframe("daily_quotes", quotes_df, key_columns=["code", "trade_date"]))
+
+        self.assertFalse(pipeline._daily_quotes_is_fresh())
 
     def test_enrich_daily_quote_valuations_uses_akshare_snapshot(self):
         pipeline = DataPipeline.__new__(DataPipeline)
@@ -1641,8 +1687,9 @@ class StockScreenerTests(unittest.TestCase):
         rows = []
         for code, _name, _industry in codes:
             for i in range(70):
-                close = 10 + i * 0.06
+                close = 10 + i * 0.025
                 amount = 20_000_000 if code == "000003" else 100_000_000 + i * 1_000_000
+                volume = 1_500_000 if i == 69 else 1_000_000
                 trade_date = f"2026{(i // 28) + 1:02d}{(i % 28) + 1:02d}"
                 rows.append(
                     {
@@ -1650,11 +1697,11 @@ class StockScreenerTests(unittest.TestCase):
                         "period": "daily",
                         "trade_date": trade_date,
                         "open": close - 0.1,
-                        "high": close + 0.2,
-                        "low": close - 0.2,
+                        "high": close + 0.1,
+                        "low": close - 0.3,
                         "close": close,
                         "adj_close": close,
-                        "volume": 1_000_000 + i * 1000,
+                        "volume": volume,
                         "amount": amount,
                         "source": "unit_test",
                         "fetched_at": "2026-04-25 18:00:00",
@@ -1749,18 +1796,19 @@ class StockScreenerTests(unittest.TestCase):
 
         rows = []
         for i in range(90):
-            close = 10 + i * 0.08
+            close = 10 + i * 0.025
+            volume = 1_500_000 if i in {82, 89} else 1_000_000
             rows.append(
                 {
                     "code": "000001",
                     "period": "daily",
                     "trade_date": f"2026{(i // 28) + 1:02d}{(i % 28) + 1:02d}",
                     "open": close - 0.1,
-                    "high": close + 0.2,
-                    "low": close - 0.2,
+                    "high": close + 0.1,
+                    "low": close - 0.3,
                     "close": close,
                     "adj_close": close,
-                    "volume": 1_000_000 + i * 1000,
+                    "volume": volume,
                     "amount": 120_000_000 + i * 1_000_000,
                     "source": "unit_test",
                     "fetched_at": "2026-04-25 18:00:00",
@@ -1777,6 +1825,46 @@ class StockScreenerTests(unittest.TestCase):
         self.assertEqual([item["code"] for item in result], ["000001"])
         self.assertGreater(result[0]["price"], 0)
         self.assertGreater(result[0]["change_pct"], 0)
+        shutil.rmtree(temp_dir)
+
+    def test_technical_screening_excludes_index_codes_from_stock_pool(self):
+        temp_dir = os.path.join(PROJECT_ROOT, ".test_tmp", f"exclude_index_{uuid.uuid4().hex}")
+        os.makedirs(temp_dir, exist_ok=True)
+        db = StockDatabase(db_path=os.path.join(temp_dir, "stock_lake.db"))
+        self._seed_basic_screening_case(
+            db,
+            [("000001", "pass sample", "bank")],
+        )
+
+        rows = []
+        for i in range(70):
+            close = 3000 + i * 5
+            rows.append(
+                {
+                    "code": "sh000001",
+                    "period": "daily",
+                    "trade_date": f"2026{(i // 28) + 1:02d}{(i % 28) + 1:02d}",
+                    "open": close - 3,
+                    "high": close + 8,
+                    "low": close - 8,
+                    "close": close,
+                    "adj_close": close,
+                    "volume": 1_000_000_000 + i * 1_000_000,
+                    "amount": 200_000_000_000 + i * 1_000_000_000,
+                    "source": "akshare_index",
+                    "fetched_at": "2026-04-25 18:00:00",
+                }
+            )
+        self.assertTrue(db.upsert_dataframe("market_bars", pd.DataFrame(rows), key_columns=["code", "period", "trade_date"]))
+
+        screener = StockScreener(db=db, profile="balanced")
+        screener.theme_scorer = MagicMock()
+        screener.theme_scorer.score_candidates.side_effect = lambda candidates: candidates
+
+        result = screener.run_technical_screening(top_n=5)
+
+        self.assertEqual([item["code"] for item in result], ["000001"])
+        self.assertEqual(screener.last_audit["input_stock_count"], 1)
         shutil.rmtree(temp_dir)
 
     def test_technical_screening_allows_missing_industry_to_fill_top_n(self):
@@ -1904,6 +1992,80 @@ class StockScreenerTests(unittest.TestCase):
         self.assertEqual(result[0]["pe_ttm"], 11.5)
         self.assertEqual(result[0]["pb"], 1.1)
         self.assertEqual(result[0]["total_market_cap"], 22_000_000_000)
+        shutil.rmtree(temp_dir)
+
+    def test_screener_does_not_join_quote_newer_than_latest_bar(self):
+        temp_dir = os.path.join(PROJECT_ROOT, ".test_tmp", f"quote_bar_date_{uuid.uuid4().hex}")
+        os.makedirs(temp_dir, exist_ok=True)
+        db = StockDatabase(db_path=os.path.join(temp_dir, "stock_lake.db"))
+        self.assertTrue(
+            db.upsert_dataframe(
+                "stock_basic",
+                pd.DataFrame([{"code": "000001", "name": "date aligned", "industry": "bank", "update_date": "2026-04-25"}]),
+                key_columns=["code"],
+            )
+        )
+        quotes = pd.DataFrame(
+            [
+                {
+                    "code": "000001",
+                    "trade_date": "20260425",
+                    "price": 12.0,
+                    "change_pct": 1.0,
+                    "volume": 1_000_000,
+                    "amount": 120_000_000,
+                    "turnover_rate": 2.0,
+                    "pe_ttm": 11.0,
+                    "pb": 1.0,
+                    "total_market_cap": 20_000_000_000,
+                },
+                {
+                    "code": "000001",
+                    "trade_date": "20260426",
+                    "price": 99.0,
+                    "change_pct": 9.0,
+                    "volume": 9_000_000,
+                    "amount": 900_000_000,
+                    "turnover_rate": 9.0,
+                    "pe_ttm": 99.0,
+                    "pb": 9.0,
+                    "total_market_cap": 99_000_000_000,
+                },
+            ]
+        )
+        self.assertTrue(db.upsert_dataframe("daily_quotes", quotes, key_columns=["code", "trade_date"]))
+
+        rows = []
+        for i in range(70):
+            close = 10 + i * 0.025
+            rows.append(
+                {
+                    "code": "000001",
+                    "period": "daily",
+                    "trade_date": f"2026{(i // 28) + 1:02d}{(i % 28) + 1:02d}",
+                    "open": close - 0.1,
+                    "high": close + 0.1,
+                    "low": close - 0.3,
+                    "close": close,
+                    "adj_close": close,
+                    "volume": 1_500_000 if i == 69 else 1_000_000,
+                    "amount": 100_000_000 + i * 1_000_000,
+                    "source": "unit_test",
+                    "fetched_at": "2026-04-25 18:00:00",
+                }
+            )
+        rows[-1]["trade_date"] = "20260425"
+        self.assertTrue(db.upsert_dataframe("market_bars", pd.DataFrame(rows), key_columns=["code", "period", "trade_date"]))
+
+        screener = StockScreener(db=db, profile="balanced")
+        screener.theme_scorer = MagicMock()
+        screener.theme_scorer.score_candidates.side_effect = lambda candidates: candidates
+
+        result = screener.run_technical_screening(top_n=5)
+
+        self.assertEqual([item["code"] for item in result], ["000001"])
+        self.assertEqual(result[0]["price"], 12.0)
+        self.assertEqual(result[0]["pe_ttm"], 11.0)
         shutil.rmtree(temp_dir)
 
     def test_technical_screening_caps_same_industry_at_three(self):

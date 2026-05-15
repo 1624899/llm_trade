@@ -1,6 +1,6 @@
 import math
 from datetime import datetime
-from typing import Dict, Iterable, List
+from typing import Any, Dict, Iterable
 
 import pandas as pd
 import requests
@@ -149,14 +149,32 @@ def fetch_latest_prices(codes: Iterable[str]) -> Dict[str, float]:
     获取指定股票代码列表的最新价格字典 {code: price}。
     会自动在多个源之间进行尝试。
     """
+    latest_quotes = fetch_latest_quotes(codes)
+    return {
+        code: float(quote["price"])
+        for code, quote in latest_quotes.items()
+        if _is_valid_number(_to_float(quote.get("price")))
+    }
+
+
+def fetch_latest_quotes(codes: Iterable[str]) -> Dict[str, Dict[str, Any]]:
+    """
+    获取指定股票代码列表的最新行情快照字典。
+    优先返回腾讯完整快照，失败时用新浪补基础行情。
+    """
     for fetcher in (fetch_tencent_quotes, fetch_sina_quotes):
         try:
             df = fetcher(codes)
         except Exception as exc:
-            logger.warning(f"实时价格源不可用 {fetcher.__name__}: {exc}")
+            logger.warning(f"实时行情源不可用 {fetcher.__name__}: {exc}")
             continue
         if df is not None and not df.empty:
-            return dict(zip(df["code"].astype(str).str.zfill(6), df["price"].astype(float)))
+            clean_df = df.copy()
+            clean_df["code"] = clean_df["code"].astype(str).str.zfill(6)
+            return {
+                row["code"]: row.to_dict()
+                for _, row in clean_df.iterrows()
+            }
     return {}
 
 

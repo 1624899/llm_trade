@@ -202,24 +202,24 @@ STRATEGY_TRADE_PROFILES: Dict[str, Dict[str, Any]] = {
 
 BACKTEST_STRATEGY_PRIORS: Dict[str, Dict[str, float]] = {
     "first_limit_up_breakout": {
-        "score_bonus": 9.0,
-        "max_share": 0.35,
+        "score_bonus": 13.0,
+        "max_share": 0.45,
     },
     "momentum_leader": {
-        "score_bonus": 3.0,
+        "score_bonus": 2.0,
         "max_share": 0.25,
     },
     "dragon_pullback": {
-        "score_bonus": 1.0,
-        "max_share": 0.15,
+        "score_bonus": 0.0,
+        "max_share": 0.10,
     },
     "trend_breakout": {
-        "score_bonus": -8.0,
-        "max_share": 0.35,
+        "score_bonus": -12.0,
+        "max_share": 0.25,
     },
     "support_pullback": {
-        "score_bonus": -5.0,
-        "max_share": 0.15,
+        "score_bonus": 2.0,
+        "max_share": 0.20,
     },
 }
 
@@ -293,13 +293,15 @@ class StockScreener:
             logger.warning("[Screener] 未找到日线行情数据。")
             return []
         min_trade_date = str(latest_dates["trade_date"].min())
+        latest_bar_date = str(latest_dates["trade_date"].max())
         latest_quote_date_df = self.db.query_to_dataframe(
             """
             SELECT MAX(trade_date) AS trade_date
             FROM daily_quotes
-            WHERE (? IS NULL OR trade_date <= ?)
+            WHERE trade_date <= ?
+              AND (? IS NULL OR trade_date <= ?)
             """,
-            (as_of_date, as_of_date),
+            (latest_bar_date, as_of_date, as_of_date),
         )
         latest_quote_date = None
         if latest_quote_date_df is not None and not latest_quote_date_df.empty:
@@ -365,6 +367,8 @@ class StockScreener:
             WHERE mb.period = 'daily'
               AND mb.trade_date >= ?
               AND (? IS NULL OR mb.trade_date <= ?)
+              -- 个股筛选只处理 6 位纯数字 A 股代码，指数代码保留给市场环境研判使用。
+              AND mb.code GLOB '[0-9][0-9][0-9][0-9][0-9][0-9]'
               AND mb.code NOT LIKE '300%'
               AND mb.code NOT LIKE '301%'
               AND mb.code NOT LIKE '688%'
