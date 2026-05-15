@@ -29,19 +29,34 @@ class TechnicalSignalProvider:
     def __init__(self, db: StockDatabase | None = None):
         self.db = db or StockDatabase()
 
-    def build_report(self, code: str, lookback: int = 120) -> TechnicalSignalReport:
-        bars = self.load_daily_bars(code, lookback=lookback)
+    def build_report(
+        self,
+        code: str,
+        lookback: int = 120,
+        realtime_quote: Dict[str, Any] | None = None,
+    ) -> TechnicalSignalReport:
+        bars = self.load_daily_bars(code, lookback=lookback, realtime_quote=realtime_quote)
         return self.calculate_report(code, bars)
 
-    def format_summary(self, code: str, lookback: int = 120) -> str:
+    def format_summary(
+        self,
+        code: str,
+        lookback: int = 120,
+        realtime_quote: Dict[str, Any] | None = None,
+    ) -> str:
         try:
-            report = self.build_report(code, lookback=lookback)
+            report = self.build_report(code, lookback=lookback, realtime_quote=realtime_quote)
         except Exception as exc:
             logger.warning("[TechnicalSignals] failed to build report for {}: {}", code, exc)
             return "量化技术信号暂不可用，请降低技术面结论的确定性。"
         return self.format_report(report)
 
-    def load_daily_bars(self, code: str, lookback: int = 120) -> pd.DataFrame:
+    def load_daily_bars(
+        self,
+        code: str,
+        lookback: int = 120,
+        realtime_quote: Dict[str, Any] | None = None,
+    ) -> pd.DataFrame:
         query = """
             WITH recent_bars AS (
                 SELECT trade_date, open, high, low, close, volume, amount
@@ -73,6 +88,71 @@ class TechnicalSignalProvider:
         df = self.db.query_to_dataframe(query, (normalized_code, int(lookback), normalized_code))
         if df is None or df.empty:
             return pd.DataFrame()
+        df = df.sort_values("trade_date").reset_index(drop=True)
+        return self.apply_realtime_quote_to_daily_bars(df, realtime_quote).tail(int(lookback)).reset_index(drop=True)
+
+    @classmethod
+    def apply_realtime_quote_to_daily_bars(
+        cls,
+        bars: pd.DataFrame,
+        realtime_quote: Dict[str, Any] | None = None,
+    ) -> pd.DataFrame:
+        """把实时快照合成为最新日线，供盘中指标计算使用。"""
+        if realtime_quote is None or not isinstance(realtime_quote, dict) or bars is None or bars.empty:
+            return bars
+
+        price = cls._safe_float(realtime_quote.get("price"))
+        trade_date = str(realtime_quote.get("trade_date") or "").replace("-", "")[:8]
+        if price is None or not trade_date:
+            return bars
+
+        df = bars.copy()
+        df["trade_date"] = df["trade_date"].astype(str).str.replace("-", "", regex=False).str[:8]
+        latest_db_date = str(df["trade_date"].max() or "")
+        if latest_db_date and trade_date < latest_db_date:
+            return df
+
+        for col in ["open", "high", "low", "close", "volume", "amount"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+            else:
+                df[col] = None
+
+        quote_open = cls._safe_float(realtime_quote.get("open"))
+        quote_high = cls._safe_float(realtime_quote.get("high"))
+        quote_low = cls._safe_float(realtime_quote.get("low"))
+        quote_volume = cls._safe_float(realtime_quote.get("volume"))
+        quote_amount = cls._safe_float(realtime_quote.get("amount"))
+
+        if trade_date in set(df["trade_date"].astype(str)):
+            idx = df.index[df["trade_date"].astype(str) == trade_date][-1]
+            open_value = cls._first_number(quote_open, df.at[idx, "open"], price)
+            high_candidates = [quote_high, df.at[idx, "high"], open_value, price]
+            low_candidates = [quote_low, df.at[idx, "low"], open_value, price]
+            df.at[idx, "open"] = open_value
+            df.at[idx, "high"] = max(value for value in high_candidates if cls._safe_float(value) is not None)
+            df.at[idx, "low"] = min(value for value in low_candidates if cls._safe_float(value) is not None)
+            df.at[idx, "close"] = price
+            if quote_volume is not None:
+                df.at[idx, "volume"] = quote_volume
+            if quote_amount is not None:
+                df.at[idx, "amount"] = quote_amount
+        else:
+            prev_close = cls._safe_float(df.iloc[-1].get("close"))
+            open_value = cls._first_number(quote_open, realtime_quote.get("prev_close"), prev_close, price)
+            high_candidates = [quote_high, open_value, price]
+            low_candidates = [quote_low, open_value, price]
+            new_row = {
+                "trade_date": trade_date,
+                "open": open_value,
+                "high": max(value for value in high_candidates if cls._safe_float(value) is not None),
+                "low": min(value for value in low_candidates if cls._safe_float(value) is not None),
+                "close": price,
+                "volume": quote_volume,
+                "amount": quote_amount,
+            }
+            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+
         return df.sort_values("trade_date").reset_index(drop=True)
 
     def calculate_report(self, code: str, bars: pd.DataFrame) -> TechnicalSignalReport:
@@ -145,12 +225,14 @@ class TechnicalSignalProvider:
             "trade_date": str(latest.get("trade_date", "")),
             "close": round(latest_close, 3),
             "ret5": self._return_pct(close, 5),
+            "ret10": self._return_pct(close, 10),
             "ret20": self._return_pct(close, 20),
             "ma5": self._round(ma5.iloc[-1]),
             "ma10": self._round(ma10.iloc[-1]),
             "ma20": self._round(ma20.iloc[-1]),
             "ma60": self._round(ma60.iloc[-1]),
             "bias20": self._pct(latest_close, ma20.iloc[-1]),
+            "bias20_ratio": self._round(latest_close / ma20.iloc[-1] if ma20.iloc[-1] else None, 4),
             "atr14": self._round(atr_value),
             "atr14_pct": self._round(atr_pct),
             "volume_ratio": self._round(volume_ratio),
@@ -332,9 +414,20 @@ class TechnicalSignalProvider:
 
     @staticmethod
     def _safe_float(value: Any) -> float | None:
-        if value is None or pd.isna(value):
+        try:
+            if value is None or pd.isna(value):
+                return None
+            return float(value)
+        except (TypeError, ValueError):
             return None
-        return float(value)
+
+    @classmethod
+    def _first_number(cls, *values: Any) -> float | None:
+        for value in values:
+            number = cls._safe_float(value)
+            if number is not None:
+                return number
+        return None
 
     @staticmethod
     def _volume_percentile(series: pd.Series, latest_volume: float) -> float | None:

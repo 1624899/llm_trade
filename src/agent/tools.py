@@ -31,6 +31,7 @@ from src.market_extras import (
     format_news_for_prompt,
 )
 from src.market_sentiment import MarketSentiment
+from src.technical_indicators import TechnicalSignalProvider
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -905,13 +906,19 @@ class AgentTools:
             logger.warning(f"获取K线数据失败 {symbol}: {e}")
             return "K线数据拉取异常。"
 
-    def fetch_multi_period_kline(self, symbol: str) -> str:
+    def fetch_multi_period_kline(self, symbol: str, realtime_quote: dict | None = None) -> str:
         """获取日/周/月多周期K线摘要，优先使用本地数据湖。"""
         sections = []
         period_specs = [("daily", 12, "日线"), ("weekly", 12, "周线"), ("monthly", 8, "月线")]
 
         for period, limit, title in period_specs:
-            text = self._fetch_local_kline_text(symbol, period, limit, title=title)
+            text = self._fetch_local_kline_text(
+                symbol,
+                period,
+                limit,
+                title=title,
+                realtime_quote=realtime_quote if period == "daily" else None,
+            )
             if text:
                 sections.append(text)
 
@@ -920,7 +927,14 @@ class AgentTools:
 
         return self.fetch_recent_kline(symbol, days=12)
 
-    def _fetch_local_kline_text(self, symbol: str, period: str, limit: int, title: str = "日线") -> str:
+    def _fetch_local_kline_text(
+        self,
+        symbol: str,
+        period: str,
+        limit: int,
+        title: str = "日线",
+        realtime_quote: dict | None = None,
+    ) -> str:
         """从本地 market_bars 表读取 K 线摘要。"""
         try:
             db = StockDatabase()
@@ -945,6 +959,7 @@ class AgentTools:
                     ORDER BY b.trade_date DESC
                 """
                 df = db.query_to_dataframe(query, (normalized_symbol, limit, normalized_symbol))
+                df = TechnicalSignalProvider.apply_realtime_quote_to_daily_bars(df, realtime_quote)
             else:
                 table_map = {
                     "weekly": "market_bars_weekly",

@@ -27,6 +27,10 @@ ACTION_LEVELS = {
     ACTION_CLEAR: 3,
 }
 
+MECHANICAL_CLEAR_BUFFER_PCT = 1.0
+MECHANICAL_LOSS_CLEAR_PCT = -5.0
+ATR_CLEAR_BUFFER_PCT = 0.8
+
 
 @dataclass
 class ExitDecision:
@@ -92,6 +96,21 @@ class ExitAgent:
         ma20 = self._to_float(metrics.get("ma20"))
 
         if price and initial_stop and price <= initial_stop:
+            if not self._hard_stop_confirmed(
+                price,
+                initial_stop,
+                return_pct,
+                risk_flags,
+                buffer_pct=ATR_CLEAR_BUFFER_PCT,
+            ):
+                return self._decision(
+                    code,
+                    ACTION_WAIT,
+                    f"盘中触及 ATR 动态止损位 {initial_stop}，但尚未明显跌穿，等待下一交易日确认。",
+                    stop_price=initial_stop,
+                    tags=tags,
+                    risk_flags=risk_flags,
+                )
             return self._decision(
                 code,
                 ACTION_CLEAR,
@@ -102,6 +121,21 @@ class ExitAgent:
             )
 
         if price and breakdown_trigger and price <= breakdown_trigger:
+            if not self._hard_stop_confirmed(
+                price,
+                breakdown_trigger,
+                return_pct,
+                risk_flags,
+                buffer_pct=MECHANICAL_CLEAR_BUFFER_PCT,
+            ):
+                return self._decision(
+                    code,
+                    ACTION_WAIT,
+                    f"轻微跌破20日平台硬退出价 {breakdown_trigger}，先等待收盘/次日修复确认。",
+                    stop_price=breakdown_trigger,
+                    tags=tags,
+                    risk_flags=risk_flags,
+                )
             return self._decision(
                 code,
                 ACTION_CLEAR,
@@ -112,6 +146,21 @@ class ExitAgent:
             )
 
         if "跌破20日平台" in risk_flags:
+            if price and breakdown_trigger and not self._hard_stop_confirmed(
+                price,
+                breakdown_trigger,
+                return_pct,
+                risk_flags,
+                buffer_pct=MECHANICAL_CLEAR_BUFFER_PCT,
+            ):
+                return self._decision(
+                    code,
+                    ACTION_WAIT,
+                    "技术标签提示跌破20日平台，但破位幅度仍浅，等待确认是否快速收回。",
+                    stop_price=breakdown_trigger,
+                    tags=tags,
+                    risk_flags=risk_flags,
+                )
             return self._decision(
                 code,
                 ACTION_CLEAR,
@@ -190,6 +239,24 @@ class ExitAgent:
         if current_price is None or recommend_price in (None, 0):
             return None
         return round((current_price / recommend_price - 1) * 100, 2)
+
+    @staticmethod
+    def _hard_stop_confirmed(
+        price: float,
+        stop_price: float,
+        return_pct: float | None,
+        risk_flags: list[str],
+        *,
+        buffer_pct: float,
+    ) -> bool:
+        if stop_price <= 0:
+            return False
+        breach_pct = (price / stop_price - 1) * 100
+        if breach_pct <= -abs(buffer_pct):
+            return True
+        if return_pct is not None and return_pct <= MECHANICAL_LOSS_CLEAR_PCT:
+            return True
+        return "放量滞涨/上影派发" in risk_flags
 
     @staticmethod
     def _macro_is_defensive(macro_context: Optional[Dict[str, Any]]) -> bool:

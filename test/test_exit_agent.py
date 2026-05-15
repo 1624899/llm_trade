@@ -43,6 +43,22 @@ class ExitAgentTests(unittest.TestCase):
         self.assertEqual(decision.action, ACTION_CLEAR)
         self.assertIn("跌破20日平台", decision.reason)
 
+    def test_exit_agent_waits_on_shallow_platform_breakdown(self):
+        agent = ExitAgent(signal_provider=_FakeSignalProvider(self._report(close=9.66, risk_flags=["跌破20日平台"])))
+
+        decision = agent.evaluate_position({"code": "000001", "current_price": 9.66, "return_pct": -1.0})
+
+        self.assertEqual(decision.action, ACTION_WAIT)
+        self.assertIn("等待", decision.reason)
+
+    def test_exit_agent_clears_shallow_breakdown_with_large_loss(self):
+        agent = ExitAgent(signal_provider=_FakeSignalProvider(self._report(close=9.66, risk_flags=["跌破20日平台"])))
+
+        decision = agent.evaluate_position({"code": "000001", "current_price": 9.66, "return_pct": -5.2})
+
+        self.assertEqual(decision.action, ACTION_CLEAR)
+        self.assertIn("跌破20日平台", decision.reason)
+
     def test_exit_agent_reduces_on_high_volume_stall(self):
         agent = ExitAgent(
             signal_provider=_FakeSignalProvider(
@@ -111,6 +127,28 @@ class ExitAgentTests(unittest.TestCase):
 
         self.assertEqual(diagnostic["action"], ACTION_CLEAR)
         self.assertEqual(diagnostic["reason"], "技术破位，清仓退出。")
+
+    def test_paper_trading_does_not_upgrade_hold_to_wait_for_weak_exit_signal(self):
+        decision = ExitDecision(
+            code="000001",
+            action=ACTION_WAIT,
+            action_level=1,
+            reason="K线样本不足，暂停退出判断并等待下一次确认。",
+        )
+        paper = PaperTrading(exit_agent=_FakeExitAgent(decision))
+        row = {
+            "id": 1,
+            "name": "sample",
+            "code": "000001",
+            "recommend_price": 10.0,
+            "current_price": 10.1,
+            "return_pct": 1.0,
+        }
+
+        diagnostic = paper._diagnose_position(row)
+
+        self.assertEqual(diagnostic["action"], ACTION_HOLD)
+        self.assertIn("规则容忍区间", diagnostic["reason"])
 
 
 if __name__ == "__main__":

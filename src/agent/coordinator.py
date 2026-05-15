@@ -39,6 +39,7 @@ from src.evaluation.trading_account import TradingAccount
 from src.evaluation.watchlist import Watchlist
 from src.evaluation.backtest import BacktestEngine
 from src.quote_sources import fetch_latest_quotes
+from src.technical_indicators import TechnicalSignalProvider
 
 
 DEFAULT_CANDIDATE_ANALYSIS_MAX_WORKERS = 3
@@ -122,6 +123,7 @@ class AgentCoordinator:
         logger.debug(f"宏观分析结果: {macro_context}")
 
         logger.info(f"[Step 3] AI 轻量精筛，目标 {deep_review_n} 只进入深度复核...")
+        prefilter_candidates = self._refresh_candidates_realtime_snapshots(prefilter_candidates)
         quick_filter_result = self.quick_filter_agent.filter_candidates(
             prefilter_candidates,
             macro_context=macro_context,
@@ -140,6 +142,7 @@ class AgentCoordinator:
         )
 
         logger.info("[Step 4] 进入资讯硬风控与深度个案分析阶段...")
+        candidates = self._refresh_candidates_realtime_snapshots(candidates)
         detailed_reports, analysis_errors = self._analyze_candidates_concurrently(candidates, macro_context)
 
         if analysis_errors:
@@ -276,8 +279,13 @@ class AgentCoordinator:
         )
         enriched_stock = dict(stock)
         enriched_stock["external_enrichment"] = enrichment
+        if self._is_missing(enriched_stock.get("industry")):
+            industry = self._infer_industry_from_enrichment(enrichment)
+            if industry:
+                enriched_stock["industry"] = industry
         enriched_macro_context = dict(macro_context or {})
         enriched_macro_context["candidate_enrichment"] = enrichment
+        enriched_macro_context["asset_snapshot"] = enriched_stock
 
         news_risk_report = self.news_risk_agent.analyze(code, name, macro_context=enriched_macro_context)
         logger.info(
@@ -426,6 +434,138 @@ class AgentCoordinator:
             macro_context=macro_context,
             source=source,
         )
+
+    def _refresh_candidates_realtime_snapshots(self, candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """用实时快照覆盖候选行情，并重算进入 Agent 的关键技术指标。"""
+        if not candidates:
+            return []
+
+        codes = [str(item.get("code") or "").zfill(6) for item in candidates if item.get("code")]
+        realtime_quotes = fetch_latest_quotes(codes)
+        if realtime_quotes:
+            logger.info(
+                "[RealtimeSnapshot] 实时快照覆盖 {} / {} 只候选",
+                len(realtime_quotes),
+                len(codes),
+            )
+
+        provider = self._get_realtime_signal_provider()
+        refreshed: List[Dict[str, Any]] = []
+        for item in candidates:
+            code = str(item.get("code") or "").zfill(6)
+            realtime_quote = realtime_quotes.get(code, {})
+            merged = self._merge_candidate_realtime_snapshot(item, realtime_quote)
+            if provider is not None:
+                self._attach_realtime_technical_metrics(merged, provider, realtime_quote)
+            refreshed.append(merged)
+        return refreshed
+
+    def _get_realtime_signal_provider(self) -> TechnicalSignalProvider | None:
+        technical_agent = getattr(self, "technical_agent", None)
+        provider = getattr(technical_agent, "signal_provider", None)
+        if isinstance(provider, TechnicalSignalProvider):
+            return provider
+        try:
+            return TechnicalSignalProvider(db=self.db)
+        except Exception as exc:
+            logger.warning("[RealtimeSnapshot] 技术指标实时重算初始化失败: {}", exc)
+            return None
+
+    def _merge_candidate_realtime_snapshot(
+        self,
+        candidate: Dict[str, Any],
+        realtime_quote: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        merged = dict(candidate)
+        if not realtime_quote:
+            return merged
+
+        for key in (
+            "trade_date",
+            "price",
+            "open",
+            "high",
+            "low",
+            "prev_close",
+            "change_amount",
+            "change_pct",
+            "volume",
+            "amount",
+            "turnover_rate",
+            "pe_ttm",
+            "pb",
+            "total_market_cap",
+            "source",
+            "fetched_at",
+        ):
+            value = realtime_quote.get(key)
+            if not self._is_missing(value):
+                merged[key] = value
+        merged["snapshot_source"] = "realtime"
+        return merged
+
+    def _attach_realtime_technical_metrics(
+        self,
+        candidate: Dict[str, Any],
+        provider: TechnicalSignalProvider,
+        realtime_quote: Dict[str, Any],
+    ) -> None:
+        if not realtime_quote:
+            return
+        code = str(candidate.get("code") or "").zfill(6)
+        try:
+            report = provider.build_report(code, lookback=120, realtime_quote=realtime_quote)
+        except Exception as exc:
+            logger.warning("[RealtimeSnapshot] 技术指标实时重算失败 {}: {}", code, exc)
+            return
+        metrics = report.metrics or {}
+        if not metrics.get("available"):
+            return
+
+        key_metrics = dict(candidate.get("key_metrics") or {})
+        metric_mapping = {
+            "ret5": metrics.get("ret5"),
+            "ret10": metrics.get("ret10"),
+            "ret20": metrics.get("ret20"),
+            "volume_ratio": metrics.get("volume_ratio"),
+            "bias20_ratio": metrics.get("bias20_ratio"),
+            "ma10": metrics.get("ma10"),
+            "ma20": metrics.get("ma20"),
+            "close": metrics.get("close"),
+            "trade_date": metrics.get("trade_date"),
+            "turnover_rate": candidate.get("turnover_rate"),
+        }
+        for key, value in metric_mapping.items():
+            if not self._is_missing(value):
+                key_metrics[key] = value
+                if key in {"ret5", "ret10", "ret20", "volume_ratio", "bias20_ratio"}:
+                    candidate[key] = value
+        candidate["key_metrics"] = key_metrics
+
+    @staticmethod
+    def _infer_industry_from_enrichment(enrichment: Dict[str, Any]) -> str:
+        """从候选增强数据里提取行业，兜底修复本地基础表行业缺失。"""
+        if not isinstance(enrichment, dict):
+            return ""
+        profile = enrichment.get("profile") if isinstance(enrichment.get("profile"), dict) else {}
+        industry = str(profile.get("industry") or "").strip()
+        if industry:
+            return industry
+
+        for item in enrichment.get("research_reports") or []:
+            if not isinstance(item, dict):
+                continue
+            industry = str(item.get("industry") or "").strip()
+            if industry:
+                return industry
+
+        for item in enrichment.get("eps_forecasts") or []:
+            if not isinstance(item, dict):
+                continue
+            industry = str(item.get("industry") or "").strip()
+            if industry:
+                return industry
+        return ""
 
     @staticmethod
     def _infer_targeted_report_tier(code: str, final_report: str) -> str:

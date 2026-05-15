@@ -117,6 +117,55 @@ class TechnicalSignalProviderTests(unittest.TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_load_daily_bars_appends_realtime_quote_as_latest_bar(self):
+        temp_dir = os.path.join(PROJECT_ROOT, ".test_tmp", f"technical_realtime_{uuid.uuid4().hex}")
+        os.makedirs(temp_dir, exist_ok=True)
+        db = StockDatabase(db_path=os.path.join(temp_dir, "stock_lake.db"))
+        try:
+            rows = []
+            for idx in range(25):
+                close = 10 + idx * 0.1
+                rows.append(
+                    {
+                        "code": "000001",
+                        "period": "daily",
+                        "trade_date": f"202604{idx + 1:02d}",
+                        "open": close - 0.05,
+                        "high": close + 0.1,
+                        "low": close - 0.1,
+                        "close": close,
+                        "adj_close": close,
+                        "volume": 1000,
+                        "amount": close * 1000,
+                        "source": "unit_test",
+                        "fetched_at": "2026-04-25 18:00:00",
+                    }
+                )
+            self.assertTrue(db.upsert_dataframe("market_bars", pd.DataFrame(rows), key_columns=["code", "period", "trade_date"]))
+
+            realtime_quote = {
+                "trade_date": "20260426",
+                "price": 13.2,
+                "open": 12.5,
+                "high": 13.4,
+                "low": 12.4,
+                "volume": 3000,
+                "amount": 39000,
+            }
+            provider = TechnicalSignalProvider(db=db)
+            loaded = provider.load_daily_bars("000001", lookback=30, realtime_quote=realtime_quote)
+            report = provider.build_report("000001", lookback=30, realtime_quote=realtime_quote)
+
+            self.assertEqual(str(loaded.iloc[-1]["trade_date"]), "20260426")
+            self.assertEqual(float(loaded.iloc[-1]["close"]), 13.2)
+            self.assertEqual(float(loaded.iloc[-1]["high"]), 13.4)
+            self.assertEqual(report.metrics["trade_date"], "20260426")
+            self.assertEqual(report.metrics["close"], 13.2)
+            self.assertIn("ret10", report.metrics)
+            self.assertIn("bias20_ratio", report.metrics)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
 
 if __name__ == "__main__":
     unittest.main()

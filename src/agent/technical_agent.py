@@ -21,8 +21,10 @@ class TechnicalAgent:
     def analyze(self, code: str, name: str, macro_context: Optional[Dict[str, Any]] = None) -> str:
         logger.info("[Technical Agent] analyzing {}({})", name, code)
 
-        kline_data = tools.fetch_multi_period_kline(code)
-        signal_summary = self.signal_provider.format_summary(code, lookback=120)
+        asset_snapshot = (macro_context or {}).get("asset_snapshot") if isinstance(macro_context, dict) else {}
+        realtime_quote = asset_snapshot if isinstance(asset_snapshot, dict) else None
+        kline_data = tools.fetch_multi_period_kline(code, realtime_quote=realtime_quote)
+        signal_summary = self.signal_provider.format_summary(code, lookback=120, realtime_quote=realtime_quote)
         macro_text = json.dumps(macro_context or {}, ensure_ascii=False, indent=2)
         enrichment = (macro_context or {}).get("candidate_enrichment") if isinstance(macro_context, dict) else {}
         enrichment_summary = str((enrichment or {}).get("summary") or "").strip()

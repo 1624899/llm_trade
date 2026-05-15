@@ -194,10 +194,11 @@ class PaperTrading:
 
         position = row.to_dict() if hasattr(row, "to_dict") else dict(row)
         exit_signal = self.exit_agent.evaluate_position(position, macro_context=macro_context).to_dict()
-        if int(exit_signal.get("action_level", 0)) > action_level:
+        exit_level = int(exit_signal.get("action_level", 0))
+        if exit_level >= 2 and exit_level > action_level:
             action = exit_signal["action"]
             reason = exit_signal["reason"]
-            action_level = int(exit_signal.get("action_level", action_level))
+            action_level = exit_level
 
         return {
             "id": int(row["id"]),

@@ -880,6 +880,72 @@ class CoordinatorConcurrencyTests(unittest.TestCase):
         self.assertEqual(snapshot["pb"], 2.55)
         self.assertEqual(snapshot["industry"], "工业金属")
 
+    @patch("src.agent.coordinator.fetch_latest_quotes")
+    def test_realtime_refresh_overlays_candidates_before_agent_prompts(self, mock_fetch_latest_quotes):
+        coordinator = AgentCoordinator.__new__(AgentCoordinator)
+        coordinator._get_realtime_signal_provider = MagicMock(return_value=None)
+        mock_fetch_latest_quotes.return_value = {
+            "000933": {
+                "trade_date": "20260515",
+                "price": 30.44,
+                "change_pct": -4.88,
+                "turnover_rate": 3.91,
+                "pe_ttm": 12.25,
+                "pb": 2.55,
+            }
+        }
+
+        result = coordinator._refresh_candidates_realtime_snapshots(
+            [
+                {
+                    "code": "000933",
+                    "name": "神火股份",
+                    "trade_date": "20260514",
+                    "price": 32.0,
+                    "change_pct": 0.31,
+                    "turnover_rate": 2.36,
+                    "pe_ttm": 12.88,
+                    "pb": 2.68,
+                }
+            ]
+        )
+
+        self.assertEqual(result[0]["trade_date"], "20260515")
+        self.assertEqual(result[0]["price"], 30.44)
+        self.assertEqual(result[0]["change_pct"], -4.88)
+        self.assertEqual(result[0]["turnover_rate"], 3.91)
+        self.assertEqual(result[0]["pb"], 2.55)
+        self.assertEqual(result[0]["snapshot_source"], "realtime")
+
+    def test_candidate_industry_backfills_from_enrichment_reports(self):
+        coordinator = AgentCoordinator.__new__(AgentCoordinator)
+        coordinator.candidate_enrichment = MagicMock()
+        coordinator.candidate_enrichment.enrich_candidate.return_value = {
+            "code": "000933",
+            "name": "神火股份",
+            "profile": {},
+            "research_reports": [{"industry": "工业金属"}],
+            "summary": "研报行业=工业金属",
+        }
+        coordinator.news_risk_agent = MagicMock()
+        coordinator.news_risk_agent.analyze.return_value = {
+            "risk_level": "low",
+            "hard_exclude": True,
+        }
+        coordinator.fundamental_agent = MagicMock()
+        coordinator.technical_agent = MagicMock()
+
+        report = coordinator._analyze_single_candidate(
+            {"code": "000933", "name": "神火股份", "industry": ""},
+            {"risk_appetite": "neutral"},
+        )
+
+        self.assertEqual(report["asset_info"]["industry"], "工业金属")
+        self.assertEqual(
+            coordinator.news_risk_agent.analyze.call_args.kwargs["macro_context"]["asset_snapshot"]["industry"],
+            "工业金属",
+        )
+
     def test_targeted_report_has_summary_and_hides_raw_news_key(self):
         coordinator = AgentCoordinator.__new__(AgentCoordinator)
         reports = [
