@@ -19,212 +19,13 @@ from loguru import logger
 
 from src.database import StockDatabase
 from src.market_regime import MarketRegimeDetector
+from src.screener_profiles import DEFAULT_SCREENING_PROFILES
+from src.screener_strategies import StrategyDetectorMixin
+from src.screener_scoring import ScoringMixin
 from src.theme_scorer import ThemeScorer
 
 
-# 默认筛选配置：分为保守、平衡和激进三种模式
-DEFAULT_SCREENING_PROFILES: Dict[str, Dict[str, Any]] = {
-    "conservative": {  # 保守型：高市值、低波动、严格流动性要求
-        "min_price": 3.0,
-        "min_history_days": 60,
-        "max_annual_vol20": 0.60,
-        "max_volume_ratio": 3.5,
-        "min_volume_ratio_near_high60": 0.9,
-        "min_total_market_cap": 8_000_000_000,
-        "min_avg_amount20": 80_000_000,
-        "ret20_min": -3.0,
-        "ret20_max": 22.0,
-        "ret5_min": -5.0,
-        "max_ma5_ma20_ratio": 1.10,
-        "max_momentum_bias20": 1.24,
-        "max_trend_bias20": 1.18,
-        "bt_max_trend_bias20": 1.16,
-        "bt_trend_ret5_max": 10.0,
-        "bt_max_momentum_bias20": 1.18,
-        "bt_momentum_ret20_min": 26.0,
-        "bt_momentum_ret10_min": 10.0,
-        "bt_momentum_ret5_min": 5.0,
-        "bt_momentum_ret5_max": 10.0,
-        "bt_momentum_min_intraday_position": 0.55,
-        "bt_momentum_max_volume_ratio": 2.6,
-        "bt_first_limit_max_bias20": 1.16,
-        "bt_first_limit_ret5_max": 10.0,
-        "bt_first_limit_ret20_max": 24.0,
-        "bt_first_limit_max_volume_ratio": 2.8,
-        "bt_first_limit_ma20_ma60_max": 1.015,
-        "bt_trend_ret20_min": 3.0,
-        "bt_trend_ret5_min": 0.0,
-        "bt_trend_min_volume_ratio": 0.95,
-        "bt_trend_max_volume_ratio": 2.0,
-        "bt_trend_min_intraday_position": 0.48,
-        "bt_trend_ma20_ma60_min": 1.0,
-        "bt_trend_ma20_ma60_max": 1.055,
-        "bt_support_max_volume_ratio": 0.72,
-        "bt_support_min_intraday_position": 0.55,
-        "bt_support_ret1_max": 2.5,
-        "bt_dragon_min_intraday_position": 0.40,
-        "min_new_stock_history_days": 30,
-        "allow_new_stock_channel": False,
-        "turnover_rate_min": 0.8,
-        "turnover_rate_max": 12.0,
-        "max_per_industry": 2,
-        "limit_up_change_pct": 9.5,
-        "limit_down_change_pct": -9.5,
-    },
-    "balanced": {  # 平衡型：默认配置
-        "min_price": 2.0,
-        "min_history_days": 60,
-        "max_annual_vol20": 0.80,
-        "max_volume_ratio": 5.0,
-        "min_volume_ratio_near_high60": 0.8,
-        "min_total_market_cap": 3_000_000_000,
-        "min_avg_amount20": 50_000_000,
-        "ret20_min": -5.0,
-        "ret20_max": 35.0,
-        "ret5_min": -8.0,
-        "max_ma5_ma20_ratio": 1.15,
-        "max_momentum_bias20": 1.30,
-        "max_trend_bias20": 1.22,
-        "bt_max_trend_bias20": 1.18,
-        "bt_trend_ret5_max": 12.0,
-        "bt_max_momentum_bias20": 1.22,
-        "bt_momentum_ret20_min": 24.0,
-        "bt_momentum_ret10_min": 10.0,
-        "bt_momentum_ret5_min": 4.0,
-        "bt_momentum_ret5_max": 12.0,
-        "bt_momentum_min_intraday_position": 0.52,
-        "bt_momentum_max_volume_ratio": 2.8,
-        "bt_first_limit_max_bias20": 1.18,
-        "bt_first_limit_ret5_max": 12.0,
-        "bt_first_limit_ret20_max": 28.0,
-        "bt_first_limit_max_volume_ratio": 3.0,
-        "bt_first_limit_ma20_ma60_max": 1.025,
-        "bt_trend_ret20_min": 2.0,
-        "bt_trend_ret5_min": 0.0,
-        "bt_trend_min_volume_ratio": 0.90,
-        "bt_trend_max_volume_ratio": 2.2,
-        "bt_trend_min_intraday_position": 0.45,
-        "bt_trend_ma20_ma60_min": 0.995,
-        "bt_trend_ma20_ma60_max": 1.065,
-        "bt_support_max_volume_ratio": 0.78,
-        "bt_support_min_intraday_position": 0.52,
-        "bt_support_ret1_max": 3.0,
-        "bt_dragon_min_intraday_position": 0.38,
-        "min_new_stock_history_days": 30,
-        "allow_new_stock_channel": False,
-        "turnover_rate_min": 0.5,
-        "turnover_rate_max": 20.0,
-        "max_per_industry": 3,
-        "limit_up_change_pct": 9.5,
-        "limit_down_change_pct": -9.5,
-    },
-    "aggressive": {  # 激进型：允许高波动、小市值、高换手
-        "min_price": 2.0,
-        "min_history_days": 60,
-        "max_annual_vol20": 1.10,
-        "max_volume_ratio": 8.0,
-        "min_volume_ratio_near_high60": 0.6,
-        "min_total_market_cap": 1_500_000_000,
-        "min_avg_amount20": 30_000_000,
-        "ret20_min": -10.0,
-        "ret20_max": 55.0,
-        "ret5_min": -12.0,
-        "max_ma5_ma20_ratio": 1.25,
-        "max_momentum_bias20": 1.38,
-        "max_trend_bias20": 1.28,
-        "bt_max_trend_bias20": 1.24,
-        "bt_trend_ret5_max": 16.0,
-        "bt_max_momentum_bias20": 1.26,
-        "bt_momentum_ret20_min": 22.0,
-        "bt_momentum_ret10_min": 8.0,
-        "bt_momentum_ret5_min": 4.0,
-        "bt_momentum_ret5_max": 15.0,
-        "bt_momentum_min_intraday_position": 0.50,
-        "bt_momentum_max_volume_ratio": 3.2,
-        "bt_first_limit_max_bias20": 1.22,
-        "bt_first_limit_ret5_max": 22.0,
-        "bt_first_limit_ret20_max": 38.0,
-        "bt_first_limit_max_volume_ratio": 3.4,
-        "bt_first_limit_ma20_ma60_max": 1.04,
-        "bt_trend_ret20_min": 0.0,
-        "bt_trend_ret5_min": -2.0,
-        "bt_trend_min_volume_ratio": 0.85,
-        "bt_trend_max_volume_ratio": 2.4,
-        "bt_trend_min_intraday_position": 0.42,
-        "bt_trend_ma20_ma60_min": 0.99,
-        "bt_trend_ma20_ma60_max": 1.075,
-        "bt_support_max_volume_ratio": 0.82,
-        "bt_support_min_intraday_position": 0.50,
-        "bt_support_ret1_max": 4.0,
-        "bt_dragon_min_intraday_position": 0.35,
-        "min_new_stock_history_days": 30,
-        "allow_new_stock_channel": True,
-        "turnover_rate_min": 0.3,
-        "turnover_rate_max": 80.0,
-        "max_per_industry": 4,
-        "limit_up_change_pct": 9.8,
-        "limit_down_change_pct": -9.8,
-    },
-}
-
-STRATEGY_TRADE_PROFILES: Dict[str, Dict[str, Any]] = {
-    "support_pullback": {
-        "preferred_holding_days": 5,
-        "max_holding_days": 5,
-        "exit_hint": "短线回踩反抽，优先按3-5日观察，反抽无力或跌破支撑应快速退出。",
-    },
-    "panic_reversal": {
-        "preferred_holding_days": 5,
-        "max_holding_days": 10,
-        "exit_hint": "超跌反转信号，先看短线修复，放量失败或二次破位应退出。",
-    },
-    "dragon_pullback": {
-        "preferred_holding_days": 5,
-        "max_holding_days": 10,
-        "exit_hint": "高波动龙回头，仅适合强承接低吸，次日不能修复应快速退出。",
-    },
-    "first_limit_up_breakout": {
-        "preferred_holding_days": 3,
-        "max_holding_days": 5,
-        "exit_hint": "首板启动信号，只按3-5日强度验证，未能连板或强势换手应快速降级。",
-    },
-    "trend_breakout": {
-        "preferred_holding_days": 20,
-        "max_holding_days": 20,
-        "exit_hint": "趋势突破信号，允许更长确认，但跌回MA20下方应降级。",
-    },
-    "momentum_leader": {
-        "preferred_holding_days": 20,
-        "max_holding_days": 20,
-        "exit_hint": "主升浪信号，顺势持有为主，放量滞涨或跌破MA5/MA10应收紧。",
-    },
-}
-
-BACKTEST_STRATEGY_PRIORS: Dict[str, Dict[str, float]] = {
-    "first_limit_up_breakout": {
-        "score_bonus": 13.0,
-        "max_share": 0.45,
-    },
-    "momentum_leader": {
-        "score_bonus": 2.0,
-        "max_share": 0.25,
-    },
-    "dragon_pullback": {
-        "score_bonus": 0.0,
-        "max_share": 0.10,
-    },
-    "trend_breakout": {
-        "score_bonus": -12.0,
-        "max_share": 0.25,
-    },
-    "support_pullback": {
-        "score_bonus": 2.0,
-        "max_share": 0.20,
-    },
-}
-
-
-class StockScreener:
+class StockScreener(StrategyDetectorMixin, ScoringMixin):
     """在 LLM 分析之前使用的确定性预筛选器。"""
 
     def __init__(
@@ -266,7 +67,6 @@ class StockScreener:
         as_of_date = self._normalize_as_of_date(as_of_date)
 
         if bool(self.market_regime.get("allow_empty")):
-            # 如果检测到极端市场风险，返回空列表
             self.last_audit = self._build_empty_market_regime_audit(top_n)
             self._write_screener_audit(self.last_audit)
             logger.warning("[Screener] 检测到极端市场风险；返回空候选列表。")
@@ -367,7 +167,6 @@ class StockScreener:
             WHERE mb.period = 'daily'
               AND mb.trade_date >= ?
               AND (? IS NULL OR mb.trade_date <= ?)
-              -- 个股筛选只处理 6 位纯数字 A 股代码，指数代码保留给市场环境研判使用。
               AND mb.code GLOB '[0-9][0-9][0-9][0-9][0-9][0-9]'
               AND mb.code NOT LIKE '300%'
               AND mb.code NOT LIKE '301%'
@@ -453,7 +252,6 @@ class StockScreener:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
 
         for code, bars in df.groupby("code", sort=False):
-            # 1. 历史长度检查
             min_history_days = int(profile["min_history_days"])
             min_new_stock_history_days = int(profile.get("min_new_stock_history_days", 30) or 30)
             is_new_stock_channel = bool(profile.get("allow_new_stock_channel")) and len(bars) >= min_new_stock_history_days
@@ -461,14 +259,12 @@ class StockScreener:
                 reject("history_too_short", code, metrics={"bar_count": len(bars), "min_history_days": min_history_days})
                 continue
 
-            # 2. 排除 ST 和退市股
             latest = bars.iloc[-1]
             name = str(latest.get("name") or "")
             if "ST" in name.upper() or "退" in name:
                 reject("st_or_delisting", code, name)
                 continue
 
-            # 3. 价格过滤
             close = float(latest.get("close") or latest.get("price") or 0)
             if close <= float(profile["min_price"]):
                 reject("price_too_low", code, name, {"close": close, "min_price": profile["min_price"]})
@@ -493,7 +289,6 @@ class StockScreener:
             ret10 = (close / closes.iloc[-11] - 1) * 100 if len(closes) >= 11 and closes.iloc[-11] else 0
             ret20 = (close / closes.iloc[-21] - 1) * 100 if len(closes) >= 21 and closes.iloc[-21] else 0
 
-            # 4. 波动率检查
             daily_returns = closes.pct_change()
             annual_vol20 = daily_returns.tail(20).std() * np.sqrt(252)
             if pd.notna(annual_vol20) and annual_vol20 > float(profile["max_annual_vol20"]):
@@ -505,7 +300,6 @@ class StockScreener:
             high60_distance = (close / high60 - 1) * 100 if high60 else 0
             low60_distance = (close / low60 - 1) * 100 if low60 else 0
 
-            # 5. 流动性检查（平均成交额）
             amount_series = self._normalize_amount_series_to_yuan(bars)
             avg_amount20 = amount_series.tail(20).mean()
             if pd.isna(avg_amount20) or avg_amount20 < float(profile["min_avg_amount20"]):
@@ -524,7 +318,6 @@ class StockScreener:
                 reject("volume_ratio_too_high", code, name, {"volume_ratio": round(float(vol_ratio), 4), "max": profile["max_volume_ratio"]})
                 continue
 
-            # 6. 异常波动检查（跌停、零成交）
             raw_volume = bars["volume"].fillna(0)
             if (raw_volume.tail(5) <= 0).any():
                 reject("recent_zero_volume", code, name)
@@ -543,7 +336,6 @@ class StockScreener:
                 reject("recent_limit_down", code, name, {"limit_down_change_pct": profile["limit_down_change_pct"]})
                 continue
 
-            # 回测历史截面可能没有 daily_quotes 快照，此时用日线 K 线计算出的单日涨跌幅兜底。
             change_pct = latest.get("change_pct")
             change_pct = float(change_pct) if pd.notna(change_pct) else float(ret1)
             turnover_rate = latest.get("turnover_rate")
@@ -564,7 +356,6 @@ class StockScreener:
                 )
                 continue
 
-            # 7. 市值检查
             total_market_cap = latest.get("total_market_cap")
             total_market_cap = float(total_market_cap) if pd.notna(total_market_cap) else None
             if total_market_cap is not None and total_market_cap < float(profile["min_total_market_cap"]):
@@ -761,495 +552,6 @@ class StockScreener:
         self._write_screener_audit(self.last_audit)
         logger.info("[Screener] 已选择 {} 个候选股，使用配置={}，剔除原因分布={}", len(candidates), self.profile_name, dict(rejected_counts.most_common(5)))
         return candidates
-
-    def _detect_strategy_matches(
-        self,
-        *,
-        profile: Dict[str, Any],
-        close: float,
-        ma5: float,
-        ma10: float,
-        ma20: float,
-        ma60: float,
-        ret3: float,
-        ret5: float,
-        ret10: float,
-        ret20: float,
-        change_pct: float,
-        high60_distance: float,
-        low60_distance: float,
-        vol_ratio: float,
-        vol5_ratio: float,
-        turnover_rate: float | None,
-        pe_ttm: float | None,
-        pb: float | None,
-        latest_open: float,
-        intraday_position: float,
-        ret1: float = 0.0,
-        bias20_ratio: float | None = None,
-        rsi14: float | None = None,
-        macd_hist_rising: bool = False,
-        macd_bullish_divergence: bool = False,
-        bullish_pullback_candle: bool = False,
-        recent_limit_up_count: int = 0,
-        first_limit_up_breakout: bool = False,
-        potential_dragon_pullback: bool = False,
-        is_new_stock_channel: bool = False,
-    ) -> List[Dict[str, Any]]:
-        """检测股票是否符合预设的多样化交易策略。"""
-        matches: List[Dict[str, Any]] = []
-        turnover = turnover_rate or 0.0
-        volume_ratio = float(vol_ratio) if pd.notna(vol_ratio) else 1.0
-        volume5_ratio = float(vol5_ratio) if pd.notna(vol5_ratio) else 1.0
-        bias20 = float(bias20_ratio) if bias20_ratio is not None and pd.notna(bias20_ratio) else 1.0
-        reversal_indicators_available = rsi14 is not None
-        reversal_confirmed = (
-            not reversal_indicators_available
-            or (rsi14 is not None and rsi14 <= 20)
-            or macd_hist_rising
-            or macd_bullish_divergence
-        )
-        # 根据 walk_forward_masked 回测结果，老参数只作为宽边界；二级阈值用于收紧弱势策略。
-        tuned_trend_bias20 = min(
-            float(profile.get("max_trend_bias20", 1.22)),
-            float(profile.get("bt_max_trend_bias20", profile.get("max_trend_bias20", 1.22))),
-        )
-        tuned_momentum_bias20 = min(
-            float(profile.get("max_momentum_bias20", 1.30)),
-            float(profile.get("bt_max_momentum_bias20", profile.get("max_momentum_bias20", 1.30))),
-        )
-        tuned_first_limit_bias20 = min(
-            float(profile.get("max_momentum_bias20", 1.30)),
-            float(profile.get("bt_first_limit_max_bias20", profile.get("max_momentum_bias20", 1.30))),
-        )
-
-        # 1. 经典趋势突破策略 (Trend Breakout)
-        # 条件：站上20日线，20日线向上，20日跌幅在可控范围内，且非缩量接近新高
-        if (
-            close >= ma20
-            and ma20 >= ma60 * float(profile.get("bt_trend_ma20_ma60_min", 0.98))
-            and ma20 <= ma60 * float(profile.get("bt_trend_ma20_ma60_max", 99.0))
-            and float(profile["ret20_min"]) <= ret20 <= float(profile["ret20_max"])
-            and ret20 >= float(profile.get("bt_trend_ret20_min", profile["ret20_min"]))
-            and ret5 >= float(profile["ret5_min"])
-            and ret5 >= float(profile.get("bt_trend_ret5_min", profile["ret5_min"]))
-            and ret5 <= float(profile.get("bt_trend_ret5_max", 12.0))
-            and change_pct < float(profile["limit_up_change_pct"])
-            and bias20 <= tuned_trend_bias20
-            and volume_ratio >= float(profile.get("bt_trend_min_volume_ratio", 0.0))
-            and volume_ratio <= float(profile.get("bt_trend_max_volume_ratio", profile.get("max_volume_ratio", 99.0)))
-            and intraday_position >= float(profile.get("bt_trend_min_intraday_position", 0.0))
-            and (high60_distance < -3 or volume_ratio >= float(profile["min_volume_ratio_near_high60"]))
-        ):
-            confidence = 0.62
-            confidence += 0.10 if close >= ma5 >= ma10 >= ma20 else 0.0
-            confidence += 0.08 if 5 <= ret20 <= 25 else 0.0
-            confidence += 0.06 if 1.1 <= volume_ratio <= 3.0 else 0.0
-            matches.append(
-                {
-                    "tag": "trend_breakout",
-                    "label": "经典趋势突破",
-                    "confidence": min(0.95, confidence),
-                }
-            )
-
-        # 2. 强势主升浪策略 (Momentum Leader)
-        # 条件：均线多头排列，强力上涨，放量且无滞涨迹象
-        high_volume_stall = (
-            volume_ratio >= 2.5
-            and (close <= latest_open or intraday_position < 0.35)
-            and ret5 < 12
-        )
-        if (
-            close > ma5 > ma10 > ma20 > ma60
-            and abs(close / ma5 - 1) <= 0.06
-            and bias20 <= tuned_momentum_bias20
-            and ret20 >= float(profile.get("bt_momentum_ret20_min", 24.0))
-            and ret10 >= float(profile.get("bt_momentum_ret10_min", 10.0))
-            and ret5 >= float(profile.get("bt_momentum_ret5_min", 4.0))
-            and ret5 <= float(profile.get("bt_momentum_ret5_max", 12.0))
-            and change_pct < float(profile["limit_up_change_pct"])
-            and volume_ratio >= 1.1
-            and volume_ratio <= float(profile.get("bt_momentum_max_volume_ratio", 2.8))
-            and volume5_ratio >= 1.05
-            and intraday_position >= float(profile.get("bt_momentum_min_intraday_position", 0.52))
-            and (turnover >= 5.0 or volume_ratio >= 1.6)
-            and not high_volume_stall
-        ):
-            confidence = 0.66
-            confidence += 0.10 if ret20 >= 35 else 0.0
-            confidence += 0.08 if turnover >= 8.0 else 0.0
-            confidence += 0.06 if 1.2 <= volume_ratio <= 3.5 else 0.0
-            matches.append(
-                {
-                    "tag": "momentum_leader",
-                    "label": "强势主升浪",
-                    "confidence": min(0.96, confidence),
-                }
-            )
-
-        # 3. 优质股底部低吸策略 (Value Bottom)
-        # 条件：低 PE/PB，处于60日低点附近，有启动迹象
-        if (
-            pe_ttm is not None
-            and pb is not None
-            and 0 < pe_ttm <= 15
-            and 0 < pb <= 1.5
-            and low60_distance <= 12
-            and ret3 > -5
-            and (volume_ratio >= 1.5 or turnover >= max(1.5, float(profile["turnover_rate_min"])))
-            and reversal_confirmed
-        ):
-            confidence = 0.58
-            confidence += 0.10 if close < ma20 else 0.04
-            confidence += 0.08 if low60_distance <= 8 else 0.0
-            confidence += 0.07 if volume_ratio >= 1.8 else 0.0
-            matches.append(
-                {
-                    "tag": "value_bottom",
-                    "label": "优质股底部低吸",
-                    "confidence": min(0.92, confidence),
-                }
-            )
-
-        # 4. 错杀/洗盘反转策略 (Panic Reversal)
-        # 条件：短期超跌，PE 合理，日内出现反转信号（放量且收盘在日内高点附近）
-        if (
-            (ret5 <= -8 or ret10 <= -12)
-            and pe_ttm is not None
-            and 0 < pe_ttm <= 20
-            and (volume_ratio >= 1.8 or turnover >= 3.0)
-            and intraday_position >= 0.45
-            and reversal_confirmed
-        ):
-            confidence = 0.60
-            confidence += 0.10 if intraday_position >= 0.6 else 0.0
-            confidence += 0.08 if volume_ratio >= 2.2 else 0.0
-            confidence += 0.05 if pb is not None and 0 < pb <= 2.0 else 0.0
-            matches.append(
-                {
-                    "tag": "panic_reversal",
-                    "label": "财报错杀/洗盘反转",
-                    "confidence": min(0.94, confidence),
-                }
-            )
-
-        # 5. 缩量回踩支撑策略 (Support Pullback)
-        # 条件：趋势向上，近期回撤，在20/60日线附近显著缩量企稳
-        if (
-            ma20 >= ma60 * 0.98
-            and ret10 > -8
-            and (abs(close / ma20 - 1) <= 0.03 or abs(close / ma60 - 1) <= 0.04)
-            and volume_ratio <= float(profile.get("bt_support_max_volume_ratio", 0.78))
-            and ret1 <= float(profile.get("bt_support_ret1_max", 3.0))
-            and intraday_position >= float(profile.get("bt_support_min_intraday_position", 0.52))
-            and change_pct > float(profile["limit_down_change_pct"]) / 2
-            and bullish_pullback_candle
-        ):
-            matches.append(
-                {
-                    "tag": "support_pullback",
-                    "label": "缩量回踩支撑",
-                    "confidence": 0.68,
-                }
-            )
-
-        # 6. Dragon Pullback: a recent limit-up leader's first sharp pullback near MA5/MA10.
-        if (
-            potential_dragon_pullback
-            and recent_limit_up_count >= 2
-            and ret1 <= -5
-            and volume_ratio >= 0.7
-            and volume5_ratio >= 0.9
-            and intraday_position >= float(profile.get("bt_dragon_min_intraday_position", 0.38))
-        ):
-            confidence = 0.64
-            confidence += 0.08 if abs(close / ma5 - 1) <= 0.025 else 0.0
-            confidence += 0.06 if intraday_position >= 0.35 else 0.0
-            matches.append(
-                {
-                    "tag": "dragon_pullback",
-                    "label": "Dragon Pullback",
-                    "confidence": min(0.90, confidence),
-                }
-            )
-
-        # 7. First Limit-up Breakout: first board from a controlled low/mid position.
-        if (
-            first_limit_up_breakout
-            and close >= ma20
-            and ret5 <= float(profile.get("bt_first_limit_ret5_max", 18.0))
-            and ret20 <= min(float(profile["ret20_max"]), float(profile.get("bt_first_limit_ret20_max", 28.0)))
-            and bias20 <= tuned_first_limit_bias20
-            and volume_ratio >= 1.2
-            and volume_ratio <= float(profile.get("bt_first_limit_max_volume_ratio", 4.5))
-            and ma20 <= ma60 * float(profile.get("bt_first_limit_ma20_ma60_max", 99.0))
-        ):
-            confidence = 0.63
-            confidence += 0.08 if ret20 <= 20 else 0.0
-            confidence += 0.06 if ma20 >= ma60 * 0.98 else 0.0
-            matches.append(
-                {
-                    "tag": "first_limit_up_breakout",
-                    "label": "First Limit-up Breakout",
-                    "confidence": min(0.91, confidence),
-                }
-            )
-
-        if is_new_stock_channel and matches:
-            for match in matches:
-                if match["tag"] in {"momentum_leader", "first_limit_up_breakout", "dragon_pullback"}:
-                    match["confidence"] = min(0.96, match["confidence"] + 0.04)
-
-        return sorted(matches, key=lambda item: item["confidence"], reverse=True)
-
-    @staticmethod
-    def _normalize_amount_series_to_yuan(bars: pd.DataFrame) -> pd.Series:
-        """把不同数据源的成交额统一到元口径。"""
-        bar_amount = pd.to_numeric(bars.get("bar_amount"), errors="coerce")
-        quote_amount = pd.to_numeric(bars.get("quote_amount"), errors="coerce")
-        amount = bar_amount.fillna(quote_amount)
-
-        closes = pd.to_numeric(bars.get("close"), errors="coerce")
-        volumes = pd.to_numeric(bars.get("volume"), errors="coerce")
-        hand_based_amount = closes * volumes * 100
-
-        # 部分历史源的 amount 单位是千元，volume 是手；本地阈值统一按元比较。
-        valid = amount.notna() & (amount > 0) & hand_based_amount.notna() & (hand_based_amount > 0)
-        if valid.any():
-            median_ratio = (hand_based_amount[valid] / amount[valid]).replace([np.inf, -np.inf], np.nan).dropna().median()
-            if pd.notna(median_ratio) and 100 <= float(median_ratio) <= 2_000:
-                amount = amount * 1_000
-
-        return amount.fillna(closes * volumes)
-
-    @staticmethod
-    def _normalize_turnover_rate(value: Any) -> float | None:
-        if value in (None, "") or pd.isna(value):
-            return None
-        turnover = float(value)
-        if 0 < turnover <= 1.0:
-            return turnover * 100.0
-        return turnover
-
-    @staticmethod
-    def _calculate_rsi(closes: pd.Series, period: int = 14) -> float | None:
-        if len(closes) <= period:
-            return None
-        delta = closes.diff()
-        gain = delta.clip(lower=0).rolling(period).mean()
-        loss = (-delta.clip(upper=0)).rolling(period).mean()
-        latest_loss = loss.iloc[-1]
-        latest_gain = gain.iloc[-1]
-        if pd.isna(latest_gain) or pd.isna(latest_loss):
-            return None
-        if latest_loss == 0:
-            return 100.0
-        rs = latest_gain / latest_loss
-        return float(100 - (100 / (1 + rs)))
-
-    @staticmethod
-    def _calculate_macd_histogram(closes: pd.Series) -> pd.Series:
-        ema12 = closes.ewm(span=12, adjust=False).mean()
-        ema26 = closes.ewm(span=26, adjust=False).mean()
-        dif = ema12 - ema26
-        dea = dif.ewm(span=9, adjust=False).mean()
-        return (dif - dea) * 2
-
-    @staticmethod
-    def _has_macd_bullish_divergence(closes: pd.Series, macd_hist: pd.Series) -> bool:
-        if len(closes) < 12 or len(macd_hist) < 12:
-            return False
-        recent = closes.tail(6)
-        prior = closes.iloc[:-6].tail(6)
-        recent_hist = macd_hist.tail(6)
-        prior_hist = macd_hist.iloc[:-6].tail(6)
-        if recent.empty or prior.empty or recent_hist.empty or prior_hist.empty:
-            return False
-        return bool(
-            recent.min() < prior.min()
-            and recent_hist.min() > prior_hist.min()
-        )
-
-    @staticmethod
-    def _is_bullish_pullback_candle(
-        *,
-        latest_open: float,
-        latest_high: float,
-        latest_low: float,
-        close: float,
-        intraday_position: float,
-    ) -> bool:
-        candle_range = latest_high - latest_low
-        if candle_range <= 0:
-            return close >= latest_open
-        lower_shadow = min(latest_open, close) - latest_low
-        real_body = abs(close - latest_open)
-        hammer_like = lower_shadow >= max(real_body * 1.5, candle_range * 0.25)
-        doji_like = real_body <= candle_range * 0.2 and intraday_position >= 0.45
-        return bool(close >= latest_open or intraday_position >= 0.5 or hammer_like or doji_like)
-
-    def _score_strategy_candidate(
-        self,
-        *,
-        strategy_matches: List[Dict[str, Any]],
-        ret1: float,
-        ret5: float,
-        ret10: float,
-        ret20: float,
-        change_pct: float,
-        high60_distance: float,
-        low60_distance: float,
-        avg_amount20: float,
-        vol_ratio: float,
-        turnover_rate: float | None,
-        annual_vol20: float | None,
-        recent_limit_up_count: int,
-        intraday_position: float,
-        bias20_ratio: float | None,
-        pe_ttm: float | None,
-        pb: float | None,
-        close: float,
-        ma5: float,
-        ma10: float,
-        ma20: float,
-        ma60: float,
-    ) -> float:
-        """根据策略匹配度和技术指标对候选股票进行综合打分。"""
-        primary = strategy_matches[0]["tag"]
-        score = max(match["confidence"] for match in strategy_matches) * 40
-
-        liquidity_bonus = min(12, max(0, np.log10(avg_amount20 / 50_000_000 + 1) * 8))
-        volume_confirmation_bonus = min(5, max(0, (float(vol_ratio) - 1) * 2.5)) if pd.notna(vol_ratio) else 0
-        turnover_bonus = min(4, max(0, (float(turnover_rate or 0) - 1.0) * 0.8))
-        score += liquidity_bonus + volume_confirmation_bonus + turnover_bonus
-        score += 3 * max(0, len(strategy_matches) - 1)
-
-        if primary == "trend_breakout":
-            score += max(-10, min(18, ret20)) * 0.7
-            score += max(-5, min(10, ret5)) * 0.6
-            score += 6 if close >= ma5 >= ma10 >= ma20 else 0
-            score += 5 if ma20 >= ma60 else 0
-            score += max(-10, min(8, high60_distance + 8))
-        elif primary == "momentum_leader":
-            score += min(24, max(0, ret20)) * 0.65
-            score += min(8, max(0, ret5)) * 0.45
-            score += 6 if close > ma5 > ma10 > ma20 > ma60 else 0
-            score += max(0, 4 - abs(close / ma5 - 1) * 100)
-        elif primary == "value_bottom":
-            score += max(0, 12 - low60_distance) * 1.4
-            score += 8 if close < ma20 else 4
-            score += 8 if pe_ttm is not None and 0 < pe_ttm <= 12 else 4
-            score += 6 if pb is not None and 0 < pb <= 1.2 else 2
-        elif primary == "panic_reversal":
-            score += min(18, abs(min(ret5, ret20 / 2))) * 0.9
-            score += 8 if pe_ttm is not None and 0 < pe_ttm <= 15 else 4
-            score += 5 if pb is not None and 0 < pb <= 2 else 0
-        elif primary == "dragon_pullback":
-            score += max(0, 8 - abs(close / ma5 - 1) * 100)
-            score += min(12, abs(min(ret5, 0))) * 0.55
-            score += 8 if close >= ma10 else 3
-        elif primary == "first_limit_up_breakout":
-            score += min(20, max(0, ret20)) * 0.9
-            score += 10 if close >= ma5 >= ma10 >= ma20 else 4
-            score += 8 if ma20 >= ma60 * 0.98 else 0
-            score += 6 if 1.2 <= float(vol_ratio or 0) <= 2.8 else 0
-        else:
-            score += 10 if ma20 >= ma60 else 0
-            score += max(0, 8 - abs(close / ma20 - 1) * 100)
-
-        risk_penalty = 0.0
-        vol = float(annual_vol20) if annual_vol20 is not None and pd.notna(annual_vol20) else 0.0
-        if vol > 0.45:
-            risk_penalty += min(12.0, (vol - 0.45) * 28.0)
-
-        bias20 = float(bias20_ratio) if bias20_ratio is not None and pd.notna(bias20_ratio) else 1.0
-        if bias20 > 1.20:
-            risk_penalty += min(12.0, (bias20 - 1.20) * 55.0)
-
-        if ret5 > 18:
-            risk_penalty += min(10.0, (ret5 - 18) * 0.8)
-        if ret10 > 32:
-            risk_penalty += min(10.0, (ret10 - 32) * 0.5)
-        if ret20 > 45:
-            risk_penalty += min(14.0, (ret20 - 45) * 0.45)
-        if recent_limit_up_count > 0:
-            risk_penalty += min(10.0, recent_limit_up_count * 3.0)
-
-        high_volume_stall = (
-            pd.notna(vol_ratio)
-            and float(vol_ratio) >= 2.5
-            and (change_pct <= 0 or intraday_position < 0.45)
-        )
-        if high_volume_stall:
-            risk_penalty += 10.0
-
-        turnover = float(turnover_rate or 0.0)
-        if turnover > 35.0:
-            risk_penalty += min(12.0, (turnover - 35.0) * 0.35)
-
-        if primary in {"momentum_leader", "first_limit_up_breakout"}:
-            risk_penalty += 4.0
-            if primary == "momentum_leader":
-                risk_penalty += 4.0
-                if intraday_position < 0.65:
-                    risk_penalty += 3.0
-            if ret5 > 12:
-                risk_penalty += min(10.0, (ret5 - 12) * 0.9)
-            if ret20 > 35:
-                risk_penalty += min(14.0, (ret20 - 35) * 0.7)
-            if pd.notna(vol_ratio) and float(vol_ratio) > 2.8:
-                risk_penalty += min(8.0, (float(vol_ratio) - 2.8) * 4.0)
-            if ret1 > 7:
-                risk_penalty += min(6.0, (ret1 - 7) * 1.0)
-        elif primary == "support_pullback":
-            risk_penalty += 3.0
-            if intraday_position < 0.6:
-                risk_penalty += 3.0
-        elif primary == "dragon_pullback":
-            risk_penalty += 2.0
-
-        score += float(BACKTEST_STRATEGY_PRIORS.get(primary, {}).get("score_bonus", 0.0))
-        return max(0.0, score - risk_penalty)
-
-    def _format_screen_reason(
-        self,
-        strategy_matches: List[Dict[str, Any]],
-        ret5: float,
-        ret20: float,
-        pe_ttm: float | None,
-        pb: float | None,
-        vol_ratio: float,
-        turnover_rate: float | None,
-        low60_distance: float,
-        trade_profile: Dict[str, Any] | None = None,
-    ) -> str:
-        """格式化筛选理由，用于展示命中策略和关键指标。"""
-        primary = strategy_matches[0]
-        tags = "、".join(match["label"] for match in strategy_matches)
-        pe_text = "N/A" if pe_ttm is None else f"{pe_ttm:.1f}"
-        pb_text = "N/A" if pb is None else f"{pb:.2f}"
-        vol_text = "N/A" if pd.isna(vol_ratio) else f"{float(vol_ratio):.2f}"
-        turnover_text = "N/A" if turnover_rate is None else f"{turnover_rate:.2f}%"
-        profile = trade_profile or self._strategy_trade_profile(strategy_matches)
-        return (
-            f"【{primary['label']}】命中策略: {tags}; "
-            f"ret5 {ret5:.2f}%, ret20 {ret20:.2f}%, PE {pe_text}, PB {pb_text}, "
-            f"量比 {vol_text}, 换手 {turnover_text}, 距60日低点 {low60_distance:.2f}%；"
-            f"建议持有 {profile['preferred_holding_days']} 日，{profile['exit_hint']}"
-        )
-
-    def _strategy_trade_profile(self, strategy_matches: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """根据主策略返回建议持有周期和退出提示。"""
-        primary = strategy_matches[0]["tag"] if strategy_matches else "unknown"
-        default = {
-            "preferred_holding_days": 10,
-            "max_holding_days": 10,
-            "exit_hint": "按10日内验证处理，走势不及预期时降低仓位。",
-        }
-        profile = dict(default)
-        profile.update(STRATEGY_TRADE_PROFILES.get(str(primary), {}))
-        return profile
 
     def _load_screening_profile(
         self,
@@ -1528,13 +830,11 @@ class StockScreener:
                 if try_add(item):
                     picked_for_group += 1
 
-        # 极端行情下某些策略不足额时，用全局高分候选补位，但仍遵守行业上限。
         for item in ranked:
             if len(selected) >= top_n:
                 break
             try_add(item, count_reject=False)
 
-        # 如果其他策略样本不足，再放宽策略上限补足名额，避免候选池异常偏少。
         for item in ranked:
             if len(selected) >= top_n:
                 break
@@ -1544,6 +844,8 @@ class StockScreener:
 
     def _strategy_caps(self, top_n: int) -> Dict[str, int]:
         """根据走步回测反馈设置单策略最大占比，避免弱势策略挤占候选池。"""
+        from src.screener_profiles import BACKTEST_STRATEGY_PRIORS
+
         caps: Dict[str, int] = {}
         for strategy, prior in BACKTEST_STRATEGY_PRIORS.items():
             max_share = float(prior.get("max_share", 1.0) or 1.0)
